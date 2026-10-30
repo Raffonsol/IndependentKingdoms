@@ -1,0 +1,67 @@
+[
+    {
+        "name": "Male Human",
+        "torsoSprite": "m_torso",
+        "leftArmSprite": "m_leftArm",
+        "rightArmSprite": "m_rightArm",
+        "legSprite": "m_leg",
+        "faceSprite": ["m_face0", "m_face1", "m_face2", "m_face3", "m_face4", "m_face5"],
+        "earSprite": ["m_ear0"],
+        "hairSprite": ["none", "m_hair0", "m_hair1", "m_hair2", "m_hair3", "m_hair4"],
+        "clothingTopSprite": ["none", "m_clothingTop0", "m_clothingTop1"],
+        "clothingBottomSprite": ["m_clothingBottom0", "m_clothingBottom1", "m_clothingBottom2"],
+        "leggingSprite": ["none", "m_legging0", "m_legging1"],
+        "bootSprite": ["none", "m_boot0", "m_boot1"],
+        "leftSleeveSprite": ["none", "m_leftSleeve0"],
+        "rightSleeveSprite": ["none", "m_rightSleeve0"],
+        "isMale": true,
+        "rightLegXOffset": 0.5,
+        "rightLegYOffset": 0.1,
+        "movementSpeed": 2,
+        "movementDurationRangeX": 1,
+        "movementDurationRangeY": 3,
+        "idleDurationRangeX": 1,
+        "idleDurationRangeY": 3,
+        "legSwingAngle": 15,
+        "legSwingSpeed": 6,
+        "legPivotOffsetX": 0.45, 
+        "legPivotOffsetY": 0.4,
+        "idleHeaveHeight": 0.05,
+        "idleHeaveSpeed": 1.5
+
+
+    },
+    
+    {
+        "name": "Female Human",
+        "torsoSprite": "f_torso",
+        "leftArmSprite": "f_leftArm",
+        "rightArmSprite": "f_rightArm",
+        "legSprite": "f_leg",
+        "faceSprite": ["f_face0", "f_face1", "f_face2", "f_face3", "f_face4", "f_face5"],
+        "earSprite": ["f_ear0"],
+        "hairSprite": ["f_hair0", "f_hair1", "f_hair2", "f_hair3", "f_hair4", "f_hair5"],
+        "clothingTopSprite": ["none", "f_clothingTop0", "f_clothingTop1"],
+        "clothingBottomSprite": ["f_clothingBottom0", "f_clothingBottom1", "f_clothingBottom2"],
+        "leggingSprite": ["none", "f_legging0", "f_legging1"],
+        "bootSprite": ["none", "f_boot0", "f_boot1"],
+        "leftSleeveSprite": ["none", "f_leftSleeve0", "f_leftSleeve1"],
+        "rightSleeveSprite": ["none", "f_rightSleeve0", "f_rightSleeve1"],
+        "isMale": false,
+        "rightLegXOffset": 0.1,
+        "rightLegYOffset": 0.1,
+        "movementSpeed": 2,
+        "movementDurationRangeX": 1,
+        "movementDurationRangeY": 3,
+        "idleDurationRangeX": 1,
+        "idleDurationRangeY": 3,
+        "legSwingAngle": 5,
+        "legSwingSpeed": 7,
+        "legPivotOffsetX": 0.45, 
+        "legPivotOffsetY": 0.45,
+        "idleHeaveHeight": 0.05,
+        "idleHeaveSpeed": 1.5
+
+
+    }
+]
