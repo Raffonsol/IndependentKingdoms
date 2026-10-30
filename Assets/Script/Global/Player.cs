@@ -369,7 +369,7 @@ public class Player : MonoBehaviour
 
         GameObject torso = SetPartSprite(bodyTransform, "torso", body.torsoSprite, skinColorCode);
         SetPartSprite(bodyTransform, "leftArm", body.leftArmSprite, skinColorCode);
-        SetPartSprite(bodyTransform, "rightArm", body.rightArmSprite, skinColorCode);
+        GameObject rightArm = SetPartSprite(bodyTransform, "rightArm", body.rightArmSprite, skinColorCode);
         GameObject leftLeg = SetPartSprite(bodyTransform, "leftLeg", body.legSprite, skinColorCode);
         GameObject rightLeg = SetPartSprite(bodyTransform, "rightLeg", body.legSprite, skinColorCode);
         SetPartSprite(bodyTransform, "face", faceSprite, skinColorCode);
@@ -393,6 +393,10 @@ public class Player : MonoBehaviour
 
         Villager villager = bodyObject.GetComponent<Villager>();
         villager.Configure(body, torso, new[] { leftLeg, rightLeg });
+        if (rightArm != null)
+        {
+            villager.ConfigureGatheringAnimation(rightArm.transform);
+        }
         Person person = new Person
         {
             isMale = body.isMale,

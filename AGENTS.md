@@ -10,7 +10,7 @@ The player is a town-level influence rather than a direct building manager: the 
 
 The active prototype is a Unity 2D project. `Assets/Scenes/MainGame.unity` is the primary scene; `Assets/Scenes/SampleScene.unity` is also present. The current gameplay foundation includes initial villager creation and visual customization, simple movement and road wandering, map resource placement, road drawing, mana regeneration, and some resource and villager UI.
 
-Villagers now have an initial housing loop: they seek a road, enter a FIFO plot-claim queue, claim an available grid footprint beside a road, gather configured resources from registered map resources, and advance a timed construction state. The scene currently assigns the road-line prefab as a temporary green plot outline; it is not a house. There is still no job/personality decision system, food production or trade, household/relationship/reproduction/aging simulation, actual house prefab/construction stages, or combat. `Monster` remains an empty `Mover` subclass. `Buildings.json` is not loaded by `GameData`; it describes a road entry and does not provide a working building-definition system.
+Villagers now have an initial housing loop: they seek a road, enter a FIFO plot-claim queue, claim an available grid footprint beside a road, gather configured resources from registered map resources, and advance a timed construction state. Each villager starts with an empty inventory and `VillagerWeaponType.None`. The inventory/equipment API can add/remove item stacks and equip an axe when one is in inventory, but axe production and distribution are not implemented. A bare-handed villager can gather at most the configured `bareHandAmount` from a resource; an equipped axe permits gathering its remaining `fullCutAmount`. Gathering is a repeating hit-and-pause loop with a script-driven arm motion and resource shake. Harvest yields are in `ResourceDefinitions.json`; gathering timing/hand positions and resource shake tuning are in `GameSettings.json`. The scene currently assigns the road-line prefab as a temporary green plot outline; it is not a house. There is still no job/personality decision system, food production or trade, household/relationship/reproduction/aging simulation, actual house prefab/construction stages, or combat. `Monster` remains an empty `Mover` subclass. `Buildings.json` is not loaded by `GameData`; it describes a road entry and does not provide a working building-definition system.
 
 ## Code and asset layout
 
@@ -22,8 +22,9 @@ Villagers now have an initial housing loop: they seek a road, enter a FIFO plot-
   - `Struct.cs`: shared serializable records, settings classes, and enums.
 - `Assets/Script/2DObjectComponents/`
   - `Mover.cs`: movement targets, facing, and simple leg/idle animation.
-  - `Villager.cs`: road seeking followed by plot claiming, material gathering, and timed house-construction states.
-  - `ResourceObject.cs`: type and mutable amount metadata for a placed resource object.
+  - `Villager.cs`: road seeking followed by plot claiming, material gathering and timed house-construction states; owns personal inventory and equipped weapon state.
+  - `ResourceObject.cs`: resource type, JSON-backed harvest amounts, remaining yields, and script-driven shake animation.
+  - `VillagerHandMotion.cs`: script-driven gathering hit motion for a villager's right arm.
   - `VillagerNameGenerator.cs`: name selection from loaded name parts.
   - `Monster.cs`: currently an empty `Mover` subclass.
   - `Camera.cs`: camera pan and zoom input.
@@ -41,8 +42,8 @@ Currently loaded data:
 - `Bodies.json`: a top-level JSON array; `GameData` wraps it in a `BodyCollection` shape before parsing. Body records hold sprite names, gender, movement/animation tuning, and offsets.
 - `CharacterSettings.json`: color-code arrays used when creating villagers.
 - `NamingParts.json`: a `nameParts` array; its `type` values correspond to `NamePartType` enum values (`0` is `FullName`, `1` is `FirstPart`, `2` is `LastPart`).
-- `ResourceDefinitions.json`: a `resourceDefinitions` array. The loader expects exactly one valid entry per `ResourceType`; `type` is serialized as the enum's numeric value. It also checks icon indices and initial amounts.
-- `GameSettings.json`: `uiSettings`, `mapSettings`, `playerSettings`, `houseSettings`, and `villagerSettings`, parsed into the matching classes in `Struct.cs`. House dimensions, material costs, construction time, and villager road/gathering tuning are JSON-backed.
+- `ResourceDefinitions.json`: a `resourceDefinitions` array. The loader expects exactly one valid entry per `ResourceType`; `type` is serialized as the enum's numeric value. It also checks icon indices, initial amounts, and full-cut/bare-hand harvest yields.
+- `GameSettings.json`: `uiSettings`, `mapSettings`, `playerSettings`, `houseSettings`, `villagerSettings`, and `resourceSettings`, parsed into the matching classes in `Struct.cs`. House dimensions, material costs, construction time, villager behavior and hit motion, and resource shake tuning are JSON-backed.
 
 `Player`, `MapManager`, and `UIManager` read their relevant settings from `GameData`; each `Villager` reads its AI settings there as well. `Player` creates separate runtime resource balances from resource definitions; keep that mutable simulation state distinct from static configuration. Missing or invalid JSON is generally reported with `Debug.LogError` and empty arrays, `null`, or default settings, so preserve clear validation and error reporting when extending the loader.
 
@@ -56,7 +57,7 @@ The project goal is for gameplay rules and tunable values to be JSON-backed and 
 - Do not add a second settings source or leave an inspector fallback that silently overrides JSON. Validate ranges and required entries at load/initialization time.
 - If adding JSON-backed definitions, add their record/collection types, loader, validation, and `GameData` property together. Update consumers to use the loaded definition rather than embedding values in a component.
 
-Examples of settings still serialized as gameplay configuration include `MapManager` map/tree-generation values, `GameCamera` movement and zoom values, `ResourceObject` type and amount, and `UIButton` action/ID. Villager road and gathering settings and house dimensions/cost/time are now in `GameSettings.json`. `Player` holds the base villager and claimed-space prefab references. Body movement and animation settings are already supplied from `Bodies.json`, although `Mover` retains serialized defaults. `UIManager` mixes prefab/asset references and debug controls with configuration; its debug grid options are appropriate inspector controls, while other tunable behavior should follow the JSON rule.
+Examples of settings still serialized as gameplay configuration include `MapManager` map/tree-generation values, `GameCamera` movement and zoom values, `ResourceObject` type, and `UIButton` action/ID. Resource harvest yields are in `ResourceDefinitions.json`; villager behavior and gathering animation settings and house dimensions/cost/time are in `GameSettings.json`. `Player` holds the base villager and claimed-space prefab references. Body movement and animation settings are already supplied from `Bodies.json`, although `Mover` retains serialized defaults. `UIManager` mixes prefab/asset references and debug controls with configuration; its debug grid options are appropriate inspector controls, while other tunable behavior should follow the JSON rule.
 
 ## Singleton and communication patterns
 
@@ -75,4 +76,6 @@ For new systems, prefer explicit initialization/dependencies and narrow interfac
 - Preserve prefab references and the hierarchy/component contracts relied on by code (for example, the villager body-part child names and the immediate `Canvas` child expected by UI code).
 - Update JSON and C# data types together. `JsonUtility` expects serializable fields and does not provide general-purpose dictionary or polymorphic serialization; use wrapper records/arrays as the current data files do.
 - Treat enum numeric values written to JSON as schema: changing enum order can reinterpret existing content. Prefer explicit stable IDs or a deliberate migration if the data format grows.
-- Keep changes focused. Verify in the Unity Editor that scripts compile and that `MainGame` loads without new Console errors; exercise the affected scene behavior. No dedicated automated test suite was found in the current `Assets/Script` tree.
+- **Do not run Unity compilation or builds.** Do not launch Unity in batch mode, invoke a Unity compile/build command, or otherwise try to compile the project. Leave Unity compilation and runtime verification to the user. Report what source/JSON checks were performed and clearly state when Unity validation remains for the user.
+- For performance investigations, prefer a Windows Development Build with **Development Build** and **Autoconnect Profiler** enabled, then inspect a selected CPU Usage spike in Timeline. Recent testing found the observed choppiness in Editor Play Mode was gone in a Development Build; EditorLoop-heavy Play Mode captures did not indicate significant villager script time. Do not treat Editor-only timing as proof of a gameplay bottleneck.
+- Keep changes focused. No dedicated automated test suite was found in the current `Assets/Script` tree. Validate JSON/source consistency without invoking Unity, and leave script compilation, scene loading, and gameplay checks to the user.

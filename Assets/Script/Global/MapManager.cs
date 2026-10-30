@@ -95,13 +95,16 @@ public class MapManager : MonoBehaviour
     public bool TryGetClosestResourceObject(
         ResourceType resourceType,
         Vector3 position,
+        bool hasAxe,
         out ResourceObject closestResource)
     {
         closestResource = null;
         float closestDistanceSquared = float.PositiveInfinity;
         foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
         {
-            if (resourceObject == null || resourceObject.Type != resourceType || resourceObject.Amount <= 0)
+            if (resourceObject == null
+                || resourceObject.Type != resourceType
+                || !resourceObject.CanGather(hasAxe))
             {
                 continue;
             }
@@ -117,7 +120,11 @@ public class MapManager : MonoBehaviour
         return closestResource != null;
     }
 
-    public bool TryGatherResource(ResourceObject resourceObject, int requestedAmount, out int gatheredAmount)
+    public bool TryGatherResource(
+        ResourceObject resourceObject,
+        int requestedAmount,
+        bool hasAxe,
+        out int gatheredAmount)
     {
         gatheredAmount = 0;
         if (resourceObject == null
@@ -129,7 +136,7 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
-        gatheredAmount = resourceObject.Take(requestedAmount);
+        gatheredAmount = resourceObject.Take(requestedAmount, hasAxe);
         if (resourceObject.Amount == 0)
         {
             resourceObjectsByCell.Remove(resourceObject.GridCell);

@@ -24,8 +24,27 @@ public class GameData
     public PlayerSettings playerSettings;
     public HouseSettings houseSettings;
     public VillagerSettings villagerSettings;
+    public ResourceSettings resourceSettings;
     public ResourceDefinition[] resourceDefinitions;
     public NamePart[] nameParts;
+
+    public bool TryGetResourceDefinition(ResourceType resourceType, out ResourceDefinition definition)
+    {
+        if (resourceDefinitions != null)
+        {
+            foreach (ResourceDefinition candidate in resourceDefinitions)
+            {
+                if (candidate != null && candidate.type == resourceType)
+                {
+                    definition = candidate;
+                    return true;
+                }
+            }
+        }
+
+        definition = null;
+        return false;
+    }
 
     private static GameData Load()
     {
@@ -39,6 +58,7 @@ public class GameData
             playerSettings = gameSettings.playerSettings,
             houseSettings = gameSettings.houseSettings,
             villagerSettings = gameSettings.villagerSettings,
+            resourceSettings = gameSettings.resourceSettings,
             resourceDefinitions = LoadResourceDefinitions(),
             nameParts = LoadNameParts()
         };
@@ -225,6 +245,15 @@ public class GameData
                     return new ResourceDefinition[0];
                 }
 
+                if (definition.fullCutAmount < 0
+                    || definition.bareHandAmount < 0
+                    || definition.bareHandAmount > definition.fullCutAmount)
+                {
+                    Debug.LogError(
+                        "Resource harvest amounts must be non-negative, and bareHandAmount cannot exceed fullCutAmount.");
+                    return new ResourceDefinition[0];
+                }
+
                 foundTypes[enumIndex] = true;
             }
 
@@ -256,9 +285,10 @@ public class GameData
                 || settings.mapSettings == null
                 || settings.playerSettings == null
                 || settings.houseSettings == null
-                || settings.villagerSettings == null)
+                || settings.villagerSettings == null
+                || settings.resourceSettings == null)
             {
-                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, and villagerSettings.");
+                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, villagerSettings, and resourceSettings.");
                 return new GameSettingsCollection();
             }
 
@@ -319,9 +349,21 @@ public class GameData
                 || villagerSettings.roadSearchDistance < villagerSettings.roadDetectionDistance
                 || villagerSettings.runningSpeed <= 0f
                 || villagerSettings.gatheringDistance < 0f
-                || villagerSettings.gatheringIntervalSeconds <= 0f)
+                || villagerSettings.gatheringPauseDurationSeconds < 0f
+                || villagerSettings.handMotionDurationSeconds <= 0f
+                || villagerSettings.handHitPositions == null
+                || villagerSettings.handHitPositions.Length == 0)
             {
                 Debug.LogError("Villager settings contain invalid movement or gathering values.");
+                return new GameSettingsCollection();
+            }
+
+            ResourceSettings resourceSettings = settings.resourceSettings;
+            if (resourceSettings.shakeDurationSeconds <= 0f
+                || resourceSettings.shakeMagnitude < 0f
+                || resourceSettings.shakeFrequency <= 0f)
+            {
+                Debug.LogError("Resource shake settings must define positive duration and frequency, and a non-negative magnitude.");
                 return new GameSettingsCollection();
             }
 

@@ -48,7 +48,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ResourceObject
   resourceType: 3
-  amount: 10
 --- !u!210 &-2869055114709231648
 SortingGroup:
   m_ObjectHideFlags: 0

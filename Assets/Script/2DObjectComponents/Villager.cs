@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Villager : Mover
@@ -22,15 +23,30 @@ public class Villager : Mover
 
     private VillagerSettings settings;
     private HouseSettings houseSettings;
+    private ResourceSettings resourceSettings;
     private HousePlotRecord housePlot;
     private GameObject claimedSpaceObject;
     private ResourceObject gatheringResource;
+    private Transform rightArm;
+    private VillagerHandMotion handMotion;
+    private readonly List<VillagerInventoryEntry> inventory = new List<VillagerInventoryEntry>();
+    private VillagerWeaponType equippedWeapon;
     private float movementPhaseTimer;
     private float gatheringTimer;
     private float constructionTimer;
     private bool isInMovementPhase;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
+
+    public IReadOnlyList<VillagerInventoryEntry> Inventory
+    {
+        get { return inventory; }
+    }
+
+    public VillagerWeaponType EquippedWeapon
+    {
+        get { return equippedWeapon; }
+    }
 
     protected override bool ShouldAvoidResourceObjects()
     {
@@ -60,9 +76,10 @@ public class Villager : Mover
         GameData gameData = GameData.Instance;
         settings = gameData.villagerSettings;
         houseSettings = gameData.houseSettings;
-        if (settings == null || houseSettings == null)
+        resourceSettings = gameData.resourceSettings;
+        if (settings == null || houseSettings == null || resourceSettings == null)
         {
-            Debug.LogError("Villager and house settings could not be loaded from GameData.", this);
+            Debug.LogError("Villager, house, and resource settings could not be loaded from GameData.", this);
             enabled = false;
             return;
         }
@@ -71,9 +88,121 @@ public class Villager : Mover
         EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
     }
 
+    public bool AddInventoryItem(VillagerItemType itemType, int amount)
+    {
+        if (!System.Enum.IsDefined(typeof(VillagerItemType), itemType) || amount <= 0)
+        {
+            return false;
+        }
+
+        foreach (VillagerInventoryEntry entry in inventory)
+        {
+            if (entry.itemType == itemType)
+            {
+                entry.amount += amount;
+                return true;
+            }
+        }
+
+        inventory.Add(new VillagerInventoryEntry { itemType = itemType, amount = amount });
+        return true;
+    }
+
+    public int GetInventoryItemCount(VillagerItemType itemType)
+    {
+        foreach (VillagerInventoryEntry entry in inventory)
+        {
+            if (entry.itemType == itemType)
+            {
+                return entry.amount;
+            }
+        }
+
+        return 0;
+    }
+
+    public bool TryRemoveInventoryItem(VillagerItemType itemType, int amount)
+    {
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < inventory.Count; index++)
+        {
+            VillagerInventoryEntry entry = inventory[index];
+            if (entry.itemType != itemType || entry.amount < amount)
+            {
+                continue;
+            }
+
+            entry.amount -= amount;
+            if (entry.amount == 0)
+            {
+                inventory.RemoveAt(index);
+                if (itemType == VillagerItemType.Axe)
+                {
+                    equippedWeapon = VillagerWeaponType.None;
+                }
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool EquipWeapon(VillagerWeaponType weaponType)
+    {
+        if (weaponType == VillagerWeaponType.None)
+        {
+            equippedWeapon = VillagerWeaponType.None;
+            return true;
+        }
+
+        VillagerItemType requiredItem;
+        if (weaponType == VillagerWeaponType.Axe)
+        {
+            requiredItem = VillagerItemType.Axe;
+        }
+        else
+        {
+            return false;
+        }
+
+        foreach (VillagerInventoryEntry entry in inventory)
+        {
+            if (entry.itemType == requiredItem && entry.amount > 0)
+            {
+                equippedWeapon = weaponType;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void ConfigureGatheringAnimation(Transform villagerRightArm)
+    {
+        if (villagerRightArm == null)
+        {
+            Debug.LogError("Cannot configure gathering animation without the villager's right arm.", this);
+            return;
+        }
+
+        rightArm = villagerRightArm;
+        handMotion = GetComponent<VillagerHandMotion>();
+        if (handMotion == null)
+        {
+            handMotion = gameObject.AddComponent<VillagerHandMotion>();
+        }
+
+        handMotion.Configure(rightArm);
+    }
+
     protected override void Update()
     {
-        if (settings == null || houseSettings == null)
+        if (settings == null || houseSettings == null || resourceSettings == null)
         {
             return;
         }
@@ -214,13 +343,15 @@ public class Villager : Mover
             return;
         }
 
+        bool hasAxe = equippedWeapon == VillagerWeaponType.Axe;
         if (gatheringResource == null
-            || gatheringResource.Amount <= 0
+            || !gatheringResource.CanGather(hasAxe)
             || gatheringResource.Type != missingCost.resourceType)
         {
             if (!mapManager.TryGetClosestResourceObject(
                     missingCost.resourceType,
                     transform.position,
+                    hasAxe,
                     out gatheringResource))
             {
                 StopMoving();
@@ -237,14 +368,28 @@ public class Villager : Mover
         }
 
         StopMoving();
-        gatheringTimer += Time.deltaTime;
-        if (gatheringTimer < settings.gatheringIntervalSeconds)
+        gatheringTimer -= Time.deltaTime;
+        if (gatheringTimer > 0f)
         {
             return;
         }
 
-        gatheringTimer = 0f;
-        if (mapManager.TryGatherResource(gatheringResource, 1, out int gatheredAmount))
+        if (handMotion == null && rightArm != null)
+        {
+            ConfigureGatheringAnimation(rightArm);
+        }
+
+        if (handMotion != null)
+        {
+            handMotion.PlayHit(settings.handHitPositions, settings.handMotionDurationSeconds);
+        }
+
+        gatheringResource.PlayShake(
+            resourceSettings.shakeDurationSeconds,
+            resourceSettings.shakeMagnitude,
+            resourceSettings.shakeFrequency);
+
+        if (mapManager.TryGatherResource(gatheringResource, 1, hasAxe, out int gatheredAmount))
         {
             player.TryAddResourceAmount(missingCost.resourceType, gatheredAmount);
         }
@@ -252,6 +397,8 @@ public class Villager : Mover
         {
             gatheringResource = null;
         }
+
+        gatheringTimer = settings.gatheringPauseDurationSeconds;
     }
 
     private void UpdateBuildingHouse()

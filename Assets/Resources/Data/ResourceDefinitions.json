@@ -1,14 +1,14 @@
 {
     "resourceDefinitions": [
-        { "type": 0, "iconIndex": 0, "initialAmount": 0 },
-        { "type": 1, "iconIndex": 1, "initialAmount": 0 },
-        { "type": 2, "iconIndex": 2, "initialAmount": 0 },
-        { "type": 3, "iconIndex": 3, "initialAmount": 0 },
-        { "type": 4, "iconIndex": 4, "initialAmount": 0 },
-        { "type": 5, "iconIndex": 5, "initialAmount": 0 },
-        { "type": 6, "iconIndex": 6, "initialAmount": 0 },
-        { "type": 7, "iconIndex": 7, "initialAmount": 0 },
-        { "type": 8, "iconIndex": 8, "initialAmount": 0 },
-        { "type": 9, "iconIndex": 9, "initialAmount": 0 }
+        { "type": 0, "iconIndex": 0, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 1, "iconIndex": 1, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 2, "iconIndex": 2, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 3, "iconIndex": 3, "initialAmount": 0, "fullCutAmount": 10, "bareHandAmount": 2 },
+        { "type": 4, "iconIndex": 4, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 5, "iconIndex": 5, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 6, "iconIndex": 6, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 7, "iconIndex": 7, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 8, "iconIndex": 8, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 },
+        { "type": 9, "iconIndex": 9, "initialAmount": 0, "fullCutAmount": 0, "bareHandAmount": 0 }
     ]
 }

@@ -188,7 +188,21 @@ public class VillagerSettings
     public float roadSearchDistance = 35f;
     public float runningSpeed = 4f;
     public float gatheringDistance = 1.2f;
-    public float gatheringIntervalSeconds = 2f;
+    public float gatheringPauseDurationSeconds = 1.65f;
+    public float handMotionDurationSeconds = 0.35f;
+    public Vector2[] handHitPositions =
+    {
+        new Vector2(0.15f, 0.2f),
+        new Vector2(0.3f, 0.05f)
+    };
+}
+
+[Serializable]
+public class ResourceSettings
+{
+    public float shakeDurationSeconds = 0.3f;
+    public float shakeMagnitude = 0.08f;
+    public float shakeFrequency = 24f;
 }
 
 [Serializable]
@@ -199,6 +213,25 @@ public class GameSettingsCollection
     public PlayerSettings playerSettings = new PlayerSettings();
     public HouseSettings houseSettings = new HouseSettings();
     public VillagerSettings villagerSettings = new VillagerSettings();
+    public ResourceSettings resourceSettings = new ResourceSettings();
+}
+
+public enum VillagerItemType
+{
+    Axe
+}
+
+public enum VillagerWeaponType
+{
+    None,
+    Axe
+}
+
+[Serializable]
+public class VillagerInventoryEntry
+{
+    public VillagerItemType itemType;
+    public int amount;
 }
 
 public enum VillagerHousingState
@@ -353,6 +386,8 @@ public class ResourceDefinition
     public ResourceType type;
     public int iconIndex;
     public int initialAmount;
+    public int fullCutAmount;
+    public int bareHandAmount;
 }
 
 [Serializable]

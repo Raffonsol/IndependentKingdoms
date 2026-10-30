@@ -36,6 +36,16 @@
         "roadSearchDistance": 35,
         "runningSpeed": 4,
         "gatheringDistance": 1.2,
-        "gatheringIntervalSeconds": 2
+        "gatheringPauseDurationSeconds": 1.65,
+        "handMotionDurationSeconds": 0.35,
+        "handHitPositions": [
+            { "x": 0.15, "y": 0.2 },
+            { "x": 0.3, "y": 0.05 }
+        ]
+    },
+    "resourceSettings": {
+        "shakeDurationSeconds": 0.3,
+        "shakeMagnitude": 0.08,
+        "shakeFrequency": 24
     }
 }
