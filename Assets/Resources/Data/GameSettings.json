@@ -1,0 +1,26 @@
+{
+    "uiSettings": {
+        "defaultCursorHotspot": { "x": 0, "y": 0 },
+        "roadBuildCursorHotspot": { "x": 0, "y": 0 },
+        "trackVillagers": true,
+        "villagerIndicatorSize": { "x": 24, "y": 24 },
+        "villagerIndicatorEdgeInset": 48,
+        "villagerHoverTooltipWorldOffset": { "x": 0, "y": -2 }
+    },
+    "mapSettings": {
+        "gridCellSize": 2,
+        "keyPointSelectionRadius": 9,
+        "roadEndpointKeyPointTolerance": 2.5,
+        "clickDragThresholdPixels": 5,
+        "validRoadPreviewColor": { "r": 0.03127092, "g": 1, "b": 0, "a": 1 },
+        "invalidRoadPreviewColor": { "r": 1, "g": 0, "b": 0, "a": 1 },
+        "roadTileSpacing": 1,
+        "maxRoadKeyPointDistance": 10,
+        "roadEndpointKeyPointClearance": 9
+    },
+    "playerSettings": {
+        "initialVillagerCount": 8,
+        "manaGainIntervalSeconds": 5,
+        "manaGainAmount": 1
+    }
+}

@@ -1,0 +1,760 @@
+﻿{
+    "nameParts": [
+        {
+            "type": 0,
+            "value": "Beatrice",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Ti",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "fel",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Fern",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "dora",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ara",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Gus",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Giz",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "lys",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Con",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Boro",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Artemis",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Ari",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Jen",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Eli",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ora",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "amir",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Siril",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ur",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Gryf",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Bir",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Exorci",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "triss",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "bor",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "i",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "nefer",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Guil",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Fem",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Glarys",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Marsh",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "olt",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "beth",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Alexandre",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Bob",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Marelhem",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "ard",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Elizani",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Artemis",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Omadi",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Sylvanna",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Marcel",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "bill",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Amy",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "sa",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "mark",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Bel",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Eliza",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "mir",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "urik",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Eadwin",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "s",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "bella",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ill",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "rin",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "anna",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Brit",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "gorn",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Lesley",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Ben",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "ney",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Angmar",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "nor",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Marc",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Mira",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Ransfern",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Ravadole",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "o",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Raylor",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "sula",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "dorel",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "ella",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Cil",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Ger",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Bia",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "odo",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "cila",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Sid",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Bar",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Bern",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Ivan",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "elle",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "an",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Cint",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Sylvanna",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ia",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "n",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "i",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Pris",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "For",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Ang",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Ur",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "or",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Mir",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Eleanor",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Ere",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Far",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Cintia",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Tin",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Isa",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Igor",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "a",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Dori",
+            "worksForMen": true,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "tavo",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Lindsey",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Mari",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "ardo",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "uk",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Lin",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Eliza",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "lee",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "and",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "din",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "sok",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 0,
+            "value": "Boombill",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "E",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 0,
+            "value": "Methile",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Ami",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "al",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Ric",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Mar",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "nafein",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 1,
+            "value": "Cinder",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 2,
+            "value": "fyn",
+            "worksForMen": true,
+            "worksForWomen": false
+        },
+        {
+            "type": 2,
+            "value": "trice",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Yen",
+            "worksForMen": false,
+            "worksForWomen": true
+        },
+        {
+            "type": 1,
+            "value": "Arth",
+            "worksForMen": true,
+            "worksForWomen": false
+        }
+    ]
+}

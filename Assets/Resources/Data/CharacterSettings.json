@@ -1,0 +1,60 @@
+{
+    "eyeColorCodes": [
+        "#000000",
+        "#0000FF",
+        "#00FF00"
+    ],
+    "hairColorCodes": [
+        "#000000",
+        "#741010",
+        "#733D10",
+        "#A0522D",
+        "#FFFCA3",
+        "#DBDB00",
+        "#FFFFFF",
+        "#8A8061"
+    ],
+    "skinColorCodes": [
+        "#FFF3E6",
+        "#FFF7D5",
+        "#F5CBA7",
+        "#D2B48C",
+        "#8B4513"
+    ],
+    "clothingTopColorCodes": [
+        "#FFFFFF",
+        "#000000",
+        "#FFA86A",
+        "#9F5C2B",
+        "#6A6A6A",
+        "#9F2E2E",
+        "#B0AE61"
+    ],
+    "clothingBottomColorCodes": [
+        "#FFFFFF",
+        "#000000",
+        "#764520",
+        "#9F5C2B",
+        "#8C8C8C",
+        "#792828",
+        "#797745"
+    ],
+     "leggingColorCodes": [
+        "#FFFFFF",
+        "#000000",
+        "#764520",
+        "#9F5C2B",
+        "#8C8C8C",
+        "#792828",
+        "#797745"
+    ],
+    "bootColorCodes": [
+        "#FFFFFF",
+        "#000000",
+        "#764520",
+        "#9F5C2B",
+        "#8C8C8C",
+        "#792828",
+        "#797745"
+    ]
+}
