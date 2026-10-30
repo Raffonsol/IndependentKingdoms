@@ -34,7 +34,16 @@ public class Villager : Mover
     private float movementPhaseTimer;
     private float gatheringTimer;
     private float constructionTimer;
+    private float roadReactionTimer;
+    private float plotReactionTimer;
+    private float resourceReactionTimer;
+    private int observedRoadRevision = -1;
+    private Vector3 roadTargetPosition;
     private bool isInMovementPhase;
+    private bool isWaitingToClaimPlot;
+    private bool isWaitingForRoadReaction;
+    private bool isWaitingToApproachResource;
+    private bool hasRoadTarget;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
 
@@ -46,11 +55,6 @@ public class Villager : Mover
     public VillagerWeaponType EquippedWeapon
     {
         get { return equippedWeapon; }
-    }
-
-    protected override bool ShouldAvoidResourceObjects()
-    {
-        return false;
     }
 
     public void ConfigureIdentity(Person person, Transform hoverAnchor)
@@ -85,6 +89,12 @@ public class Villager : Mover
         }
 
         HousingState = VillagerHousingState.FindingRoad;
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager != null)
+        {
+            observedRoadRevision = mapManager.RoadRevision;
+        }
+
         EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
     }
 
@@ -246,12 +256,52 @@ public class Villager : Mover
         }
 
         loggedMissingMapManager = false;
+        if (observedRoadRevision != mapManager.RoadRevision)
+        {
+            observedRoadRevision = mapManager.RoadRevision;
+            roadReactionTimer = GetReactionTime();
+            isWaitingForRoadReaction = true;
+        }
+
+        if (isWaitingForRoadReaction)
+        {
+            roadReactionTimer = Mathf.Max(0f, roadReactionTimer - Time.deltaTime);
+            if (roadReactionTimer > 0f)
+            {
+                return;
+            }
+
+            isWaitingForRoadReaction = false;
+            hasRoadTarget = false;
+        }
+
         bool foundRoad = mapManager.TryGetClosestRoadPoint(
             transform.position,
             out Vector3 closestRoadPoint,
             out float roadDistance);
         if (foundRoad && roadDistance <= settings.roadDetectionDistance)
         {
+            if (!hasRoadTarget)
+            {
+                roadTargetPosition = closestRoadPoint;
+                hasRoadTarget = true;
+            }
+
+            if (!isWaitingToClaimPlot)
+            {
+                isWaitingToClaimPlot = true;
+                plotReactionTimer = GetReactionTime();
+                IsLookingForStreet = false;
+            }
+
+            if (plotReactionTimer > 0f)
+            {
+                plotReactionTimer = Mathf.Max(0f, plotReactionTimer - Time.deltaTime);
+                StopMoving();
+                return;
+            }
+
+            isWaitingToClaimPlot = false;
             IsLookingForStreet = false;
             StopMoving();
             HousingState = VillagerHousingState.ClaimingHousePlot;
@@ -259,17 +309,25 @@ public class Villager : Mover
             return;
         }
 
+        isWaitingToClaimPlot = false;
         IsLookingForStreet = true;
         if (foundRoad)
         {
+            if (!hasRoadTarget)
+            {
+                roadTargetPosition = closestRoadPoint;
+                hasRoadTarget = true;
+            }
+
             isInMovementPhase = false;
-            SetMovementSpeed(roadDistance <= settings.roadSearchDistance
+            SetMovementSpeed(Vector2.Distance(transform.position, roadTargetPosition) <= settings.roadSearchDistance
                 ? DefaultMovementSpeed
                 : settings.runningSpeed);
-            MoveTo(closestRoadPoint);
+            MoveTo(roadTargetPosition);
             return;
         }
 
+        hasRoadTarget = false;
         SetMovementSpeed(settings.runningSpeed);
         MoveAround();
     }
@@ -315,11 +373,11 @@ public class Villager : Mover
 
     private void UpdateGatheringHouseResources()
     {
-        StopMoving();
         Player player = Player.Instance;
         MapManager mapManager = MapManager.Instance;
         if (player == null || mapManager == null)
         {
+            StopMoving();
             return;
         }
 
@@ -327,12 +385,13 @@ public class Villager : Mover
         {
             if (!player.TrySpendResourceCosts(houseSettings.baseHouseCosts))
             {
+                StopMoving();
                 return;
             }
 
+            ReleaseGatheringResource(mapManager);
             HousingState = VillagerHousingState.BuildingHouse;
             constructionTimer = 0f;
-            gatheringResource = null;
             EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
             return;
         }
@@ -340,6 +399,7 @@ public class Villager : Mover
         ResourceCost missingCost = FindMissingHouseCost(player);
         if (missingCost == null)
         {
+            StopMoving();
             return;
         }
 
@@ -348,7 +408,9 @@ public class Villager : Mover
             || !gatheringResource.CanGather(hasAxe)
             || gatheringResource.Type != missingCost.resourceType)
         {
+            ReleaseGatheringResource(mapManager);
             if (!mapManager.TryGetClosestResourceObject(
+                    this,
                     missingCost.resourceType,
                     transform.position,
                     hasAxe,
@@ -357,13 +419,38 @@ public class Villager : Mover
                 StopMoving();
                 return;
             }
+
+            isWaitingToApproachResource = true;
+            resourceReactionTimer = GetReactionTime();
         }
 
-        float distance = Vector2.Distance(transform.position, gatheringResource.transform.position);
-        if (distance > settings.gatheringDistance)
+        if (isWaitingToApproachResource)
+        {
+            resourceReactionTimer = Mathf.Max(0f, resourceReactionTimer - Time.deltaTime);
+            if (resourceReactionTimer > 0f)
+            {
+                StopMoving();
+                return;
+            }
+
+            isWaitingToApproachResource = false;
+        }
+
+        bool usesOffsetInteractionCell = gatheringResource.InteractionOffset != Vector2Int.zero;
+        Vector3 interactionPosition = usesOffsetInteractionCell
+            ? mapManager.GetGridCellBounds(
+                gatheringResource.GridCell + gatheringResource.InteractionOffset).center
+            : gatheringResource.transform.position;
+        float interactionDistance = usesOffsetInteractionCell
+            ? 0.1f
+            : settings.gatheringDistance;
+        float distance = Vector2.Distance(transform.position, interactionPosition);
+        if (distance > interactionDistance)
         {
             gatheringTimer = 0f;
-            MoveTo(gatheringResource.transform.position);
+            MoveTo(
+                interactionPosition,
+                usesOffsetInteractionCell ? interactionDistance : settings.gatheringDistance);
             return;
         }
 
@@ -389,13 +476,13 @@ public class Villager : Mover
             resourceSettings.shakeMagnitude,
             resourceSettings.shakeFrequency);
 
-        if (mapManager.TryGatherResource(gatheringResource, 1, hasAxe, out int gatheredAmount))
+        if (mapManager.TryGatherResource(this, gatheringResource, 1, hasAxe, out int gatheredAmount))
         {
             player.TryAddResourceAmount(missingCost.resourceType, gatheredAmount);
         }
         else
         {
-            gatheringResource = null;
+            ReleaseGatheringResource(mapManager);
         }
 
         gatheringTimer = settings.gatheringPauseDurationSeconds;
@@ -433,6 +520,46 @@ public class Villager : Mover
         }
 
         return null;
+    }
+
+    private float GetReactionTime()
+    {
+        return Person != null ? Mathf.Max(0f, Person.reactionTime) : 0f;
+    }
+
+    private void ReleaseGatheringResource(MapManager mapManager)
+    {
+        if (mapManager != null)
+        {
+            mapManager.ReleaseResourceReservation(gatheringResource, this);
+        }
+
+        gatheringResource = null;
+        isWaitingToApproachResource = false;
+        resourceReactionTimer = 0f;
+    }
+
+    public void CancelHousePlotForRoad()
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager != null)
+        {
+            mapManager.ReleaseHousePlot(this);
+            ReleaseGatheringResource(mapManager);
+        }
+
+        if (claimedSpaceObject != null)
+        {
+            Destroy(claimedSpaceObject);
+            claimedSpaceObject = null;
+        }
+
+        housePlot = null;
+        HousingState = VillagerHousingState.FindingRoad;
+        IsLookingForStreet = false;
+        isWaitingToClaimPlot = false;
+        plotReactionTimer = 0f;
+        EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
     }
 
     private void MoveAround()
@@ -474,9 +601,10 @@ public class Villager : Mover
     private void OnDestroy()
     {
         MapManager mapManager = MapManager.Instance;
-        if (mapManager != null && HousingState != VillagerHousingState.Housed)
+        if (mapManager != null)
         {
             mapManager.ReleaseHousePlot(this);
+            mapManager.ReleaseResourceReservation(gatheringResource, this);
         }
 
         if (HousingState != VillagerHousingState.Housed && claimedSpaceObject != null)

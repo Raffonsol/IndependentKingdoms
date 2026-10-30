@@ -400,6 +400,9 @@ public class Player : MonoBehaviour
         Person person = new Person
         {
             isMale = body.isMale,
+            reactionTime = UnityEngine.Random.Range(
+                GameData.Instance.villagerSettings.reactionTimeRange.x,
+                GameData.Instance.villagerSettings.reactionTimeRange.y),
             skinColor = skinColorCode,
             hairColor = hairColorCode,
             eyeColor = eyeColorCode,

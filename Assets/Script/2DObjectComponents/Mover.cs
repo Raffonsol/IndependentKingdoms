@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class Mover : MonoBehaviour
@@ -18,12 +19,18 @@ public class Mover : MonoBehaviour
     private float defaultMovementSpeed;
     private Vector2 movementDirection;
     private bool facingLeft = true;
-    private bool hasMovementTarget;
-    private Vector2 movementTarget;
+    private readonly List<Vector3> pathWaypoints = new List<Vector3>();
+    private int nextWaypointIndex;
+    private Vector3 requestedDestination;
+    private Vector2Int requestedDestinationCell;
+    private float requestedArrivalDistance;
+    private int pathfindingRevision = -1;
+    private bool pathCompleted;
+    private bool hasPathRequest;
+    private bool loggedMissingMapManagerForPathfinding;
     private Quaternion[] legStartingRotations;
     private Vector3[] legPivotLocalOffsets;
     private Vector3 torsoStartingLocalPosition;
-    private bool loggedMissingMapManagerForAvoidance;
 
     protected Vector2 MovementDurationRange
     {
@@ -62,96 +69,7 @@ public class Mover : MonoBehaviour
 
     protected virtual void Update()
     {
-        Vector2 currentPosition = transform.position;
-        Vector2 intendedDirection = movementDirection;
-        float intendedDistance = movementSpeed * Time.deltaTime;
-
-        if (hasMovementTarget)
-        {
-            Vector2 targetDelta = movementTarget - currentPosition;
-            float targetDistance = targetDelta.magnitude;
-            intendedDirection = targetDistance > Mathf.Epsilon
-                ? targetDelta / targetDistance
-                : Vector2.zero;
-            intendedDistance = Mathf.Min(targetDistance, intendedDistance);
-        }
-
-        if (intendedDirection.sqrMagnitude > 0f
-            && movementSpeed > 0f
-            && ShouldAvoidResourceObjects())
-        {
-            MapManager mapManager = MapManager.Instance;
-            if (mapManager == null)
-            {
-                if (!loggedMissingMapManagerForAvoidance)
-                {
-                    Debug.LogError(
-                        "Resource avoidance requires an active MapManager.",
-                        this);
-                    loggedMissingMapManagerForAvoidance = true;
-                }
-            }
-            else
-            {
-                loggedMissingMapManagerForAvoidance = false;
-                Vector2 checkDirection = intendedDirection;
-                float gridCellSize = mapManager.GridCellSize;
-                float checkDistance = hasMovementTarget
-                    ? Vector2.Distance(currentPosition, movementTarget)
-                    : Mathf.Max(intendedDistance, gridCellSize * 1.5f);
-                Vector3 pathEnd = currentPosition + checkDirection * checkDistance;
-
-                if (mapManager.TryGetResourceObjectOnPath(
-                        currentPosition,
-                        pathEnd,
-                        out _))
-                {
-                    if (TryFindClearResourceAvoidanceDirection(
-                            mapManager,
-                            currentPosition,
-                            checkDirection,
-                            Mathf.Max(gridCellSize * 1.5f, movementSpeed * 0.5f),
-                            out Vector2 avoidanceDirection))
-                    {
-                        movementDirection = avoidanceDirection;
-                        hasMovementTarget = false;
-                        intendedDirection = avoidanceDirection;
-                    }
-                    else
-                    {
-                        movementDirection = Vector2.zero;
-                        hasMovementTarget = false;
-                        intendedDirection = Vector2.zero;
-                        intendedDistance = 0f;
-                    }
-                }
-            }
-        }
-
-        if (hasMovementTarget)
-        {
-            Vector2 targetDelta = movementTarget - currentPosition;
-            float targetDistance = targetDelta.magnitude;
-            float movementDistance = movementSpeed * Time.deltaTime;
-            if (targetDistance <= movementDistance || targetDistance <= Mathf.Epsilon)
-            {
-                transform.position = new Vector3(
-                    movementTarget.x,
-                    movementTarget.y,
-                    transform.position.z);
-                movementDirection = Vector2.zero;
-                hasMovementTarget = false;
-            }
-            else
-            {
-                movementDirection = targetDelta / targetDistance;
-                transform.position += (Vector3)(movementDirection * movementDistance);
-            }
-        }
-        else
-        {
-            transform.position += (Vector3)(intendedDirection * movementSpeed * Time.deltaTime);
-        }
+        FollowPath(Time.deltaTime);
 
         if (movementDirection.sqrMagnitude > 0f && movementSpeed > 0f)
         {
@@ -234,45 +152,26 @@ public class Mover : MonoBehaviour
     /// <summary>Sets the movement heading in degrees, where 0 points right and 90 points up.</summary>
     public void Move(float direction)
     {
-        hasMovementTarget = false;
         float radians = direction * Mathf.Deg2Rad;
-        movementDirection = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians));
-
-        UpdateFacingFromDirection(movementDirection);
-    }
-
-    protected virtual bool ShouldAvoidResourceObjects()
-    {
-        return false;
-    }
-
-    private bool TryFindClearResourceAvoidanceDirection(
-        MapManager mapManager,
-        Vector2 currentPosition,
-        Vector2 originalDirection,
-        float checkDistance,
-        out Vector2 avoidanceDirection)
-    {
-        const int directionAttempts = 16;
-        for (int attempt = 0; attempt < directionAttempts; attempt++)
+        Vector2 heading = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians));
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || mapManager.GridCellSize <= 0f)
         {
-            float directionAngle = Random.Range(0f, 360f);
-            float radians = directionAngle * Mathf.Deg2Rad;
-            Vector2 candidateDirection = new Vector2(Mathf.Cos(radians), Mathf.Sin(radians));
-            Vector3 candidateEnd = currentPosition + candidateDirection * checkDistance;
-            if (!mapManager.TryGetResourceObjectOnPath(
-                    currentPosition,
-                    candidateEnd,
-                    out _))
-            {
-                avoidanceDirection = candidateDirection;
-                UpdateFacingFromDirection(candidateDirection);
-                return true;
-            }
+            LogMissingMapManager();
+            StopMoving();
+            return;
         }
 
-        avoidanceDirection = originalDirection;
-        return false;
+        float travelDistance = Mathf.Max(
+            mapManager.GridCellSize,
+            movementSpeed * Mathf.Max(1f, movementDurationRange.y));
+        Vector2 destination = (Vector2)transform.position + heading * travelDistance;
+        Vector2 mapMinimum = (Vector2)mapManager.MapCenter - mapManager.MapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)mapManager.MapCenter + mapManager.MapSize * 0.5f;
+        float mapInset = mapManager.GridCellSize * 0.5f;
+        destination.x = Mathf.Clamp(destination.x, mapMinimum.x + mapInset, mapMaximum.x - mapInset);
+        destination.y = Mathf.Clamp(destination.y, mapMinimum.y + mapInset, mapMaximum.y - mapInset);
+        MoveTo(new Vector3(destination.x, destination.y, transform.position.z));
     }
 
     private void UpdateFacingFromDirection(Vector2 direction)
@@ -291,25 +190,141 @@ public class Mover : MonoBehaviour
 
     protected void StopMoving()
     {
-        hasMovementTarget = false;
+        hasPathRequest = false;
+        pathWaypoints.Clear();
+        nextWaypointIndex = 0;
         movementDirection = Vector2.zero;
     }
 
     protected void MoveTo(Vector3 targetPosition)
     {
-        movementTarget = new Vector2(targetPosition.x, targetPosition.y);
-        hasMovementTarget = true;
+        MoveTo(targetPosition, 0f);
+    }
 
-        Vector2 direction = movementTarget - (Vector2)transform.position;
-        if (direction.sqrMagnitude <= Mathf.Epsilon)
+    protected void MoveTo(Vector3 targetPosition, float arrivalDistance)
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
         {
-            movementDirection = Vector2.zero;
-            hasMovementTarget = false;
+            LogMissingMapManager();
+            StopMoving();
             return;
         }
 
-        movementDirection = direction.normalized;
-        UpdateFacingFromDirection(movementDirection);
+        arrivalDistance = Mathf.Max(0f, arrivalDistance);
+        Vector2Int destinationCell = WorldPositionToGridCell(targetPosition, mapManager.GridCellSize);
+        bool destinationChanged = !hasPathRequest
+            || destinationCell != requestedDestinationCell
+            || !Mathf.Approximately(requestedArrivalDistance, arrivalDistance)
+            || (pathCompleted
+                && Vector2.Distance(transform.position, targetPosition) > arrivalDistance);
+        bool mapChanged = pathfindingRevision != mapManager.PathfindingRevision;
+        if (!destinationChanged && !mapChanged)
+        {
+            return;
+        }
+
+        requestedDestination = targetPosition;
+        requestedDestinationCell = destinationCell;
+        requestedArrivalDistance = arrivalDistance;
+        pathfindingRevision = mapManager.PathfindingRevision;
+        hasPathRequest = true;
+        pathCompleted = false;
+        RebuildPath(mapManager);
+    }
+
+    private void RebuildPath(MapManager mapManager)
+    {
+        pathWaypoints.Clear();
+        nextWaypointIndex = 0;
+
+        if (!mapManager.TryFindPath(
+                transform.position,
+                requestedDestination,
+                requestedArrivalDistance,
+                out List<Vector3> waypoints))
+        {
+            movementDirection = Vector2.zero;
+            return;
+        }
+
+        pathWaypoints.AddRange(waypoints);
+        if (pathWaypoints.Count == 0)
+        {
+            movementDirection = Vector2.zero;
+            return;
+        }
+
+        UpdateFacingFromDirection(pathWaypoints[0] - transform.position);
+    }
+
+    private void FollowPath(float deltaTime)
+    {
+        movementDirection = Vector2.zero;
+        if (!hasPathRequest)
+        {
+            return;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager != null && pathfindingRevision != mapManager.PathfindingRevision)
+        {
+            pathfindingRevision = mapManager.PathfindingRevision;
+            RebuildPath(mapManager);
+        }
+
+        if (movementSpeed <= 0f || pathWaypoints.Count == 0)
+        {
+            return;
+        }
+
+        float remainingDistance = movementSpeed * deltaTime;
+        while (nextWaypointIndex < pathWaypoints.Count)
+        {
+            Vector3 waypoint = pathWaypoints[nextWaypointIndex];
+            Vector2 offset = (Vector2)(waypoint - transform.position);
+            float distance = offset.magnitude;
+            if (distance <= remainingDistance || distance <= Mathf.Epsilon)
+            {
+                transform.position = new Vector3(waypoint.x, waypoint.y, transform.position.z);
+                remainingDistance = Mathf.Max(0f, remainingDistance - distance);
+                nextWaypointIndex++;
+                if (remainingDistance <= 0f)
+                {
+                    break;
+                }
+
+                continue;
+            }
+
+            movementDirection = offset / distance;
+            transform.position += (Vector3)(movementDirection * remainingDistance);
+            UpdateFacingFromDirection(movementDirection);
+            break;
+        }
+
+        if (nextWaypointIndex >= pathWaypoints.Count)
+        {
+            movementDirection = Vector2.zero;
+            pathWaypoints.Clear();
+            pathCompleted = true;
+        }
+    }
+
+    private static Vector2Int WorldPositionToGridCell(Vector3 position, float gridCellSize)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(position.x / gridCellSize),
+            Mathf.FloorToInt(position.y / gridCellSize));
+    }
+
+    private void LogMissingMapManager()
+    {
+        if (!loggedMissingMapManagerForPathfinding)
+        {
+            Debug.LogError("Movement pathfinding requires an active MapManager.", this);
+            loggedMissingMapManagerForPathfinding = true;
+        }
     }
 
     protected void SetMovementSpeed(float speed)

@@ -26,6 +26,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private bool showDebugGrid;
     [SerializeField] private Color debugGridColor = new Color(0.1f, 0.85f, 1f, 0.55f);
     [SerializeField] private Color debugOccupiedCellFillColor = new Color(1f, 0.2f, 0.1f, 0.3f);
+    [SerializeField] private Color debugRoadCellFillColor = new Color(0.1f, 1f, 0.2f, 0.45f);
     [SerializeField, Min(1f)] private float debugGridLineWidth = 1f;
 
     private UISettings settings;
@@ -279,6 +280,7 @@ public class UIManager : MonoBehaviour
         float gridCellSize = mapManager.GridCellSize;
         Color previousColor = GUI.color;
         DrawOccupiedResourceCells(mapManager, mapCamera);
+        DrawRoadCells(mapManager, mapCamera);
         GUI.color = debugGridColor;
 
         DrawDebugGridAxis(
@@ -316,27 +318,48 @@ public class UIManager : MonoBehaviour
                 continue;
             }
 
-            Bounds cellBounds = mapManager.GetGridCellBounds(cell);
-            Vector3 screenBottomLeft = mapCamera.WorldToScreenPoint(cellBounds.min);
-            Vector3 screenTopRight = mapCamera.WorldToScreenPoint(cellBounds.max);
-            if (screenBottomLeft.z <= 0f || screenTopRight.z <= 0f)
-            {
-                continue;
-            }
-
-            float left = Mathf.Min(screenBottomLeft.x, screenTopRight.x);
-            float right = Mathf.Max(screenBottomLeft.x, screenTopRight.x);
-            float top = Screen.height - Mathf.Max(screenBottomLeft.y, screenTopRight.y);
-            float bottom = Screen.height - Mathf.Min(screenBottomLeft.y, screenTopRight.y);
-            if (right <= left || bottom <= top)
-            {
-                continue;
-            }
-
-            GUI.DrawTexture(new Rect(left, top, right - left, bottom - top), Texture2D.whiteTexture);
+            DrawGridCellFill(mapManager, mapCamera, cell);
         }
 
         GUI.color = previousColor;
+    }
+
+    private void DrawRoadCells(MapManager mapManager, UnityEngine.Camera mapCamera)
+    {
+        Color previousColor = GUI.color;
+        GUI.color = debugRoadCellFillColor;
+
+        foreach (Vector2Int cell in mapManager.RoadCells)
+        {
+            DrawGridCellFill(mapManager, mapCamera, cell);
+        }
+
+        GUI.color = previousColor;
+    }
+
+    private void DrawGridCellFill(
+        MapManager mapManager,
+        UnityEngine.Camera mapCamera,
+        Vector2Int cell)
+    {
+        Bounds cellBounds = mapManager.GetGridCellBounds(cell);
+        Vector3 screenBottomLeft = mapCamera.WorldToScreenPoint(cellBounds.min);
+        Vector3 screenTopRight = mapCamera.WorldToScreenPoint(cellBounds.max);
+        if (screenBottomLeft.z <= 0f || screenTopRight.z <= 0f)
+        {
+            return;
+        }
+
+        float left = Mathf.Min(screenBottomLeft.x, screenTopRight.x);
+        float right = Mathf.Max(screenBottomLeft.x, screenTopRight.x);
+        float top = Screen.height - Mathf.Max(screenBottomLeft.y, screenTopRight.y);
+        float bottom = Screen.height - Mathf.Min(screenBottomLeft.y, screenTopRight.y);
+        if (right <= left || bottom <= top)
+        {
+            return;
+        }
+
+        GUI.DrawTexture(new Rect(left, top, right - left, bottom - top), Texture2D.whiteTexture);
     }
 
     private void DrawDebugGridAxis(

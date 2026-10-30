@@ -23,6 +23,8 @@ public class MapManager : MonoBehaviour
     private readonly HashSet<Vector2Int> roadCells = new HashSet<Vector2Int>();
     private readonly Dictionary<Vector2Int, ResourceObject> resourceObjectsByCell =
         new Dictionary<Vector2Int, ResourceObject>();
+    private readonly Dictionary<ResourceObject, Villager> resourceReservations =
+        new Dictionary<ResourceObject, Villager>();
     private readonly HashSet<Vector2Int> claimedHouseCells = new HashSet<Vector2Int>();
     private readonly List<Villager> housePlotQueue = new List<Villager>();
     private readonly Dictionary<Villager, HousePlotRecord> claimedHousePlots =
@@ -59,6 +61,9 @@ public class MapManager : MonoBehaviour
         get { return roadKeyPoints; }
     }
 
+    public int RoadRevision { get; private set; }
+    public int PathfindingRevision { get; private set; }
+
     public float GridCellSize
     {
         get { return settings != null ? settings.gridCellSize : 0f; }
@@ -79,6 +84,11 @@ public class MapManager : MonoBehaviour
         get { return resourceObjectsByCell.Keys; }
     }
 
+    public IEnumerable<Vector2Int> RoadCells
+    {
+        get { return roadCells; }
+    }
+
     public Bounds GetGridCellBounds(Vector2Int cell)
     {
         float gridCellSize = GridCellSize;
@@ -87,18 +97,296 @@ public class MapManager : MonoBehaviour
         return new Bounds(center, new Vector3(gridCellSize, gridCellSize, 0f));
     }
 
+    public bool TryFindPath(
+        Vector3 startPosition,
+        Vector3 destination,
+        float arrivalDistance,
+        out List<Vector3> waypoints)
+    {
+        waypoints = null;
+        if (settings == null || settings.gridCellSize <= 0f || arrivalDistance < 0f)
+        {
+            return false;
+        }
+
+        Vector2Int startCell = WorldPositionToGridCell(startPosition, settings.gridCellSize);
+        Vector2Int destinationCell = WorldPositionToGridCell(destination, settings.gridCellSize);
+        if (!IsCellBlocked(destinationCell))
+        {
+            if (!TryFindCellPath(startCell, destinationCell, out List<Vector2Int> cellPath))
+            {
+                return false;
+            }
+
+            waypoints = CreateWorldPath(cellPath, destination);
+            return true;
+        }
+
+        return TryFindApproachPath(
+            startCell,
+            destinationCell,
+            destination,
+            arrivalDistance,
+            out waypoints);
+    }
+
+    private bool TryFindApproachPath(
+        Vector2Int startCell,
+        Vector2Int blockedCell,
+        Vector3 destination,
+        float arrivalDistance,
+        out List<Vector3> waypoints)
+    {
+        waypoints = null;
+        float gridCellSize = settings.gridCellSize;
+        float minimumX = blockedCell.x * gridCellSize;
+        float minimumY = blockedCell.y * gridCellSize;
+        float maximumX = minimumX + gridCellSize;
+        float maximumY = minimumY + gridCellSize;
+        float inset = Mathf.Min(0.02f, gridCellSize * 0.01f);
+        Vector2Int[] directions =
+        {
+            Vector2Int.left,
+            Vector2Int.right,
+            Vector2Int.down,
+            Vector2Int.up
+        };
+        List<Vector2Int> bestCellPath = null;
+        Vector3 bestApproachPoint = Vector3.zero;
+        float bestPathLength = float.PositiveInfinity;
+
+        foreach (Vector2Int direction in directions)
+        {
+            Vector2Int approachCell = blockedCell + direction;
+            if (!IsCellInsideMap(approachCell) || IsCellBlocked(approachCell))
+            {
+                continue;
+            }
+
+            Vector3 approachPoint = GridCellToWorldPosition(approachCell, gridCellSize);
+            if (direction == Vector2Int.left)
+            {
+                approachPoint.x = minimumX - inset;
+                approachPoint.y = Mathf.Clamp(destination.y, minimumY + inset, maximumY - inset);
+            }
+            else if (direction == Vector2Int.right)
+            {
+                approachPoint.x = maximumX + inset;
+                approachPoint.y = Mathf.Clamp(destination.y, minimumY + inset, maximumY - inset);
+            }
+            else if (direction == Vector2Int.down)
+            {
+                approachPoint.y = minimumY - inset;
+                approachPoint.x = Mathf.Clamp(destination.x, minimumX + inset, maximumX - inset);
+            }
+            else
+            {
+                approachPoint.y = maximumY + inset;
+                approachPoint.x = Mathf.Clamp(destination.x, minimumX + inset, maximumX - inset);
+            }
+
+            if (Vector2.Distance(approachPoint, destination) > arrivalDistance
+                || !TryFindCellPath(startCell, approachCell, out List<Vector2Int> candidatePath))
+            {
+                continue;
+            }
+
+            float candidateLength = (candidatePath.Count - 1) * gridCellSize
+                + Vector2.Distance(GridCellToWorldPosition(approachCell, gridCellSize), approachPoint);
+            if (candidateLength >= bestPathLength)
+            {
+                continue;
+            }
+
+            bestPathLength = candidateLength;
+            bestCellPath = candidatePath;
+            bestApproachPoint = approachPoint;
+        }
+
+        if (bestCellPath == null)
+        {
+            return false;
+        }
+
+        waypoints = CreateWorldPath(bestCellPath, bestApproachPoint);
+        return true;
+    }
+
+    private bool TryFindCellPath(
+        Vector2Int startCell,
+        Vector2Int goalCell,
+        out List<Vector2Int> path)
+    {
+        path = null;
+        if (!IsCellInsideMap(startCell)
+            || !IsCellInsideMap(goalCell)
+            || IsCellBlocked(goalCell))
+        {
+            return false;
+        }
+
+        List<Vector2Int> openCells = new List<Vector2Int> { startCell };
+        HashSet<Vector2Int> closedCells = new HashSet<Vector2Int>();
+        Dictionary<Vector2Int, Vector2Int> previousCells = new Dictionary<Vector2Int, Vector2Int>();
+        Dictionary<Vector2Int, int> movementCosts = new Dictionary<Vector2Int, int>
+        {
+            { startCell, 0 }
+        };
+        Vector2Int[] directions =
+        {
+            Vector2Int.left,
+            Vector2Int.right,
+            Vector2Int.down,
+            Vector2Int.up
+        };
+
+        while (openCells.Count > 0)
+        {
+            int bestIndex = FindLowestCostCellIndex(openCells, movementCosts, goalCell);
+            Vector2Int currentCell = openCells[bestIndex];
+            openCells.RemoveAt(bestIndex);
+            if (currentCell == goalCell)
+            {
+                path = ReconstructCellPath(previousCells, startCell, goalCell);
+                return true;
+            }
+
+            closedCells.Add(currentCell);
+            foreach (Vector2Int direction in directions)
+            {
+                Vector2Int neighbor = currentCell + direction;
+                if (closedCells.Contains(neighbor)
+                    || !IsCellInsideMap(neighbor)
+                    || (neighbor != startCell && IsCellBlocked(neighbor)))
+                {
+                    continue;
+                }
+
+                int candidateCost = movementCosts[currentCell] + 1;
+                if (movementCosts.TryGetValue(neighbor, out int knownCost)
+                    && candidateCost >= knownCost)
+                {
+                    continue;
+                }
+
+                previousCells[neighbor] = currentCell;
+                movementCosts[neighbor] = candidateCost;
+                if (!openCells.Contains(neighbor))
+                {
+                    openCells.Add(neighbor);
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private int FindLowestCostCellIndex(
+        List<Vector2Int> openCells,
+        Dictionary<Vector2Int, int> movementCosts,
+        Vector2Int goalCell)
+    {
+        int bestIndex = 0;
+        int bestTotalCost = movementCosts[openCells[0]] + GetManhattanDistance(openCells[0], goalCell);
+        for (int index = 1; index < openCells.Count; index++)
+        {
+            Vector2Int cell = openCells[index];
+            int totalCost = movementCosts[cell] + GetManhattanDistance(cell, goalCell);
+            if (totalCost < bestTotalCost)
+            {
+                bestIndex = index;
+                bestTotalCost = totalCost;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private static int GetManhattanDistance(Vector2Int first, Vector2Int second)
+    {
+        return Mathf.Abs(first.x - second.x) + Mathf.Abs(first.y - second.y);
+    }
+
+    private static List<Vector2Int> ReconstructCellPath(
+        Dictionary<Vector2Int, Vector2Int> previousCells,
+        Vector2Int startCell,
+        Vector2Int goalCell)
+    {
+        List<Vector2Int> path = new List<Vector2Int> { goalCell };
+        Vector2Int currentCell = goalCell;
+        while (currentCell != startCell)
+        {
+            currentCell = previousCells[currentCell];
+            path.Add(currentCell);
+        }
+
+        path.Reverse();
+        return path;
+    }
+
+    private List<Vector3> CreateWorldPath(IReadOnlyList<Vector2Int> cellPath, Vector3 destination)
+    {
+        List<Vector3> waypoints = new List<Vector3>();
+        if (cellPath.Count > 1 && !IsCellBlocked(cellPath[0]))
+        {
+            Vector3 startCellCenter = GridCellToWorldPosition(cellPath[0], settings.gridCellSize);
+            startCellCenter.z = destination.z;
+            waypoints.Add(startCellCenter);
+        }
+
+        for (int index = 1; index < cellPath.Count; index++)
+        {
+            Vector3 waypoint = GridCellToWorldPosition(cellPath[index], settings.gridCellSize);
+            waypoint.z = destination.z;
+            waypoints.Add(waypoint);
+        }
+
+        if (waypoints.Count == 0
+            || (waypoints[waypoints.Count - 1] - destination).sqrMagnitude > Mathf.Epsilon)
+        {
+            waypoints.Add(destination);
+        }
+
+        return waypoints;
+    }
+
+    private bool IsCellBlocked(Vector2Int cell)
+    {
+        return resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
+            && resourceObject != null;
+    }
+
+    private bool IsCellInsideMap(Vector2Int cell)
+    {
+        Bounds cellBounds = GetGridCellBounds(cell);
+        Vector2 mapMinimum = (Vector2)transform.position - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)transform.position + mapSize * 0.5f;
+        Vector2 cellMinimum = (Vector2)cellBounds.min;
+        Vector2 cellMaximum = (Vector2)cellBounds.max;
+        return cellMinimum.x >= mapMinimum.x
+            && cellMinimum.y >= mapMinimum.y
+            && cellMaximum.x <= mapMaximum.x
+            && cellMaximum.y <= mapMaximum.y;
+    }
+
     public bool TryGetResourceObjectAtCell(Vector2Int cell, out ResourceObject resourceObject)
     {
         return resourceObjectsByCell.TryGetValue(cell, out resourceObject);
     }
 
     public bool TryGetClosestResourceObject(
+        Villager villager,
         ResourceType resourceType,
         Vector3 position,
         bool hasAxe,
         out ResourceObject closestResource)
     {
         closestResource = null;
+        if (villager == null)
+        {
+            return false;
+        }
+
         float closestDistanceSquared = float.PositiveInfinity;
         foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
         {
@@ -109,6 +397,19 @@ public class MapManager : MonoBehaviour
                 continue;
             }
 
+            if (resourceReservations.TryGetValue(resourceObject, out Villager reservingVillager))
+            {
+                if (reservingVillager != null && reservingVillager != villager)
+                {
+                    continue;
+                }
+
+                if (reservingVillager == null)
+                {
+                    resourceReservations.Remove(resourceObject);
+                }
+            }
+
             float distanceSquared = (resourceObject.transform.position - position).sqrMagnitude;
             if (distanceSquared < closestDistanceSquared)
             {
@@ -117,18 +418,40 @@ public class MapManager : MonoBehaviour
             }
         }
 
-        return closestResource != null;
+        if (closestResource == null)
+        {
+            return false;
+        }
+
+        resourceReservations[closestResource] = villager;
+        return true;
+    }
+
+    public void ReleaseResourceReservation(ResourceObject resourceObject, Villager villager)
+    {
+        if (ReferenceEquals(resourceObject, null)
+            || !resourceReservations.TryGetValue(resourceObject, out Villager reservingVillager)
+            || reservingVillager != villager)
+        {
+            return;
+        }
+
+        resourceReservations.Remove(resourceObject);
     }
 
     public bool TryGatherResource(
+        Villager villager,
         ResourceObject resourceObject,
         int requestedAmount,
         bool hasAxe,
         out int gatheredAmount)
     {
         gatheredAmount = 0;
-        if (resourceObject == null
+        if (villager == null
+            || resourceObject == null
             || requestedAmount <= 0
+            || !resourceReservations.TryGetValue(resourceObject, out Villager reservingVillager)
+            || reservingVillager != villager
             || !resourceObject.HasGridCell
             || !resourceObjectsByCell.TryGetValue(resourceObject.GridCell, out ResourceObject registeredObject)
             || registeredObject != resourceObject)
@@ -140,6 +463,8 @@ public class MapManager : MonoBehaviour
         if (resourceObject.Amount == 0)
         {
             resourceObjectsByCell.Remove(resourceObject.GridCell);
+            ReleaseResourceReservation(resourceObject, villager);
+            PathfindingRevision++;
             Destroy(resourceObject.gameObject);
         }
 
@@ -217,6 +542,74 @@ public class MapManager : MonoBehaviour
         }
 
         claimedHousePlots.Remove(villager);
+    }
+
+    private void CancelUnstartedHousePlotsIntersecting(HashSet<Vector2Int> roadCellsToAdd)
+    {
+        List<Villager> villagersToCancel = new List<Villager>();
+        foreach (KeyValuePair<Villager, HousePlotRecord> claimedPlot in claimedHousePlots)
+        {
+            Villager villager = claimedPlot.Key;
+            HousePlotRecord housePlot = claimedPlot.Value;
+            if (villager == null
+                || housePlot == null
+                || villager.HousingState == VillagerHousingState.BuildingHouse
+                || villager.HousingState == VillagerHousingState.Housed)
+            {
+                continue;
+            }
+
+            bool intersectsRoad = false;
+            for (int x = 0; x < housePlot.dimensions.x && !intersectsRoad; x++)
+            {
+                for (int y = 0; y < housePlot.dimensions.y; y++)
+                {
+                    if (roadCellsToAdd.Contains(new Vector2Int(
+                            housePlot.originCell.x + x,
+                            housePlot.originCell.y + y)))
+                    {
+                        intersectsRoad = true;
+                        break;
+                    }
+                }
+            }
+
+            if (intersectsRoad)
+            {
+                villagersToCancel.Add(villager);
+            }
+        }
+
+        foreach (Villager villager in villagersToCancel)
+        {
+            villager.CancelHousePlotForRoad();
+        }
+    }
+
+    private bool IsOccupiedByStartedHouse(Vector2Int cell)
+    {
+        foreach (KeyValuePair<Villager, HousePlotRecord> claimedPlot in claimedHousePlots)
+        {
+            Villager villager = claimedPlot.Key;
+            HousePlotRecord housePlot = claimedPlot.Value;
+            if (villager == null
+                || housePlot == null
+                || (villager.HousingState != VillagerHousingState.BuildingHouse
+                    && villager.HousingState != VillagerHousingState.Housed))
+            {
+                continue;
+            }
+
+            if (cell.x >= housePlot.originCell.x
+                && cell.x < housePlot.originCell.x + housePlot.dimensions.x
+                && cell.y >= housePlot.originCell.y
+                && cell.y < housePlot.originCell.y + housePlot.dimensions.y)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private bool TryFindAvailableHousePlot(Vector2Int dimensions, out HousePlotRecord housePlot)
@@ -540,7 +933,6 @@ public class MapManager : MonoBehaviour
         closestPoint = Vector3.zero;
         distance = float.PositiveInfinity;
         float closestDistanceSquared = float.PositiveInfinity;
-        int equallyCloseSegmentCount = 0;
         Vector2 position2D = position;
 
         foreach (RoadRecord road in roads)
@@ -572,22 +964,11 @@ public class MapManager : MonoBehaviour
                     closestSegmentStart = segmentStart;
                     closestSegmentEnd = segmentEnd;
                     closestPoint = candidate;
-                    equallyCloseSegmentCount = 1;
-                }
-                else if (Mathf.Abs(distanceSquared - closestDistanceSquared) <= 0.0001f)
-                {
-                    equallyCloseSegmentCount++;
-                    if (UnityEngine.Random.Range(0, equallyCloseSegmentCount) == 0)
-                    {
-                        closestSegmentStart = segmentStart;
-                        closestSegmentEnd = segmentEnd;
-                        closestPoint = candidate;
-                    }
                 }
             }
         }
 
-        if (equallyCloseSegmentCount == 0)
+        if (float.IsPositiveInfinity(closestDistanceSquared))
         {
             return false;
         }
@@ -802,6 +1183,7 @@ public class MapManager : MonoBehaviour
             resourceObject.SetGridCell(cell);
             resourceObjectsByCell.Add(cell, resourceObject);
             occupiedCells.Add(cell);
+            PathfindingRevision++;
             spawnedTreeCount++;
         }
 
@@ -1051,6 +1433,21 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
+        HashSet<Vector2Int> cellsToAdd = new HashSet<Vector2Int>();
+        for (int pathIndex = 0; pathIndex < roadPath.Count - 1; pathIndex++)
+        {
+            List<Vector2Int> cells = CreateGridCellPath(
+                WorldPositionToGridCell(roadPath[pathIndex], settings.gridCellSize),
+                WorldPositionToGridCell(roadPath[pathIndex + 1], settings.gridCellSize),
+                false);
+            foreach (Vector2Int cell in cells)
+            {
+                cellsToAdd.Add(cell);
+            }
+        }
+
+        CancelUnstartedHousePlotsIntersecting(cellsToAdd);
+
         GameOverlord gameOverlord = GameOverlord.Instance;
         for (int segmentIndex = 0; segmentIndex < roadPath.Count - 1; segmentIndex++)
         {
@@ -1076,19 +1473,13 @@ public class MapManager : MonoBehaviour
             }
         }
 
-        for (int pathIndex = 0; pathIndex < roadPath.Count - 1; pathIndex++)
+        foreach (Vector2Int cell in cellsToAdd)
         {
-            List<Vector2Int> cells = CreateGridCellPath(
-                WorldPositionToGridCell(roadPath[pathIndex], settings.gridCellSize),
-                WorldPositionToGridCell(roadPath[pathIndex + 1], settings.gridCellSize),
-                true);
-            foreach (Vector2Int cell in cells)
-            {
-                roadCells.Add(cell);
-            }
+            roadCells.Add(cell);
         }
 
         roads.Add(new RoadRecord { keyPoints = new List<Vector3>(roadPath) });
+        RoadRevision++;
         return true;
     }
 
@@ -1127,7 +1518,7 @@ public class MapManager : MonoBehaviour
 
         foreach (Vector3 pathPoint in roadPath)
         {
-            if (claimedHouseCells.Contains(WorldPositionToGridCell(pathPoint, settings.gridCellSize)))
+            if (IsOccupiedByStartedHouse(WorldPositionToGridCell(pathPoint, settings.gridCellSize)))
             {
                 failureReason = "The road intersects a claimed house plot.";
                 return false;
@@ -1139,10 +1530,10 @@ public class MapManager : MonoBehaviour
             List<Vector2Int> cells = CreateGridCellPath(
                 WorldPositionToGridCell(roadPath[pathIndex], settings.gridCellSize),
                 WorldPositionToGridCell(roadPath[pathIndex + 1], settings.gridCellSize),
-                true);
+                false);
             foreach (Vector2Int cell in cells)
             {
-                if (claimedHouseCells.Contains(cell))
+                if (IsOccupiedByStartedHouse(cell))
                 {
                     failureReason = "The road intersects a claimed house plot.";
                     return false;
@@ -1351,7 +1742,10 @@ public class MapManager : MonoBehaviour
         return path;
     }
 
-    private List<Vector2Int> CreateGridCellPath(Vector2Int startCell, Vector2Int endCell, bool allowDiagonalSteps)
+    private List<Vector2Int> CreateGridCellPath(
+        Vector2Int startCell,
+        Vector2Int endCell,
+        bool allowDiagonalSteps)
     {
         List<Vector2Int> cells = new List<Vector2Int> { startCell };
         int x = startCell.x;

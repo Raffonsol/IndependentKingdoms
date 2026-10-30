@@ -348,6 +348,8 @@ public class GameData
                 || villagerSettings.roadDetectionDistance < 0f
                 || villagerSettings.roadSearchDistance < villagerSettings.roadDetectionDistance
                 || villagerSettings.runningSpeed <= 0f
+                || villagerSettings.reactionTimeRange.x < 0f
+                || villagerSettings.reactionTimeRange.y < villagerSettings.reactionTimeRange.x
                 || villagerSettings.gatheringDistance < 0f
                 || villagerSettings.gatheringPauseDurationSeconds < 0f
                 || villagerSettings.handMotionDurationSeconds <= 0f

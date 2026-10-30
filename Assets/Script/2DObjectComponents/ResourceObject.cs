@@ -26,6 +26,8 @@ public class ResourceObject : MonoBehaviour
         get { return remainingAmount; }
     }
 
+    public Vector2Int InteractionOffset { get; private set; }
+
     private void Awake()
     {
         GameData gameData = GameData.Instance;
@@ -38,6 +40,7 @@ public class ResourceObject : MonoBehaviour
 
         remainingAmount = definition.fullCutAmount;
         remainingBareHandAmount = definition.bareHandAmount;
+        InteractionOffset = definition.interactionOffset;
         startingLocalPosition = transform.localPosition;
     }
 

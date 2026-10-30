@@ -189,6 +189,7 @@ MonoBehaviour:
   showDebugGrid: 0
   debugGridColor: {r: 0.1, g: 0.85, b: 1, a: 0.55}
   debugOccupiedCellFillColor: {r: 1, g: 0.2, b: 0.1, a: 0.3}
+  debugRoadCellFillColor: {r: 0.1, g: 1, b: 0.2, a: 0.45}
   debugGridLineWidth: 1
 --- !u!1 &47875112
 GameObject:

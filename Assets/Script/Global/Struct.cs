@@ -187,6 +187,7 @@ public class VillagerSettings
     public float roadDetectionDistance = 2f;
     public float roadSearchDistance = 35f;
     public float runningSpeed = 4f;
+    public Vector2 reactionTimeRange = new Vector2(0.5f, 1.3f);
     public float gatheringDistance = 1.2f;
     public float gatheringPauseDurationSeconds = 1.65f;
     public float handMotionDurationSeconds = 0.35f;
@@ -319,6 +320,7 @@ public class Person
     public string familyName;
     public int age;
     public bool isMale;
+    public float reactionTime;
 
     public string skinColor;
     public string hairColor;
@@ -388,6 +390,7 @@ public class ResourceDefinition
     public int initialAmount;
     public int fullCutAmount;
     public int bareHandAmount;
+    public Vector2Int interactionOffset;
 }
 
 [Serializable]
