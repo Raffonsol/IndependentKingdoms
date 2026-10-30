@@ -22,6 +22,8 @@ public class GameData
     public UISettings uiSettings;
     public MapSettings mapSettings;
     public PlayerSettings playerSettings;
+    public HouseSettings houseSettings;
+    public VillagerSettings villagerSettings;
     public ResourceDefinition[] resourceDefinitions;
     public NamePart[] nameParts;
 
@@ -35,6 +37,8 @@ public class GameData
             uiSettings = gameSettings.uiSettings,
             mapSettings = gameSettings.mapSettings,
             playerSettings = gameSettings.playerSettings,
+            houseSettings = gameSettings.houseSettings,
+            villagerSettings = gameSettings.villagerSettings,
             resourceDefinitions = LoadResourceDefinitions(),
             nameParts = LoadNameParts()
         };
@@ -250,9 +254,11 @@ public class GameData
             if (settings == null
                 || settings.uiSettings == null
                 || settings.mapSettings == null
-                || settings.playerSettings == null)
+                || settings.playerSettings == null
+                || settings.houseSettings == null
+                || settings.villagerSettings == null)
             {
-                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, and playerSettings.");
+                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, and villagerSettings.");
                 return new GameSettingsCollection();
             }
 
@@ -272,6 +278,51 @@ public class GameData
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json cannot have a negative initialVillagerCount. Using the default value of 8.");
                 settings.playerSettings.initialVillagerCount = 8;
+            }
+
+            if (settings.houseSettings.defaultHouseDimensions.x <= 0
+                || settings.houseSettings.defaultHouseDimensions.y <= 0
+                || settings.houseSettings.constructionDurationSeconds <= 0f
+                || settings.houseSettings.baseHouseCosts == null
+                || settings.houseSettings.baseHouseCosts.Length == 0)
+            {
+                Debug.LogError("House settings must define positive dimensions and construction duration, and at least one resource cost.");
+                return new GameSettingsCollection();
+            }
+
+            bool[] configuredHouseCosts = new bool[Enum.GetValues(typeof(ResourceType)).Length];
+            foreach (ResourceCost cost in settings.houseSettings.baseHouseCosts)
+            {
+                if (cost == null
+                    || !Enum.IsDefined(typeof(ResourceType), cost.resourceType)
+                    || cost.amount <= 0)
+                {
+                    Debug.LogError("House resource costs must use valid resource types and positive amounts.");
+                    return new GameSettingsCollection();
+                }
+
+                int resourceIndex = Convert.ToInt32(cost.resourceType);
+                if (resourceIndex < 0
+                    || resourceIndex >= configuredHouseCosts.Length
+                    || configuredHouseCosts[resourceIndex])
+                {
+                    Debug.LogError("House resource costs must contain at most one entry per ResourceType.");
+                    return new GameSettingsCollection();
+                }
+
+                configuredHouseCosts[resourceIndex] = true;
+            }
+
+            VillagerSettings villagerSettings = settings.villagerSettings;
+            if (villagerSettings.idleBehaviorDuration <= 0f
+                || villagerSettings.roadDetectionDistance < 0f
+                || villagerSettings.roadSearchDistance < villagerSettings.roadDetectionDistance
+                || villagerSettings.runningSpeed <= 0f
+                || villagerSettings.gatheringDistance < 0f
+                || villagerSettings.gatheringIntervalSeconds <= 0f)
+            {
+                Debug.LogError("Villager settings contain invalid movement or gathering values.");
+                return new GameSettingsCollection();
             }
 
             return settings;

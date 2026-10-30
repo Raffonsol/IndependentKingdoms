@@ -2,21 +2,12 @@ using UnityEngine;
 
 public class Villager : Mover
 {
-    [SerializeField, Min(0.1f)] private float idleBehaviorDuration = 30f;
-    [SerializeField, Min(0f)] private float roadDetectionDistance = 1.5f;
-    [SerializeField, Min(0f)] private float roadSearchDistance = 6f;
-    [SerializeField, Min(0f)] private float runningSpeed = 4f;
     [SerializeField] private VillagerBehaviorStage currentBehavior;
     [SerializeField, Min(0f)] private float behaviorTimer;
 
     public Person Person { get; private set; }
     public Transform HoverAnchor { get; private set; }
-
-    private bool isInMovementPhase;
-    private bool isRoadMovementPhase;
-    private float movementPhaseTimer;
-    private bool loggedMissingMapManager;
-
+    public VillagerHousingState HousingState { get; private set; }
     public VillagerBehaviorStage CurrentBehavior
     {
         get { return currentBehavior; }
@@ -29,9 +20,21 @@ public class Villager : Mover
 
     public bool IsLookingForStreet { get; private set; }
 
+    private VillagerSettings settings;
+    private HouseSettings houseSettings;
+    private HousePlotRecord housePlot;
+    private GameObject claimedSpaceObject;
+    private ResourceObject gatheringResource;
+    private float movementPhaseTimer;
+    private float gatheringTimer;
+    private float constructionTimer;
+    private bool isInMovementPhase;
+    private bool loggedMissingMapManager;
+    private bool loggedMissingPlayer;
+
     protected override bool ShouldAvoidResourceObjects()
     {
-        return currentBehavior != null && currentBehavior.mode == VillagerBehaviorMode.Idle;
+        return false;
     }
 
     public void ConfigureIdentity(Person person, Transform hoverAnchor)
@@ -54,53 +57,235 @@ public class Villager : Mover
 
     private void Start()
     {
-        VillagerBehaviorMode initialMode = currentBehavior == null
-            ? VillagerBehaviorMode.Idle
-            : currentBehavior.mode;
-        float initialDuration = currentBehavior == null
-            ? idleBehaviorDuration
-            : currentBehavior.duration;
-        EnterBehavior(initialMode, initialDuration);
+        GameData gameData = GameData.Instance;
+        settings = gameData.villagerSettings;
+        houseSettings = gameData.houseSettings;
+        if (settings == null || houseSettings == null)
+        {
+            Debug.LogError("Villager and house settings could not be loaded from GameData.", this);
+            enabled = false;
+            return;
+        }
+
+        HousingState = VillagerHousingState.FindingRoad;
+        EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
     }
 
     protected override void Update()
     {
-        if (currentBehavior == null)
+        if (settings == null || houseSettings == null)
         {
-            EnterBehavior(VillagerBehaviorMode.Idle, idleBehaviorDuration);
+            return;
         }
 
         behaviorTimer += Time.deltaTime;
-        if (behaviorTimer >= currentBehavior.duration)
+        switch (HousingState)
         {
-            EnterBehavior(DecideNextBehavior(), idleBehaviorDuration);
+            case VillagerHousingState.FindingRoad:
+                UpdateFindingRoad();
+                break;
+            case VillagerHousingState.ClaimingHousePlot:
+                UpdateClaimingHousePlot();
+                break;
+            case VillagerHousingState.GatheringHouseResources:
+                UpdateGatheringHouseResources();
+                break;
+            case VillagerHousingState.BuildingHouse:
+                UpdateBuildingHouse();
+                break;
+            case VillagerHousingState.Housed:
+                StopMoving();
+                break;
         }
 
-        UpdateRoadBehavior();
         base.Update();
     }
 
-    private void EnterBehavior(VillagerBehaviorMode mode, float duration)
+    private void UpdateFindingRoad()
     {
-        currentBehavior = new VillagerBehaviorStage
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
         {
-            mode = mode,
-            duration = Mathf.Max(0.1f, duration),
-            isPrimary = true
-        };
-        behaviorTimer = 0f;
-        isInMovementPhase = false;
-        movementPhaseTimer = 0f;
+            if (!loggedMissingMapManager)
+            {
+                Debug.LogError("Villager housing requires an active MapManager.", this);
+                loggedMissingMapManager = true;
+            }
 
-        if (mode == VillagerBehaviorMode.Idle)
+            StopMoving();
+            return;
+        }
+
+        loggedMissingMapManager = false;
+        bool foundRoad = mapManager.TryGetClosestRoadPoint(
+            transform.position,
+            out Vector3 closestRoadPoint,
+            out float roadDistance);
+        if (foundRoad && roadDistance <= settings.roadDetectionDistance)
         {
-            BeginMovementPhase();
+            IsLookingForStreet = false;
+            StopMoving();
+            HousingState = VillagerHousingState.ClaimingHousePlot;
+            EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+            return;
+        }
+
+        IsLookingForStreet = true;
+        if (foundRoad)
+        {
+            isInMovementPhase = false;
+            SetMovementSpeed(roadDistance <= settings.roadSearchDistance
+                ? DefaultMovementSpeed
+                : settings.runningSpeed);
+            MoveTo(closestRoadPoint);
+            return;
+        }
+
+        SetMovementSpeed(settings.runningSpeed);
+        MoveAround();
+    }
+
+    private void UpdateClaimingHousePlot()
+    {
+        StopMoving();
+        Player player = Player.Instance;
+        MapManager mapManager = MapManager.Instance;
+        if (player == null || mapManager == null)
+        {
+            if (!loggedMissingPlayer)
+            {
+                Debug.LogError("Villager house claiming requires active Player and MapManager components.", this);
+                loggedMissingPlayer = true;
+            }
+
+            return;
+        }
+
+        loggedMissingPlayer = false;
+        if (!player.HasClaimedSpacePrefab)
+        {
+            return;
+        }
+
+        if (!mapManager.TryClaimHousePlot(this, houseSettings.defaultHouseDimensions, out housePlot))
+        {
+            return;
+        }
+
+        claimedSpaceObject = player.PlaceClaimedSpace(housePlot);
+        if (claimedSpaceObject == null)
+        {
+            mapManager.ReleaseHousePlot(this);
+            housePlot = null;
+            return;
+        }
+
+        HousingState = VillagerHousingState.GatheringHouseResources;
+        EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+    }
+
+    private void UpdateGatheringHouseResources()
+    {
+        StopMoving();
+        Player player = Player.Instance;
+        MapManager mapManager = MapManager.Instance;
+        if (player == null || mapManager == null)
+        {
+            return;
+        }
+
+        if (HasHouseResources(player))
+        {
+            if (!player.TrySpendResourceCosts(houseSettings.baseHouseCosts))
+            {
+                return;
+            }
+
+            HousingState = VillagerHousingState.BuildingHouse;
+            constructionTimer = 0f;
+            gatheringResource = null;
+            EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+            return;
+        }
+
+        ResourceCost missingCost = FindMissingHouseCost(player);
+        if (missingCost == null)
+        {
+            return;
+        }
+
+        if (gatheringResource == null
+            || gatheringResource.Amount <= 0
+            || gatheringResource.Type != missingCost.resourceType)
+        {
+            if (!mapManager.TryGetClosestResourceObject(
+                    missingCost.resourceType,
+                    transform.position,
+                    out gatheringResource))
+            {
+                StopMoving();
+                return;
+            }
+        }
+
+        float distance = Vector2.Distance(transform.position, gatheringResource.transform.position);
+        if (distance > settings.gatheringDistance)
+        {
+            gatheringTimer = 0f;
+            MoveTo(gatheringResource.transform.position);
+            return;
+        }
+
+        StopMoving();
+        gatheringTimer += Time.deltaTime;
+        if (gatheringTimer < settings.gatheringIntervalSeconds)
+        {
+            return;
+        }
+
+        gatheringTimer = 0f;
+        if (mapManager.TryGatherResource(gatheringResource, 1, out int gatheredAmount))
+        {
+            player.TryAddResourceAmount(missingCost.resourceType, gatheredAmount);
         }
         else
         {
-            isRoadMovementPhase = false;
-            StopMoving();
+            gatheringResource = null;
         }
+    }
+
+    private void UpdateBuildingHouse()
+    {
+        StopMoving();
+        constructionTimer += Time.deltaTime;
+        if (constructionTimer < houseSettings.constructionDurationSeconds)
+        {
+            return;
+        }
+
+        HousingState = VillagerHousingState.Housed;
+        EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+        StopMoving();
+    }
+
+    private bool HasHouseResources(Player player)
+    {
+        return FindMissingHouseCost(player) == null;
+    }
+
+    private ResourceCost FindMissingHouseCost(Player player)
+    {
+        foreach (ResourceCost cost in houseSettings.baseHouseCosts)
+        {
+            if (cost != null
+                && (!player.TryGetResourceAmount(cost.resourceType, out int amount)
+                    || amount < cost.amount))
+            {
+                return cost;
+            }
+        }
+
+        return null;
     }
 
     private void MoveAround()
@@ -119,149 +304,37 @@ public class Villager : Mover
         }
         else
         {
-            BeginMovementPhase();
+            Move(Random.Range(0f, 360f));
+            isInMovementPhase = true;
+            movementPhaseTimer = Random.Range(MovementDurationRange.x, MovementDurationRange.y);
         }
     }
 
-    private void UpdateRoadBehavior()
+    private void EnterBehavior(VillagerBehaviorMode mode, float duration)
+    {
+        currentBehavior = new VillagerBehaviorStage
+        {
+            mode = mode,
+            duration = Mathf.Max(0.1f, duration),
+            isPrimary = true
+        };
+        behaviorTimer = 0f;
+        isInMovementPhase = false;
+        movementPhaseTimer = 0f;
+        StopMoving();
+    }
+
+    private void OnDestroy()
     {
         MapManager mapManager = MapManager.Instance;
-        if (mapManager == null)
+        if (mapManager != null && HousingState != VillagerHousingState.Housed)
         {
-            if (!loggedMissingMapManager)
-            {
-                Debug.LogError(
-                    "Villager road behavior requires an active MapManager.",
-                    this);
-                loggedMissingMapManager = true;
-            }
-
-            IsLookingForStreet = true;
-            isInMovementPhase = false;
-            isRoadMovementPhase = false;
-            movementPhaseTimer = 0f;
-            StopMoving();
-            return;
+            mapManager.ReleaseHousePlot(this);
         }
 
-        loggedMissingMapManager = false;
-        Vector3 position = transform.position;
-        bool foundRoad = mapManager.TryGetClosestRoadPoint(
-            position,
-            out Vector3 closestRoadPoint,
-            out float roadDistance);
-        if (foundRoad && roadDistance <= roadDetectionDistance)
+        if (HousingState != VillagerHousingState.Housed && claimedSpaceObject != null)
         {
-            if (IsLookingForStreet)
-            {
-                isInMovementPhase = false;
-                isRoadMovementPhase = false;
-                movementPhaseTimer = 0f;
-                StopMoving();
-            }
-
-            IsLookingForStreet = false;
-            SetMovementSpeed(DefaultMovementSpeed);
-            if (currentBehavior.mode == VillagerBehaviorMode.Idle)
-            {
-                if (!isRoadMovementPhase)
-                {
-                    isInMovementPhase = false;
-                    movementPhaseTimer = 0f;
-                    StopMoving();
-                    isRoadMovementPhase = true;
-                }
-
-                MoveAroundOnRoad(mapManager);
-            }
-            else
-            {
-                isInMovementPhase = false;
-                isRoadMovementPhase = false;
-                StopMoving();
-            }
-
-            return;
+            Destroy(claimedSpaceObject);
         }
-
-        if (!IsLookingForStreet)
-        {
-            isInMovementPhase = false;
-            isRoadMovementPhase = false;
-            movementPhaseTimer = 0f;
-            StopMoving();
-        }
-
-        IsLookingForStreet = true;
-        if (foundRoad && roadDistance <= roadSearchDistance)
-        {
-            SetMovementSpeed(DefaultMovementSpeed);
-            isInMovementPhase = false;
-            isRoadMovementPhase = false;
-            movementPhaseTimer = 0f;
-            MoveTo(closestRoadPoint);
-            return;
-        }
-
-        SetMovementSpeed(runningSpeed);
-        isRoadMovementPhase = false;
-        MoveAround();
-    }
-
-    private void MoveAroundOnRoad(MapManager mapManager)
-    {
-        movementPhaseTimer -= Time.deltaTime;
-        if (movementPhaseTimer > 0f)
-        {
-            return;
-        }
-
-        if (isInMovementPhase)
-        {
-            StopMoving();
-            isInMovementPhase = false;
-            movementPhaseTimer = Random.Range(IdleDurationRange.x, IdleDurationRange.y);
-            return;
-        }
-
-        float desiredTravelDistance = MovementSpeed
-            * Random.Range(MovementDurationRange.x, MovementDurationRange.y);
-        if (!mapManager.TryGetRoadWanderTarget(
-                transform.position,
-                desiredTravelDistance,
-                out Vector3 target))
-        {
-            StopMoving();
-            isRoadMovementPhase = true;
-            movementPhaseTimer = Random.Range(IdleDurationRange.x, IdleDurationRange.y);
-            return;
-        }
-
-        float travelDistance = Vector2.Distance(transform.position, target);
-        if (travelDistance <= 0.01f)
-        {
-            StopMoving();
-            isRoadMovementPhase = true;
-            movementPhaseTimer = Random.Range(IdleDurationRange.x, IdleDurationRange.y);
-            return;
-        }
-
-        MoveTo(target);
-        isInMovementPhase = true;
-        isRoadMovementPhase = true;
-        movementPhaseTimer = travelDistance / Mathf.Max(MovementSpeed, 0.01f);
-    }
-
-    private void BeginMovementPhase()
-    {
-        Move(Random.Range(0f, 360f));
-        isInMovementPhase = true;
-        isRoadMovementPhase = false;
-        movementPhaseTimer = Random.Range(MovementDurationRange.x, MovementDurationRange.y);
-    }
-
-    private VillagerBehaviorMode DecideNextBehavior()
-    {
-        return VillagerBehaviorMode.Idle;
     }
 }

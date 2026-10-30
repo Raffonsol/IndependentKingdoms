@@ -186,7 +186,7 @@ MonoBehaviour:
   roadPreviewPrefab: {fileID: -4482451744762148520, guid: 1ec9c2ebad1c0004fb91ec2410c3c082, type: 3}
   villagerOffscreenIndicatorSprite: {fileID: 4803081123936338435, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   villagerHoverTooltipPrefab: {fileID: 5239101218344244992, guid: 5475a189b8c1c514984ab5b3a9637ea4, type: 3}
-  showDebugGrid: 1
+  showDebugGrid: 0
   debugGridColor: {r: 0.1, g: 0.85, b: 1, a: 0.55}
   debugOccupiedCellFillColor: {r: 1, g: 0.2, b: 0.1, a: 0.3}
   debugGridLineWidth: 1
@@ -509,7 +509,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 60191c51f0c571a4a9bbc1aa7aec2dc4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameOverlord
-  baseBodyPrefab: {fileID: 9206597002220656848, guid: a02c9f7d9ce1224439485fdb66374d4e, type: 3}
   roadTilePrefab: {fileID: 4726614355224352886, guid: db5709a2e7025584faef6d9ec1d61171, type: 3}
 --- !u!4 &317507342
 Transform:
@@ -538,6 +537,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 43a14509d43caca4a8cb914f32da4802, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Player
+  baseBodyPrefab: {fileID: 9206597002220656848, guid: a02c9f7d9ce1224439485fdb66374d4e, type: 3}
+  claimedSpacePrefab: {fileID: 4726614355224352886, guid: 1ec9c2ebad1c0004fb91ec2410c3c082, type: 3}
 --- !u!1 &326455561
 GameObject:
   m_ObjectHideFlags: 0
@@ -2000,7 +2001,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::MapManager
   mapSize: {x: 1000, y: 1000}
   treePrefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
-  treeCount: 200
+  treeCount: 700
   treeEdgePadding: 2
   minimumTreeSpacing: 3
   treePlacementAttemptsPerTree: 6

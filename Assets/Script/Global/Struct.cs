@@ -163,11 +163,59 @@ public class PlayerSettings
 }
 
 [Serializable]
+public class ResourceCost
+{
+    public ResourceType resourceType;
+    public int amount;
+}
+
+[Serializable]
+public class HouseSettings
+{
+    public Vector2Int defaultHouseDimensions = new Vector2Int(3, 3);
+    public ResourceCost[] baseHouseCosts =
+    {
+        new ResourceCost { resourceType = ResourceType.Wood, amount = 10 }
+    };
+    public float constructionDurationSeconds = 15f;
+}
+
+[Serializable]
+public class VillagerSettings
+{
+    public float idleBehaviorDuration = 30f;
+    public float roadDetectionDistance = 2f;
+    public float roadSearchDistance = 35f;
+    public float runningSpeed = 4f;
+    public float gatheringDistance = 1.2f;
+    public float gatheringIntervalSeconds = 2f;
+}
+
+[Serializable]
 public class GameSettingsCollection
 {
     public UISettings uiSettings = new UISettings();
     public MapSettings mapSettings = new MapSettings();
     public PlayerSettings playerSettings = new PlayerSettings();
+    public HouseSettings houseSettings = new HouseSettings();
+    public VillagerSettings villagerSettings = new VillagerSettings();
+}
+
+public enum VillagerHousingState
+{
+    FindingRoad,
+    ClaimingHousePlot,
+    GatheringHouseResources,
+    BuildingHouse,
+    Housed
+}
+
+[Serializable]
+public class HousePlotRecord
+{
+    public Vector2Int originCell;
+    public Vector2Int dimensions;
+    public Vector3 center;
 }
 
 // AI

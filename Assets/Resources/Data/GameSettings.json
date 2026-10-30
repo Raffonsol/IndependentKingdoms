@@ -22,5 +22,20 @@
         "initialVillagerCount": 8,
         "manaGainIntervalSeconds": 5,
         "manaGainAmount": 1
+    },
+    "houseSettings": {
+        "defaultHouseDimensions": { "x": 5, "y": 5 },
+        "baseHouseCosts": [
+            { "resourceType": 3, "amount": 8 }
+        ],
+        "constructionDurationSeconds": 15
+    },
+    "villagerSettings": {
+        "idleBehaviorDuration": 30,
+        "roadDetectionDistance": 2,
+        "roadSearchDistance": 35,
+        "runningSpeed": 4,
+        "gatheringDistance": 1.2,
+        "gatheringIntervalSeconds": 2
     }
 }

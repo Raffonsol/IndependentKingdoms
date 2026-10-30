@@ -19,6 +19,18 @@ public class ResourceObject : MonoBehaviour
         get { return amount; }
     }
 
+    public int Take(int requestedAmount)
+    {
+        if (requestedAmount <= 0 || amount <= 0)
+        {
+            return 0;
+        }
+
+        int takenAmount = Mathf.Min(requestedAmount, amount);
+        amount -= takenAmount;
+        return takenAmount;
+    }
+
     public void SetGridCell(Vector2Int gridCell)
     {
         GridCell = gridCell;

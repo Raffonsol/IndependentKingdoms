@@ -20,8 +20,13 @@ public class MapManager : MonoBehaviour
 
     private readonly List<Vector3> roadKeyPoints = new List<Vector3>();
     private readonly List<RoadRecord> roads = new List<RoadRecord>();
+    private readonly HashSet<Vector2Int> roadCells = new HashSet<Vector2Int>();
     private readonly Dictionary<Vector2Int, ResourceObject> resourceObjectsByCell =
         new Dictionary<Vector2Int, ResourceObject>();
+    private readonly HashSet<Vector2Int> claimedHouseCells = new HashSet<Vector2Int>();
+    private readonly List<Villager> housePlotQueue = new List<Villager>();
+    private readonly Dictionary<Villager, HousePlotRecord> claimedHousePlots =
+        new Dictionary<Villager, HousePlotRecord>();
 
     [SerializeField] private Vector2 mapSize = new Vector2(100f, 100f);
     [SerializeField] private GameObject treePrefab;
@@ -85,6 +90,204 @@ public class MapManager : MonoBehaviour
     public bool TryGetResourceObjectAtCell(Vector2Int cell, out ResourceObject resourceObject)
     {
         return resourceObjectsByCell.TryGetValue(cell, out resourceObject);
+    }
+
+    public bool TryGetClosestResourceObject(
+        ResourceType resourceType,
+        Vector3 position,
+        out ResourceObject closestResource)
+    {
+        closestResource = null;
+        float closestDistanceSquared = float.PositiveInfinity;
+        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        {
+            if (resourceObject == null || resourceObject.Type != resourceType || resourceObject.Amount <= 0)
+            {
+                continue;
+            }
+
+            float distanceSquared = (resourceObject.transform.position - position).sqrMagnitude;
+            if (distanceSquared < closestDistanceSquared)
+            {
+                closestDistanceSquared = distanceSquared;
+                closestResource = resourceObject;
+            }
+        }
+
+        return closestResource != null;
+    }
+
+    public bool TryGatherResource(ResourceObject resourceObject, int requestedAmount, out int gatheredAmount)
+    {
+        gatheredAmount = 0;
+        if (resourceObject == null
+            || requestedAmount <= 0
+            || !resourceObject.HasGridCell
+            || !resourceObjectsByCell.TryGetValue(resourceObject.GridCell, out ResourceObject registeredObject)
+            || registeredObject != resourceObject)
+        {
+            return false;
+        }
+
+        gatheredAmount = resourceObject.Take(requestedAmount);
+        if (resourceObject.Amount == 0)
+        {
+            resourceObjectsByCell.Remove(resourceObject.GridCell);
+            Destroy(resourceObject.gameObject);
+        }
+
+        return gatheredAmount > 0;
+    }
+
+    public bool TryClaimHousePlot(
+        Villager villager,
+        Vector2Int dimensions,
+        out HousePlotRecord housePlot)
+    {
+        housePlot = null;
+        if (villager == null || dimensions.x <= 0 || dimensions.y <= 0 || GridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        if (claimedHousePlots.TryGetValue(villager, out housePlot))
+        {
+            return true;
+        }
+
+        housePlotQueue.RemoveAll(queuedVillager => queuedVillager == null);
+        if (!housePlotQueue.Contains(villager))
+        {
+            housePlotQueue.Add(villager);
+        }
+
+        if (housePlotQueue.Count == 0 || housePlotQueue[0] != villager)
+        {
+            return false;
+        }
+
+        if (!TryFindAvailableHousePlot(dimensions, out housePlot))
+        {
+            return false;
+        }
+
+        housePlotQueue.RemoveAt(0);
+        for (int x = 0; x < dimensions.x; x++)
+        {
+            for (int y = 0; y < dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(
+                    housePlot.originCell.x + x,
+                    housePlot.originCell.y + y));
+            }
+        }
+
+        claimedHousePlots.Add(villager, housePlot);
+        return true;
+    }
+
+    public void ReleaseHousePlot(Villager villager)
+    {
+        if (villager == null)
+        {
+            return;
+        }
+
+        housePlotQueue.Remove(villager);
+        if (!claimedHousePlots.TryGetValue(villager, out HousePlotRecord housePlot))
+        {
+            return;
+        }
+
+        for (int x = 0; x < housePlot.dimensions.x; x++)
+        {
+            for (int y = 0; y < housePlot.dimensions.y; y++)
+            {
+                claimedHouseCells.Remove(new Vector2Int(
+                    housePlot.originCell.x + x,
+                    housePlot.originCell.y + y));
+            }
+        }
+
+        claimedHousePlots.Remove(villager);
+    }
+
+    private bool TryFindAvailableHousePlot(Vector2Int dimensions, out HousePlotRecord housePlot)
+    {
+        foreach (Vector2Int roadCell in roadCells)
+        {
+            Vector2Int centeredHorizontalOrigin = new Vector2Int(
+                roadCell.x - (dimensions.x - 1) / 2,
+                roadCell.y);
+            Vector2Int centeredVerticalOrigin = new Vector2Int(
+                roadCell.x,
+                roadCell.y - (dimensions.y - 1) / 2);
+
+            Vector2Int[] candidateOrigins =
+            {
+                new Vector2Int(centeredHorizontalOrigin.x, roadCell.y - dimensions.y),
+                new Vector2Int(centeredHorizontalOrigin.x, roadCell.y + 1),
+                new Vector2Int(roadCell.x - dimensions.x, centeredVerticalOrigin.y),
+                new Vector2Int(roadCell.x + 1, centeredVerticalOrigin.y)
+            };
+
+            foreach (Vector2Int origin in candidateOrigins)
+            {
+                if (!IsHousePlotAvailable(origin, dimensions))
+                {
+                    continue;
+                }
+
+                float gridCellSize = GridCellSize;
+                Vector3 bottomLeft = GridCellToWorldPosition(origin, gridCellSize);
+                Vector3 center = bottomLeft + new Vector3(
+                    (dimensions.x - 1) * gridCellSize * 0.5f,
+                    (dimensions.y - 1) * gridCellSize * 0.5f,
+                    0f);
+                center.z = transform.position.z;
+                housePlot = new HousePlotRecord
+                {
+                    originCell = origin,
+                    dimensions = dimensions,
+                    center = center
+                };
+                return true;
+            }
+        }
+
+        housePlot = null;
+        return false;
+    }
+
+    private bool IsHousePlotAvailable(Vector2Int origin, Vector2Int dimensions)
+    {
+        float gridCellSize = GridCellSize;
+        Vector2 mapMinimum = (Vector2)transform.position - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)transform.position + mapSize * 0.5f;
+        float halfCellSize = gridCellSize * 0.5f;
+
+        for (int x = 0; x < dimensions.x; x++)
+        {
+            for (int y = 0; y < dimensions.y; y++)
+            {
+                Vector2Int cell = new Vector2Int(origin.x + x, origin.y + y);
+                Vector3 cellCenter = GridCellToWorldPosition(cell, gridCellSize);
+                Vector2 cellMinimum = (Vector2)cellCenter - Vector2.one * halfCellSize;
+                Vector2 cellMaximum = (Vector2)cellCenter + Vector2.one * halfCellSize;
+                if (cellMinimum.x < mapMinimum.x
+                    || cellMinimum.y < mapMinimum.y
+                    || cellMaximum.x > mapMaximum.x
+                    || cellMaximum.y > mapMaximum.y
+                    || roadCells.Contains(cell)
+                    || claimedHouseCells.Contains(cell)
+                    || resourceObjectsByCell.ContainsKey(cell))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     public bool TryGetResourceObjectOnPath(
@@ -398,6 +601,10 @@ public class MapManager : MonoBehaviour
         instance = this;
         roadKeyPoints.Clear();
         roads.Clear();
+        roadCells.Clear();
+        claimedHouseCells.Clear();
+        housePlotQueue.Clear();
+        claimedHousePlots.Clear();
 
         settings = GameData.Instance.mapSettings;
         if (settings == null)
@@ -862,6 +1069,18 @@ public class MapManager : MonoBehaviour
             }
         }
 
+        for (int pathIndex = 0; pathIndex < roadPath.Count - 1; pathIndex++)
+        {
+            List<Vector2Int> cells = CreateGridCellPath(
+                WorldPositionToGridCell(roadPath[pathIndex], settings.gridCellSize),
+                WorldPositionToGridCell(roadPath[pathIndex + 1], settings.gridCellSize),
+                true);
+            foreach (Vector2Int cell in cells)
+            {
+                roadCells.Add(cell);
+            }
+        }
+
         roads.Add(new RoadRecord { keyPoints = new List<Vector3>(roadPath) });
         return true;
     }
@@ -897,6 +1116,31 @@ public class MapManager : MonoBehaviour
             failureReason = "The road intersects an occupied resource cell ("
                 + blockingResource.Type + ").";
             return false;
+        }
+
+        foreach (Vector3 pathPoint in roadPath)
+        {
+            if (claimedHouseCells.Contains(WorldPositionToGridCell(pathPoint, settings.gridCellSize)))
+            {
+                failureReason = "The road intersects a claimed house plot.";
+                return false;
+            }
+        }
+
+        for (int pathIndex = 0; pathIndex < roadPath.Count - 1; pathIndex++)
+        {
+            List<Vector2Int> cells = CreateGridCellPath(
+                WorldPositionToGridCell(roadPath[pathIndex], settings.gridCellSize),
+                WorldPositionToGridCell(roadPath[pathIndex + 1], settings.gridCellSize),
+                true);
+            foreach (Vector2Int cell in cells)
+            {
+                if (claimedHouseCells.Contains(cell))
+                {
+                    failureReason = "The road intersects a claimed house plot.";
+                    return false;
+                }
+            }
         }
 
         if (!IsEndpointClearOfKeyPoints(endPoint))
