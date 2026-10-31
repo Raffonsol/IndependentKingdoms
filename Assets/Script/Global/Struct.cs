@@ -177,7 +177,16 @@ public class HouseSettings
     {
         new ResourceCost { resourceType = ResourceType.Wood, amount = 10 }
     };
-    public float constructionDurationSeconds = 15f;
+    public float firstConstructionDurationSeconds = 15f;
+    public float constructionBreakDurationSeconds = 4f;
+    public float secondConstructionDurationSeconds = 15f;
+    public float hammerMotionDurationSeconds = 0.35f;
+    public float hammerPauseDurationSeconds = 1.65f;
+    public Vector2[] hammerHitPositions =
+    {
+        new Vector2(0.15f, 0.2f),
+        new Vector2(0.3f, 0.05f)
+    };
 }
 
 [Serializable]
@@ -235,12 +244,22 @@ public class VillagerInventoryEntry
     public int amount;
 }
 
+[Serializable]
+public class VillagerResourceEntry
+{
+    public ResourceType resourceType;
+    public int amount;
+}
+
 public enum VillagerHousingState
 {
     FindingRoad,
     ClaimingHousePlot,
     GatheringHouseResources,
-    BuildingHouse,
+    DeliveringHouseResources,
+    BuildingHouseStageOne,
+    HouseConstructionBreak,
+    BuildingHouseStageTwo,
     Housed
 }
 
@@ -250,6 +269,65 @@ public class HousePlotRecord
     public Vector2Int originCell;
     public Vector2Int dimensions;
     public Vector3 center;
+    public ResourceCost[] storedMaterials;
+}
+
+[Serializable]
+public class HouseDefinitionRecord
+{
+    public string id;
+    public float visualScale = 1f;
+    public Vector2 visualOffset;
+    public string[] baseSprites;
+    public string[] baseColorCodes;
+    public string[] lowRoofSprites;
+    public string[] lowRoofColorCodes;
+    public string[] highRoofSprites;
+    public string[] highRoofColorCodes;
+    public string[] secondLevelSprites;
+    public string[] secondLevelColorCodes;
+    public string[] secondLevelExtensionSprites;
+    public string[] secondLevelExtensionColorCodes;
+    public string[] extensionRoofSprites;
+    public string[] extensionRoofColorCodes;
+    public string[] annexSprites;
+    public string[] annexColorCodes;
+    public string[] annexRoofSprites;
+    public string[] annexRoofColorCodes;
+}
+
+[Serializable]
+public class HouseDefinitionCollection
+{
+    public string buildStage1SpriteSheet;
+    public string[] buildStage1ColorCodes;
+    public string buildStage2SpriteSheet;
+    public string[] buildStage2ColorCodes;
+    public HouseDefinitionRecord[] houseDefinitions;
+}
+
+[Serializable]
+public class HouseDefinition
+{
+    public string id;
+    public float visualScale;
+    public Vector2 visualOffset;
+    public Sprite[] baseSprites;
+    public Color[] baseColors;
+    public Sprite[] lowRoofSprites;
+    public Color[] lowRoofColors;
+    public Sprite[] highRoofSprites;
+    public Color[] highRoofColors;
+    public Sprite[] secondLevelSprites;
+    public Color[] secondLevelColors;
+    public Sprite[] secondLevelExtensionSprites;
+    public Color[] secondLevelExtensionColors;
+    public Sprite[] extensionRoofSprites;
+    public Color[] extensionRoofColors;
+    public Sprite[] annexSprites;
+    public Color[] annexColors;
+    public Sprite[] annexRoofSprites;
+    public Color[] annexRoofColors;
 }
 
 // AI
@@ -302,7 +380,8 @@ public enum VillagerBehaviorMode
     Alert,
     Fighting,
     Fleeing,
-    Dying
+    Dying,
+    Building
 }
 
 [Serializable]

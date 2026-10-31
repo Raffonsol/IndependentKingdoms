@@ -24,16 +24,25 @@ public class Villager : Mover
     private VillagerSettings settings;
     private HouseSettings houseSettings;
     private ResourceSettings resourceSettings;
+    private HouseDefinition[] houseDefinitions;
+    private Sprite[] houseBuildStageOneSprites;
+    private Sprite[] houseBuildStageTwoSprites;
+    private Color[] houseBuildStageOneColors;
+    private Color[] houseBuildStageTwoColors;
     private HousePlotRecord housePlot;
     private GameObject claimedSpaceObject;
+    private HouseVisual houseVisual;
+    private HouseDefinition selectedHouseDefinition;
     private ResourceObject gatheringResource;
     private Transform rightArm;
     private VillagerHandMotion handMotion;
     private readonly List<VillagerInventoryEntry> inventory = new List<VillagerInventoryEntry>();
+    private readonly List<VillagerResourceEntry> resourceInventory = new List<VillagerResourceEntry>();
     private VillagerWeaponType equippedWeapon;
     private float movementPhaseTimer;
     private float gatheringTimer;
     private float constructionTimer;
+    private float hammeringTimer;
     private float roadReactionTimer;
     private float plotReactionTimer;
     private float resourceReactionTimer;
@@ -50,6 +59,11 @@ public class Villager : Mover
     public IReadOnlyList<VillagerInventoryEntry> Inventory
     {
         get { return inventory; }
+    }
+
+    public IReadOnlyList<VillagerResourceEntry> ResourceInventory
+    {
+        get { return resourceInventory; }
     }
 
     public VillagerWeaponType EquippedWeapon
@@ -81,9 +95,28 @@ public class Villager : Mover
         settings = gameData.villagerSettings;
         houseSettings = gameData.houseSettings;
         resourceSettings = gameData.resourceSettings;
-        if (settings == null || houseSettings == null || resourceSettings == null)
+        houseDefinitions = gameData.houseDefinitions;
+        houseBuildStageOneSprites = gameData.houseBuildStageOneSprites;
+        houseBuildStageTwoSprites = gameData.houseBuildStageTwoSprites;
+        houseBuildStageOneColors = gameData.houseBuildStageOneColors;
+        houseBuildStageTwoColors = gameData.houseBuildStageTwoColors;
+        if (settings == null
+            || houseSettings == null
+            || resourceSettings == null
+            || houseDefinitions == null
+            || houseDefinitions.Length == 0
+            || houseBuildStageOneSprites == null
+            || houseBuildStageOneSprites.Length == 0
+            || houseBuildStageOneColors == null
+            || houseBuildStageOneColors.Length == 0
+            || houseBuildStageTwoSprites == null
+            || houseBuildStageTwoSprites.Length == 0
+            || houseBuildStageTwoColors == null
+            || houseBuildStageTwoColors.Length == 0)
         {
-            Debug.LogError("Villager, house, and resource settings could not be loaded from GameData.", this);
+            Debug.LogError(
+                "Villager settings, house settings, and house definitions could not be loaded from GameData.",
+                this);
             enabled = false;
             return;
         }
@@ -229,8 +262,17 @@ public class Villager : Mover
             case VillagerHousingState.GatheringHouseResources:
                 UpdateGatheringHouseResources();
                 break;
-            case VillagerHousingState.BuildingHouse:
-                UpdateBuildingHouse();
+            case VillagerHousingState.DeliveringHouseResources:
+                UpdateDeliveringHouseResources();
+                break;
+            case VillagerHousingState.BuildingHouseStageOne:
+                UpdateBuildingHouseStageOne();
+                break;
+            case VillagerHousingState.HouseConstructionBreak:
+                UpdateHouseConstructionBreak();
+                break;
+            case VillagerHousingState.BuildingHouseStageTwo:
+                UpdateBuildingHouseStageTwo();
                 break;
             case VillagerHousingState.Housed:
                 StopMoving();
@@ -367,36 +409,34 @@ public class Villager : Mover
             return;
         }
 
+        houseVisual = claimedSpaceObject.GetComponent<HouseVisual>();
+        if (houseVisual == null)
+        {
+            houseVisual = claimedSpaceObject.AddComponent<HouseVisual>();
+        }
+
         HousingState = VillagerHousingState.GatheringHouseResources;
         EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
     }
 
     private void UpdateGatheringHouseResources()
     {
-        Player player = Player.Instance;
         MapManager mapManager = MapManager.Instance;
-        if (player == null || mapManager == null)
+        if (mapManager == null)
         {
             StopMoving();
             return;
         }
 
-        if (HasHouseResources(player))
+        if (HasHouseResources())
         {
-            if (!player.TrySpendResourceCosts(houseSettings.baseHouseCosts))
-            {
-                StopMoving();
-                return;
-            }
-
             ReleaseGatheringResource(mapManager);
-            HousingState = VillagerHousingState.BuildingHouse;
-            constructionTimer = 0f;
+            HousingState = VillagerHousingState.DeliveringHouseResources;
             EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
             return;
         }
 
-        ResourceCost missingCost = FindMissingHouseCost(player);
+        ResourceCost missingCost = FindMissingHouseCost();
         if (missingCost == null)
         {
             StopMoving();
@@ -478,7 +518,12 @@ public class Villager : Mover
 
         if (mapManager.TryGatherResource(this, gatheringResource, 1, hasAxe, out int gatheredAmount))
         {
-            player.TryAddResourceAmount(missingCost.resourceType, gatheredAmount);
+            if (!AddResourceInventory(missingCost.resourceType, gatheredAmount))
+            {
+                Debug.LogError(
+                    "Could not add gathered " + missingCost.resourceType + " to the villager's inventory.",
+                    this);
+            }
         }
         else
         {
@@ -488,38 +533,261 @@ public class Villager : Mover
         gatheringTimer = settings.gatheringPauseDurationSeconds;
     }
 
-    private void UpdateBuildingHouse()
+    private void UpdateDeliveringHouseResources()
     {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || housePlot == null)
+        {
+            StopMoving();
+            return;
+        }
+
+        Vector3 workPosition = GetHouseWorkPosition(mapManager);
+        if (Vector2.Distance(transform.position, workPosition) > 0.1f)
+        {
+            MoveTo(workPosition, 0.1f);
+            return;
+        }
+
         StopMoving();
-        constructionTimer += Time.deltaTime;
-        if (constructionTimer < houseSettings.constructionDurationSeconds)
+        if (!TryRemoveHouseCosts())
+        {
+            Debug.LogError("Villager reached the house plot without carrying its required materials.", this);
+            HousingState = VillagerHousingState.GatheringHouseResources;
+            return;
+        }
+
+        housePlot.storedMaterials = CopyHouseCosts();
+        selectedHouseDefinition = houseDefinitions[Random.Range(0, houseDefinitions.Length)];
+        float visualWidth = GetHouseVisualWidth(mapManager);
+        houseVisual.ShowConstructionStage(
+            houseBuildStageOneSprites,
+            houseBuildStageOneColors,
+            visualWidth,
+            selectedHouseDefinition.visualOffset);
+        HousingState = VillagerHousingState.BuildingHouseStageOne;
+        constructionTimer = 0f;
+        hammeringTimer = 0f;
+        mapManager.NotifyHouseConstructionStarted(this);
+        EnterBehavior(VillagerBehaviorMode.Building, houseSettings.firstConstructionDurationSeconds);
+    }
+
+    private void UpdateBuildingHouseStageOne()
+    {
+        if (!UpdateHouseConstruction(houseSettings.firstConstructionDurationSeconds))
         {
             return;
         }
 
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || housePlot == null)
+        {
+            return;
+        }
+
+        houseVisual.ShowConstructionStage(
+            houseBuildStageTwoSprites,
+            houseBuildStageTwoColors,
+            GetHouseVisualWidth(mapManager),
+            selectedHouseDefinition.visualOffset);
+        HousingState = VillagerHousingState.HouseConstructionBreak;
+        constructionTimer = 0f;
+        hammeringTimer = 0f;
+        EnterBehavior(VillagerBehaviorMode.Idle, houseSettings.constructionBreakDurationSeconds);
+    }
+
+    private void UpdateHouseConstructionBreak()
+    {
+        StopMoving();
+        constructionTimer += Time.deltaTime;
+        if (constructionTimer < houseSettings.constructionBreakDurationSeconds)
+        {
+            return;
+        }
+
+        HousingState = VillagerHousingState.BuildingHouseStageTwo;
+        constructionTimer = 0f;
+        hammeringTimer = 0f;
+        EnterBehavior(VillagerBehaviorMode.Building, houseSettings.secondConstructionDurationSeconds);
+    }
+
+    private void UpdateBuildingHouseStageTwo()
+    {
+        if (!UpdateHouseConstruction(houseSettings.secondConstructionDurationSeconds))
+        {
+            return;
+        }
+
+        if (houseVisual == null || selectedHouseDefinition == null || housePlot == null)
+        {
+            Debug.LogError("Cannot finish house construction because its visual or definition is missing.", this);
+            return;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        float visualWidth = mapManager != null
+            ? GetHouseVisualWidth(mapManager)
+            : housePlot.dimensions.x * selectedHouseDefinition.visualScale;
+        houseVisual.ShowFinishedHouse(selectedHouseDefinition, visualWidth);
         HousingState = VillagerHousingState.Housed;
         EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
         StopMoving();
     }
 
-    private bool HasHouseResources(Player player)
+    private bool UpdateHouseConstruction(float duration)
     {
-        return FindMissingHouseCost(player) == null;
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || housePlot == null)
+        {
+            StopMoving();
+            return false;
+        }
+
+        Vector3 workPosition = GetHouseWorkPosition(mapManager);
+        if (Vector2.Distance(transform.position, workPosition) > 0.1f)
+        {
+            MoveTo(workPosition, 0.1f);
+            return false;
+        }
+
+        StopMoving();
+        constructionTimer += Time.deltaTime;
+        hammeringTimer -= Time.deltaTime;
+        if (hammeringTimer <= 0f)
+        {
+            if (handMotion == null && rightArm != null)
+            {
+                ConfigureGatheringAnimation(rightArm);
+            }
+
+            if (handMotion != null)
+            {
+                handMotion.PlayHit(
+                    houseSettings.hammerHitPositions,
+                    houseSettings.hammerMotionDurationSeconds);
+            }
+
+            hammeringTimer = houseSettings.hammerPauseDurationSeconds;
+        }
+
+        return constructionTimer >= duration;
     }
 
-    private ResourceCost FindMissingHouseCost(Player player)
+    private bool HasHouseResources()
+    {
+        return FindMissingHouseCost() == null;
+    }
+
+    private ResourceCost FindMissingHouseCost()
     {
         foreach (ResourceCost cost in houseSettings.baseHouseCosts)
         {
             if (cost != null
-                && (!player.TryGetResourceAmount(cost.resourceType, out int amount)
-                    || amount < cost.amount))
+                && GetResourceInventoryAmount(cost.resourceType) < cost.amount)
             {
                 return cost;
             }
         }
 
         return null;
+    }
+
+    private bool AddResourceInventory(ResourceType resourceType, int amount)
+    {
+        if (!System.Enum.IsDefined(typeof(ResourceType), resourceType) || amount <= 0)
+        {
+            return false;
+        }
+
+        foreach (VillagerResourceEntry entry in resourceInventory)
+        {
+            if (entry.resourceType == resourceType)
+            {
+                entry.amount += amount;
+                return true;
+            }
+        }
+
+        resourceInventory.Add(new VillagerResourceEntry
+        {
+            resourceType = resourceType,
+            amount = amount
+        });
+        return true;
+    }
+
+    private int GetResourceInventoryAmount(ResourceType resourceType)
+    {
+        foreach (VillagerResourceEntry entry in resourceInventory)
+        {
+            if (entry.resourceType == resourceType)
+            {
+                return entry.amount;
+            }
+        }
+
+        return 0;
+    }
+
+    private bool TryRemoveHouseCosts()
+    {
+        if (!HasHouseResources())
+        {
+            return false;
+        }
+
+        foreach (ResourceCost cost in houseSettings.baseHouseCosts)
+        {
+            for (int index = 0; index < resourceInventory.Count; index++)
+            {
+                VillagerResourceEntry entry = resourceInventory[index];
+                if (entry.resourceType != cost.resourceType)
+                {
+                    continue;
+                }
+
+                entry.amount -= cost.amount;
+                if (entry.amount == 0)
+                {
+                    resourceInventory.RemoveAt(index);
+                }
+
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    private ResourceCost[] CopyHouseCosts()
+    {
+        ResourceCost[] storedMaterials = new ResourceCost[houseSettings.baseHouseCosts.Length];
+        for (int index = 0; index < houseSettings.baseHouseCosts.Length; index++)
+        {
+            ResourceCost cost = houseSettings.baseHouseCosts[index];
+            storedMaterials[index] = new ResourceCost
+            {
+                resourceType = cost.resourceType,
+                amount = cost.amount
+            };
+        }
+
+        return storedMaterials;
+    }
+
+    private Vector3 GetHouseWorkPosition(MapManager mapManager)
+    {
+        float gridCellSize = mapManager.GridCellSize;
+        Vector3 position = housePlot.center;
+        position.y -= housePlot.dimensions.y * gridCellSize * 0.5f + gridCellSize * 0.5f;
+        return position;
+    }
+
+    private float GetHouseVisualWidth(MapManager mapManager)
+    {
+        return housePlot.dimensions.x
+            * mapManager.GridCellSize
+            * selectedHouseDefinition.visualScale;
     }
 
     private float GetReactionTime()

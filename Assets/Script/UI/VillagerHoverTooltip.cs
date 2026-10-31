@@ -128,6 +128,8 @@ public class VillagerHoverTooltip : MonoBehaviour
                 return "Wandering";
             case VillagerBehaviorMode.Work:
                 return "Working";
+            case VillagerBehaviorMode.Building:
+                return "Building";
             case VillagerBehaviorMode.Eat:
                 return "Eating";
             case VillagerBehaviorMode.Sleeps:

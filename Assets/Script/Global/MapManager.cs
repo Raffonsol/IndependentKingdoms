@@ -89,6 +89,11 @@ public class MapManager : MonoBehaviour
         get { return roadCells; }
     }
 
+    public IEnumerable<Vector2Int> ClaimedHouseCells
+    {
+        get { return claimedHouseCells; }
+    }
+
     public Bounds GetGridCellBounds(Vector2Int cell)
     {
         float gridCellSize = GridCellSize;
@@ -352,8 +357,17 @@ public class MapManager : MonoBehaviour
 
     private bool IsCellBlocked(Vector2Int cell)
     {
-        return resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
-            && resourceObject != null;
+        return (resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
+                && resourceObject != null)
+            || IsOccupiedByStartedHouse(cell);
+    }
+
+    public void NotifyHouseConstructionStarted(Villager villager)
+    {
+        if (villager != null && claimedHousePlots.ContainsKey(villager))
+        {
+            PathfindingRevision++;
+        }
     }
 
     private bool IsCellInsideMap(Vector2Int cell)
@@ -553,8 +567,7 @@ public class MapManager : MonoBehaviour
             HousePlotRecord housePlot = claimedPlot.Value;
             if (villager == null
                 || housePlot == null
-                || villager.HousingState == VillagerHousingState.BuildingHouse
-                || villager.HousingState == VillagerHousingState.Housed)
+                || IsHouseConstructionStarted(villager.HousingState))
             {
                 continue;
             }
@@ -594,8 +607,7 @@ public class MapManager : MonoBehaviour
             HousePlotRecord housePlot = claimedPlot.Value;
             if (villager == null
                 || housePlot == null
-                || (villager.HousingState != VillagerHousingState.BuildingHouse
-                    && villager.HousingState != VillagerHousingState.Housed))
+                || !IsHouseConstructionStarted(villager.HousingState))
             {
                 continue;
             }
@@ -610,6 +622,14 @@ public class MapManager : MonoBehaviour
         }
 
         return false;
+    }
+
+    private static bool IsHouseConstructionStarted(VillagerHousingState housingState)
+    {
+        return housingState == VillagerHousingState.BuildingHouseStageOne
+            || housingState == VillagerHousingState.HouseConstructionBreak
+            || housingState == VillagerHousingState.BuildingHouseStageTwo
+            || housingState == VillagerHousingState.Housed;
     }
 
     private bool TryFindAvailableHousePlot(Vector2Int dimensions, out HousePlotRecord housePlot)

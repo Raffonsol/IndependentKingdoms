@@ -9,6 +9,7 @@ public class GameData
     private const string GameSettingsResourcePath = "Data/GameSettings";
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
     private const string NamingPartsResourcePath = "Data/NamingParts";
+    private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
 
     private static readonly GameData instance = Load();
 
@@ -27,6 +28,11 @@ public class GameData
     public ResourceSettings resourceSettings;
     public ResourceDefinition[] resourceDefinitions;
     public NamePart[] nameParts;
+    public HouseDefinition[] houseDefinitions;
+    public Sprite[] houseBuildStageOneSprites;
+    public Sprite[] houseBuildStageTwoSprites;
+    public Color[] houseBuildStageOneColors;
+    public Color[] houseBuildStageTwoColors;
 
     public bool TryGetResourceDefinition(ResourceType resourceType, out ResourceDefinition definition)
     {
@@ -49,6 +55,7 @@ public class GameData
     private static GameData Load()
     {
         GameSettingsCollection gameSettings = LoadGameSettings();
+        HouseDefinitionCollection houseDefinitionCollection = LoadHouseDefinitionCollection();
         return new GameData
         {
             bodies = LoadBodies(),
@@ -60,8 +67,235 @@ public class GameData
             villagerSettings = gameSettings.villagerSettings,
             resourceSettings = gameSettings.resourceSettings,
             resourceDefinitions = LoadResourceDefinitions(),
-            nameParts = LoadNameParts()
+            nameParts = LoadNameParts(),
+            houseDefinitions = LoadHouseDefinitions(houseDefinitionCollection),
+            houseBuildStageOneSprites = LoadHouseBuildStageSprites(
+                houseDefinitionCollection.buildStage1SpriteSheet),
+            houseBuildStageTwoSprites = LoadHouseBuildStageSprites(
+                houseDefinitionCollection.buildStage2SpriteSheet),
+            houseBuildStageOneColors = LoadHouseColors(
+                houseDefinitionCollection.buildStage1ColorCodes,
+                "construction",
+                "buildStage1ColorCodes"),
+            houseBuildStageTwoColors = LoadHouseColors(
+                houseDefinitionCollection.buildStage2ColorCodes,
+                "construction",
+                "buildStage2ColorCodes")
         };
+    }
+
+    private static HouseDefinitionCollection LoadHouseDefinitionCollection()
+    {
+        TextAsset definitionsJson = Resources.Load<TextAsset>(HouseDefinitionsResourcePath);
+        if (definitionsJson == null)
+        {
+            Debug.LogError(
+                "Could not load house definitions at Resources/" + HouseDefinitionsResourcePath + ".json.");
+            return new HouseDefinitionCollection();
+        }
+
+        try
+        {
+            HouseDefinitionCollection collection =
+                JsonUtility.FromJson<HouseDefinitionCollection>(definitionsJson.text);
+            if (collection == null
+                || collection.houseDefinitions == null
+                || collection.houseDefinitions.Length == 0
+                || string.IsNullOrEmpty(collection.buildStage1SpriteSheet)
+                || string.IsNullOrEmpty(collection.buildStage2SpriteSheet)
+                || collection.buildStage1ColorCodes == null
+                || collection.buildStage1ColorCodes.Length == 0
+                || collection.buildStage2ColorCodes == null
+                || collection.buildStage2ColorCodes.Length == 0)
+            {
+                Debug.LogError(
+                    "House definitions at Resources/" + HouseDefinitionsResourcePath
+                    + ".json must define construction sprite sheets and at least one house.");
+                return new HouseDefinitionCollection();
+            }
+
+            return collection;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse house definitions at Resources/" + HouseDefinitionsResourcePath
+                + ".json: " + exception.Message);
+            return new HouseDefinitionCollection();
+        }
+    }
+
+    private static HouseDefinition[] LoadHouseDefinitions(HouseDefinitionCollection collection)
+    {
+        if (collection == null || collection.houseDefinitions == null)
+        {
+            return new HouseDefinition[0];
+        }
+
+        HouseDefinition[] definitions = new HouseDefinition[collection.houseDefinitions.Length];
+        for (int index = 0; index < collection.houseDefinitions.Length; index++)
+        {
+            HouseDefinitionRecord record = collection.houseDefinitions[index];
+            if (record == null || string.IsNullOrEmpty(record.id))
+            {
+                Debug.LogError("House definitions must have a non-empty id at index " + index + ".");
+                return new HouseDefinition[0];
+            }
+
+            for (int earlierIndex = 0; earlierIndex < index; earlierIndex++)
+            {
+                if (collection.houseDefinitions[earlierIndex] != null
+                    && collection.houseDefinitions[earlierIndex].id == record.id)
+                {
+                    Debug.LogError("House definitions contain a duplicate id '" + record.id + "'.");
+                    return new HouseDefinition[0];
+                }
+            }
+
+            HouseDefinition definition = new HouseDefinition
+            {
+                id = record.id,
+                visualScale = record.visualScale,
+                visualOffset = record.visualOffset,
+                baseSprites = LoadHouseSprites(record.baseSprites, record.id, "baseSprites", true),
+                baseColors = LoadHouseColors(record.baseColorCodes, record.id, "baseColorCodes"),
+                lowRoofSprites = LoadHouseSprites(record.lowRoofSprites, record.id, "lowRoofSprites", true),
+                lowRoofColors = LoadHouseColors(record.lowRoofColorCodes, record.id, "lowRoofColorCodes"),
+                highRoofSprites = LoadHouseSprites(record.highRoofSprites, record.id, "highRoofSprites", false),
+                highRoofColors = LoadHouseColors(record.highRoofColorCodes, record.id, "highRoofColorCodes"),
+                secondLevelSprites = LoadHouseSprites(record.secondLevelSprites, record.id, "secondLevelSprites", false),
+                secondLevelColors = LoadHouseColors(
+                    record.secondLevelColorCodes, record.id, "secondLevelColorCodes"),
+                secondLevelExtensionSprites = LoadHouseSprites(
+                    record.secondLevelExtensionSprites, record.id, "secondLevelExtensionSprites", false),
+                secondLevelExtensionColors = LoadHouseColors(
+                    record.secondLevelExtensionColorCodes, record.id, "secondLevelExtensionColorCodes"),
+                extensionRoofSprites = LoadHouseSprites(
+                    record.extensionRoofSprites, record.id, "extensionRoofSprites", false),
+                extensionRoofColors = LoadHouseColors(
+                    record.extensionRoofColorCodes, record.id, "extensionRoofColorCodes"),
+                annexSprites = LoadHouseSprites(record.annexSprites, record.id, "annexSprites", false),
+                annexColors = LoadHouseColors(record.annexColorCodes, record.id, "annexColorCodes"),
+                annexRoofSprites = LoadHouseSprites(record.annexRoofSprites, record.id, "annexRoofSprites", false),
+                annexRoofColors = LoadHouseColors(record.annexRoofColorCodes, record.id, "annexRoofColorCodes")
+            };
+            if (definition.visualScale <= 0f)
+            {
+                Debug.LogError(
+                    "House '" + record.id + "' must define a visualScale greater than zero.");
+                return new HouseDefinition[0];
+            }
+
+            if (definition.baseSprites == null
+                || definition.baseColors == null
+                || definition.lowRoofSprites == null
+                || definition.lowRoofColors == null
+                || definition.highRoofSprites == null
+                || definition.highRoofColors == null
+                || definition.secondLevelSprites == null
+                || definition.secondLevelColors == null
+                || definition.secondLevelExtensionSprites == null
+                || definition.secondLevelExtensionColors == null
+                || definition.extensionRoofSprites == null
+                || definition.extensionRoofColors == null
+                || definition.annexSprites == null
+                || definition.annexColors == null
+                || definition.annexRoofSprites == null
+                || definition.annexRoofColors == null)
+            {
+                return new HouseDefinition[0];
+            }
+
+            definitions[index] = definition;
+        }
+
+        return definitions;
+    }
+
+    private static Sprite[] LoadHouseSprites(
+        string[] spriteNames,
+        string houseId,
+        string fieldName,
+        bool required)
+    {
+        if (spriteNames == null || spriteNames.Length == 0)
+        {
+            if (required)
+            {
+                Debug.LogError(
+                    "House '" + houseId + "' must define at least one sprite in '" + fieldName + "'.");
+                return null;
+            }
+
+            return new Sprite[0];
+        }
+
+        Sprite[] sprites = new Sprite[spriteNames.Length];
+        for (int index = 0; index < spriteNames.Length; index++)
+        {
+            if (string.IsNullOrEmpty(spriteNames[index]))
+            {
+                Debug.LogError(
+                    "House '" + houseId + "' contains an empty sprite name in '" + fieldName + "'.");
+                return null;
+            }
+
+            sprites[index] = LoadSprite(
+                "BuildingParts/" + spriteNames[index],
+                houseId,
+                fieldName);
+            if (sprites[index] == null)
+            {
+                return null;
+            }
+        }
+
+        return sprites;
+    }
+
+    private static Color[] LoadHouseColors(string[] colorCodes, string houseId, string fieldName)
+    {
+        if (colorCodes == null || colorCodes.Length == 0)
+        {
+            Debug.LogError(
+                "House configuration '" + houseId + "' must define at least one color in '" + fieldName + "'.");
+            return null;
+        }
+
+        Color[] colors = new Color[colorCodes.Length];
+        for (int index = 0; index < colorCodes.Length; index++)
+        {
+            if (string.IsNullOrEmpty(colorCodes[index])
+                || !ColorUtility.TryParseHtmlString(colorCodes[index], out colors[index]))
+            {
+                Debug.LogError(
+                    "House configuration '" + houseId + "' has an invalid color code in '" + fieldName
+                    + "' at index " + index + ".");
+                return null;
+            }
+        }
+
+        return colors;
+    }
+
+    private static Sprite[] LoadHouseBuildStageSprites(string spriteSheetName)
+    {
+        if (string.IsNullOrEmpty(spriteSheetName))
+        {
+            Debug.LogError("House construction sprite-sheet names must not be empty.");
+            return new Sprite[0];
+        }
+
+        string resourcePath = "BuildingParts/" + spriteSheetName;
+        Sprite[] sprites = Resources.LoadAll<Sprite>(resourcePath);
+        if (sprites == null || sprites.Length == 0)
+        {
+            Debug.LogError(
+                "Could not load any house construction sprites at Resources/" + resourcePath + ".png.");
+            return new Sprite[0];
+        }
+
+        return sprites;
     }
 
     private static Body[] LoadBodies()
@@ -312,11 +546,19 @@ public class GameData
 
             if (settings.houseSettings.defaultHouseDimensions.x <= 0
                 || settings.houseSettings.defaultHouseDimensions.y <= 0
-                || settings.houseSettings.constructionDurationSeconds <= 0f
+                || settings.houseSettings.firstConstructionDurationSeconds <= 0f
+                || settings.houseSettings.constructionBreakDurationSeconds <= 0f
+                || settings.houseSettings.secondConstructionDurationSeconds <= 0f
+                || settings.houseSettings.hammerMotionDurationSeconds <= 0f
+                || settings.houseSettings.hammerPauseDurationSeconds < 0f
+                || settings.houseSettings.hammerHitPositions == null
+                || settings.houseSettings.hammerHitPositions.Length == 0
                 || settings.houseSettings.baseHouseCosts == null
                 || settings.houseSettings.baseHouseCosts.Length == 0)
             {
-                Debug.LogError("House settings must define positive dimensions and construction duration, and at least one resource cost.");
+                Debug.LogError(
+                    "House settings must define positive dimensions and construction times, non-negative break/hammer pauses, "
+                    + "hammer positions, and at least one resource cost.");
                 return new GameSettingsCollection();
             }
 

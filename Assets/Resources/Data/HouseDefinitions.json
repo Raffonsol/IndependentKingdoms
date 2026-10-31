@@ -1,0 +1,50 @@
+{
+    "buildStage1SpriteSheet": "buildStage1",
+    "buildStage1ColorCodes": ["#795727"],
+    "buildStage2SpriteSheet": "buildStage2",
+    "buildStage2ColorCodes": ["#795727"],
+    "houseDefinitions": [
+        {
+            "id": "h0",
+            "visualScale": 2.3,
+            "visualOffset": { "x": 3, "y": 7 },
+            "baseSprites": ["b0_base0"],
+            "baseColorCodes": ["#D8B88A", "#A76E3C"],
+            "lowRoofSprites": ["b0_lowRoof0"],
+            "lowRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "highRoofSprites": ["b0_highRoof0"],
+            "highRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "secondLevelSprites": ["b0_secondLevel0"],
+            "secondLevelColorCodes": ["#D8B88A", "#A76E3C"],
+            "secondLevelExtensionSprites": ["b0_secondLevelExtension0"],
+            "secondLevelExtensionColorCodes": ["#D8B88A", "#A76E3C"],
+            "extensionRoofSprites": ["b0_extensionRoof0"],
+            "extensionRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "annexSprites": ["b0_annex0"],
+            "annexColorCodes": ["#D8B88A", "#A76E3C"],
+            "annexRoofSprites": ["b0_annexRoof0"],
+            "annexRoofColorCodes": ["#8B4513", "#6A6A6A"]
+        },
+        {
+            "id": "h1",
+            "visualScale": 2,
+            "visualOffset": { "x": 3, "y": 7 },
+            "baseSprites": ["b1_base0"],
+            "baseColorCodes": ["#D8B88A", "#A76E3C"],
+            "lowRoofSprites": ["b1_lowRoof0"],
+            "lowRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "highRoofSprites": ["b1_highRoof0"],
+            "highRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "secondLevelSprites": ["b1_secondLevel0"],
+            "secondLevelColorCodes": ["#D8B88A", "#A76E3C"],
+            "secondLevelExtensionSprites": ["b1_secondLevelExtension0"],
+            "secondLevelExtensionColorCodes": ["#D8B88A", "#A76E3C"],
+            "extensionRoofSprites": ["b1_extensionRoof0"],
+            "extensionRoofColorCodes": ["#8B4513", "#6A6A6A"],
+            "annexSprites": [],
+            "annexColorCodes": ["#D8B88A", "#A76E3C"],
+            "annexRoofSprites": [],
+            "annexRoofColorCodes": ["#8B4513", "#6A6A6A"]
+        }
+    ]
+}

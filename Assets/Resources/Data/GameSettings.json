@@ -24,11 +24,19 @@
         "manaGainAmount": 1
     },
     "houseSettings": {
-        "defaultHouseDimensions": { "x": 5, "y": 5 },
+        "defaultHouseDimensions": { "x": 8, "y": 8 },
         "baseHouseCosts": [
             { "resourceType": 3, "amount": 8 }
         ],
-        "constructionDurationSeconds": 15
+        "firstConstructionDurationSeconds": 15,
+        "constructionBreakDurationSeconds": 4,
+        "secondConstructionDurationSeconds": 15,
+        "hammerMotionDurationSeconds": 0.35,
+        "hammerPauseDurationSeconds": 1.65,
+        "hammerHitPositions": [
+            { "x": 0.15, "y": 0.2 },
+            { "x": 0.3, "y": 0.05 }
+        ]
     },
     "villagerSettings": {
         "idleBehaviorDuration": 30,

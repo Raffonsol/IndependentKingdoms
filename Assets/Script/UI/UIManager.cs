@@ -27,6 +27,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Color debugGridColor = new Color(0.1f, 0.85f, 1f, 0.55f);
     [SerializeField] private Color debugOccupiedCellFillColor = new Color(1f, 0.2f, 0.1f, 0.3f);
     [SerializeField] private Color debugRoadCellFillColor = new Color(0.1f, 1f, 0.2f, 0.45f);
+    [SerializeField] private Color debugHousePlotCellFillColor = new Color(0.8f, 0.2f, 1f, 0.35f);
     [SerializeField, Min(1f)] private float debugGridLineWidth = 1f;
 
     private UISettings settings;
@@ -280,6 +281,7 @@ public class UIManager : MonoBehaviour
         float gridCellSize = mapManager.GridCellSize;
         Color previousColor = GUI.color;
         DrawOccupiedResourceCells(mapManager, mapCamera);
+        DrawClaimedHouseCells(mapManager, mapCamera);
         DrawRoadCells(mapManager, mapCamera);
         GUI.color = debugGridColor;
 
@@ -330,6 +332,19 @@ public class UIManager : MonoBehaviour
         GUI.color = debugRoadCellFillColor;
 
         foreach (Vector2Int cell in mapManager.RoadCells)
+        {
+            DrawGridCellFill(mapManager, mapCamera, cell);
+        }
+
+        GUI.color = previousColor;
+    }
+
+    private void DrawClaimedHouseCells(MapManager mapManager, UnityEngine.Camera mapCamera)
+    {
+        Color previousColor = GUI.color;
+        GUI.color = debugHousePlotCellFillColor;
+
+        foreach (Vector2Int cell in mapManager.ClaimedHouseCells)
         {
             DrawGridCellFill(mapManager, mapCamera, cell);
         }
