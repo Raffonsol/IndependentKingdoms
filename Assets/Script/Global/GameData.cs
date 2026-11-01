@@ -10,6 +10,7 @@ public class GameData
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
+    private const string VillagerPersonalityValuesResourcePath = "Data/VillagerPersonalityValues";
 
     private static readonly GameData instance = Load();
 
@@ -26,8 +27,10 @@ public class GameData
     public HouseSettings houseSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
+    public CombatSettings combatSettings;
     public ResourceDefinition[] resourceDefinitions;
     public NamePart[] nameParts;
+    public VillagerPersonalityValue[] villagerPersonalityValues;
     public HouseDefinition[] houseDefinitions;
     public Sprite[] houseBuildStageOneSprites;
     public Sprite[] houseBuildStageTwoSprites;
@@ -66,8 +69,10 @@ public class GameData
             houseSettings = gameSettings.houseSettings,
             villagerSettings = gameSettings.villagerSettings,
             resourceSettings = gameSettings.resourceSettings,
+            combatSettings = gameSettings.combatSettings,
             resourceDefinitions = LoadResourceDefinitions(),
             nameParts = LoadNameParts(),
+            villagerPersonalityValues = LoadVillagerPersonalityValues(),
             houseDefinitions = LoadHouseDefinitions(houseDefinitionCollection),
             houseBuildStageOneSprites = LoadHouseBuildStageSprites(
                 houseDefinitionCollection.buildStage1SpriteSheet),
@@ -82,6 +87,94 @@ public class GameData
                 "construction",
                 "buildStage2ColorCodes")
         };
+    }
+
+    private static VillagerPersonalityValue[] LoadVillagerPersonalityValues()
+    {
+        TextAsset valuesJson = Resources.Load<TextAsset>(VillagerPersonalityValuesResourcePath);
+        if (valuesJson == null)
+        {
+            Debug.LogError(
+                "Could not load villager personality values at Resources/"
+                + VillagerPersonalityValuesResourcePath + ".json.");
+            return new VillagerPersonalityValue[0];
+        }
+
+        try
+        {
+            VillagerPersonalityValueCollection collection =
+                JsonUtility.FromJson<VillagerPersonalityValueCollection>(valuesJson.text);
+            Array personalityTypes = Enum.GetValues(typeof(VillagerPersonalityType));
+            if (collection == null
+                || collection.villagerPersonalityValues == null
+                || collection.villagerPersonalityValues.Length != personalityTypes.Length)
+            {
+                Debug.LogError(
+                    "Villager personality values at Resources/" + VillagerPersonalityValuesResourcePath
+                    + ".json must contain exactly one entry per VillagerPersonalityType.");
+                return new VillagerPersonalityValue[0];
+            }
+
+            bool[] foundTypes = new bool[personalityTypes.Length];
+            foreach (VillagerPersonalityValue value in collection.villagerPersonalityValues)
+            {
+                if (value == null || !Enum.IsDefined(typeof(VillagerPersonalityType), value.type))
+                {
+                    Debug.LogError("Villager personality values contain an invalid or null type.");
+                    return new VillagerPersonalityValue[0];
+                }
+
+                int typeIndex = Convert.ToInt32(value.type);
+                if (typeIndex < 0 || typeIndex >= foundTypes.Length || foundTypes[typeIndex])
+                {
+                    Debug.LogError(
+                        "Villager personality values must contain exactly one entry per personality type.");
+                    return new VillagerPersonalityValue[0];
+                }
+
+                if (value.chance < 0 || value.chance > 100
+                    || string.IsNullOrEmpty(value.description)
+                    || value.incompatibleWith == null)
+                {
+                    Debug.LogError(
+                        "Each villager personality value must define a description, a chance from 0 to 100, "
+                        + "and an incompatibility list.");
+                    return new VillagerPersonalityValue[0];
+                }
+
+                bool[] foundIncompatibleTypes = new bool[personalityTypes.Length];
+                foreach (VillagerPersonalityType incompatibleType in value.incompatibleWith)
+                {
+                    if (!Enum.IsDefined(typeof(VillagerPersonalityType), incompatibleType))
+                    {
+                        Debug.LogError(
+                            "Villager personality values contain an invalid incompatible personality type.");
+                        return new VillagerPersonalityValue[0];
+                    }
+
+                    int incompatibleIndex = Convert.ToInt32(incompatibleType);
+                    if (incompatibleIndex == typeIndex || foundIncompatibleTypes[incompatibleIndex])
+                    {
+                        Debug.LogError(
+                            "Villager personality incompatibilities cannot contain self or duplicate types.");
+                        return new VillagerPersonalityValue[0];
+                    }
+
+                    foundIncompatibleTypes[incompatibleIndex] = true;
+                }
+
+                foundTypes[typeIndex] = true;
+            }
+
+            return collection.villagerPersonalityValues;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse villager personality values at Resources/"
+                + VillagerPersonalityValuesResourcePath + ".json: " + exception.Message);
+            return new VillagerPersonalityValue[0];
+        }
     }
 
     private static HouseDefinitionCollection LoadHouseDefinitionCollection()
@@ -488,6 +581,16 @@ public class GameData
                     return new ResourceDefinition[0];
                 }
 
+                if (definition.treeRegenerationPerSecond < 0f
+                    || definition.treeRegenerationLimit < 0
+                    || (definition.treeRegenerationPerSecond > 0f
+                        && definition.treeRegenerationLimit <= 0))
+                {
+                    Debug.LogError(
+                        "Tree regeneration rates and limits must be non-negative, and a positive rate requires a positive limit.");
+                    return new ResourceDefinition[0];
+                }
+
                 foundTypes[enumIndex] = true;
             }
 
@@ -520,9 +623,10 @@ public class GameData
                 || settings.playerSettings == null
                 || settings.houseSettings == null
                 || settings.villagerSettings == null
-                || settings.resourceSettings == null)
+                || settings.resourceSettings == null
+                || settings.combatSettings == null)
             {
-                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, villagerSettings, and resourceSettings.");
+                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, villagerSettings, resourceSettings, and combatSettings.");
                 return new GameSettingsCollection();
             }
 
@@ -533,6 +637,14 @@ public class GameData
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json must define a positive villagerIndicatorSize and a non-negative villagerIndicatorEdgeInset.");
+                return new GameSettingsCollection();
+            }
+
+            if (settings.mapSettings.roadMovementSpeedMultiplier < 1f)
+            {
+                Debug.LogError(
+                    "Settings at Resources/" + GameSettingsResourcePath
+                    + ".json must define a roadMovementSpeedMultiplier of at least 1.");
                 return new GameSettingsCollection();
             }
 
@@ -551,8 +663,7 @@ public class GameData
                 || settings.houseSettings.secondConstructionDurationSeconds <= 0f
                 || settings.houseSettings.hammerMotionDurationSeconds <= 0f
                 || settings.houseSettings.hammerPauseDurationSeconds < 0f
-                || settings.houseSettings.hammerHitPositions == null
-                || settings.houseSettings.hammerHitPositions.Length == 0
+                || !AreValidArmMotionPoints(settings.houseSettings.hammerHitPositions)
                 || settings.houseSettings.baseHouseCosts == null
                 || settings.houseSettings.baseHouseCosts.Length == 0)
             {
@@ -592,13 +703,39 @@ public class GameData
                 || villagerSettings.runningSpeed <= 0f
                 || villagerSettings.reactionTimeRange.x < 0f
                 || villagerSettings.reactionTimeRange.y < villagerSettings.reactionTimeRange.x
+                || villagerSettings.hungerIncreasePerSecond <= 0f
+                || villagerSettings.fatigueIncreasePerSecond <= 0f
+                || villagerSettings.fatigueRecoveryPerSecond <= 0f
+                || villagerSettings.homelessIdleFatigueRecoveryPerSecond < 0f
+                || villagerSettings.homeRestFatigueThreshold < 0f
+                || villagerSettings.homeRestFatigueThreshold > 100f
+                || villagerSettings.lazyHomeRestFatigueThreshold < 0f
+                || villagerSettings.lazyHomeRestFatigueThreshold
+                    > villagerSettings.homeRestFatigueThreshold
+                || villagerSettings.productiveFatigueThreshold < 0f
+                || villagerSettings.productiveFatigueThreshold > 100f
+                || villagerSettings.emergencyFoodHungerThreshold <= 0f
+                || villagerSettings.emergencyFoodHungerThreshold > 100f
+                || villagerSettings.resumeTaskHungerThreshold < 0f
+                || villagerSettings.resumeTaskHungerThreshold >= villagerSettings.emergencyFoodHungerThreshold
+                || villagerSettings.boredFoodSeekingHungerThreshold < 0f
+                || villagerSettings.boredFoodSeekingHungerThreshold > 100f
+                || villagerSettings.hungerRestoredPerFoodUnit <= 0f
+                || villagerSettings.housingOperationPriority < 0f
+                || villagerSettings.lazyHousingPriorityPenalty < 0f
+                || villagerSettings.foodOperationPriority < 0f
+                || villagerSettings.hungerFoodPriorityMultiplier < 0f
+                || villagerSettings.emergencyFoodPriorityBonus < 0f
+                || villagerSettings.productiveOperationPriority < 0f
+                || villagerSettings.foodResourceSearchRetrySeconds <= 0f
+                || villagerSettings.housingSearchAttemptsBeforePause <= 0
+                || villagerSettings.housingSearchRetrySeconds <= 0f
                 || villagerSettings.gatheringDistance < 0f
                 || villagerSettings.gatheringPauseDurationSeconds < 0f
                 || villagerSettings.handMotionDurationSeconds <= 0f
-                || villagerSettings.handHitPositions == null
-                || villagerSettings.handHitPositions.Length == 0)
+                || !AreValidArmMotionPoints(villagerSettings.handHitPositions))
             {
-                Debug.LogError("Villager settings contain invalid movement or gathering values.");
+                Debug.LogError("Villager settings contain invalid movement, fatigue, housing-search, or gathering values.");
                 return new GameSettingsCollection();
             }
 
@@ -611,6 +748,18 @@ public class GameData
                 return new GameSettingsCollection();
             }
 
+            CombatSettings combatSettings = settings.combatSettings;
+            if (combatSettings.maximumHealth <= 0f
+                || combatSettings.attackDamage <= 0f
+                || combatSettings.attackRange <= 0f
+                || combatSettings.attackWindupSeconds <= 0f
+                || combatSettings.attackRecoverySeconds < 0f
+                || !AreValidArmMotionPoints(combatSettings.attackHitPositions))
+            {
+                Debug.LogError("Combat settings must define positive health, damage, range, and windup, non-negative recovery, and attack positions.");
+                return new GameSettingsCollection();
+            }
+
             return settings;
         }
         catch (ArgumentException exception)
@@ -618,6 +767,27 @@ public class GameData
             Debug.LogError("Could not parse settings at Resources/" + GameSettingsResourcePath + ".json: " + exception.Message);
             return new GameSettingsCollection();
         }
+    }
+
+    private static bool AreValidArmMotionPoints(ArmMotionPoint[] points)
+    {
+        if (points == null || points.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (ArmMotionPoint point in points)
+        {
+            if (point == null
+                || float.IsNaN(point.x) || float.IsInfinity(point.x)
+                || float.IsNaN(point.y) || float.IsInfinity(point.y)
+                || float.IsNaN(point.z) || float.IsInfinity(point.z))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Sprite LoadSprite(string resourcePath, string bodyName, string fieldName)

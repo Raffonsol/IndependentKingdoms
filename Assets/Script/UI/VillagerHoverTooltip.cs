@@ -1,27 +1,14 @@
-using UnityEngine.UI;
 using TMPro;
 using UnityEngine;
 
-public class VillagerHoverTooltip : MonoBehaviour
+public class VillagerHoverTooltip : HoverTooltip
 {
     [SerializeField] private TMP_Text nameText;
     [SerializeField] private TMP_Text activityText;
 
-    private RectTransform rectTransform;
-    private RectTransform canvasRectTransform;
-    private bool loggedPositionClamp;
-
-    private void Awake()
+    protected override void Awake()
     {
-        rectTransform = transform as RectTransform;
-        Canvas canvas = GetComponentInParent<Canvas>();
-        canvasRectTransform = canvas != null ? canvas.transform as RectTransform : null;
-
-        Graphic[] graphics = GetComponentsInChildren<Graphic>(true);
-        foreach (Graphic graphic in graphics)
-        {
-            graphic.raycastTarget = false;
-        }
+        base.Awake();
 
         if (nameText == null || activityText == null)
         {
@@ -55,64 +42,6 @@ public class VillagerHoverTooltip : MonoBehaviour
         }
     }
 
-    public bool TrySetScreenPosition(
-        Canvas canvas,
-        Vector2 screenPosition,
-        UnityEngine.Camera eventCamera)
-    {
-        if (rectTransform == null)
-        {
-            rectTransform = transform as RectTransform;
-        }
-
-        if (canvasRectTransform == null && canvas != null)
-        {
-            canvasRectTransform = canvas.transform as RectTransform;
-        }
-
-        if (rectTransform == null || canvasRectTransform == null)
-        {
-            return false;
-        }
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                canvasRectTransform,
-                screenPosition,
-                eventCamera,
-                out Vector2 localPosition))
-        {
-            return false;
-        }
-
-        Rect canvasBounds = canvasRectTransform.rect;
-        Vector2 tooltipSize = rectTransform.rect.size;
-        Vector2 requestedLocalPosition = localPosition;
-        bool placeBelowAnchor = localPosition.y + tooltipSize.y > canvasBounds.yMax;
-        rectTransform.pivot = placeBelowAnchor
-            ? new Vector2(0.5f, 1f)
-            : new Vector2(0.5f, 0f);
-        localPosition.x = Mathf.Clamp(
-            localPosition.x,
-            canvasBounds.xMin + tooltipSize.x * rectTransform.pivot.x,
-            canvasBounds.xMax - tooltipSize.x * (1f - rectTransform.pivot.x));
-        if (placeBelowAnchor)
-        {
-            localPosition.y = Mathf.Min(localPosition.y, canvasBounds.yMax);
-        }
-
-        if (!loggedPositionClamp
-            && (localPosition - requestedLocalPosition).sqrMagnitude > 1f)
-        {
-            Debug.LogWarning(
-                "The villager tooltip position is being adjusted to keep it inside the Canvas bounds.",
-                this);
-            loggedPositionClamp = true;
-        }
-
-        rectTransform.anchoredPosition = localPosition;
-        return true;
-    }
-
     private string GetActivityText(VillagerBehaviorStage behavior)
     {
         if (behavior == null)
@@ -144,6 +73,10 @@ public class VillagerHoverTooltip : MonoBehaviour
                 return "Fleeing";
             case VillagerBehaviorMode.Dying:
                 return "Dying";
+            case VillagerBehaviorMode.LookingForFood:
+                return "Looking for food";
+            case VillagerBehaviorMode.Foraging:
+                return "Foraging";
             default:
                 Debug.LogError("Villager behavior has an unsupported mode.", this);
                 return "Activity: Unknown";

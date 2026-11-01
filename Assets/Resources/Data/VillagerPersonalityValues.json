@@ -1,0 +1,58 @@
+{
+  "villagerPersonalityValues": [
+    {
+      "type": 0,
+      "chance": 30,
+      "incompatibleWith": [1, 3],
+      "description": "Stops whatever they are doing when there is a chance to go for a fight"
+    },
+    {
+      "type": 1,
+      "chance": 30,
+      "incompatibleWith": [0, 2],
+      "description": "Runs from fights"
+    },
+    {
+      "type": 2,
+      "chance": 30,
+      "incompatibleWith": [1, 3],
+      "description": "More likely to go hunting/foraging"
+    },
+    {
+      "type": 3,
+      "chance": 30,
+      "incompatibleWith": [0, 2, 4, 6],
+      "description": "Takes longer to start new actions/routines"
+    },
+    {
+      "type": 4,
+      "chance": 30,
+      "incompatibleWith": [3, 5, 8],
+      "description": "helps other villagers build their homes and upgrades"
+    },
+    {
+      "type": 5,
+      "chance": 30,
+      "incompatibleWith": [4, 6],
+      "description": "Gathers resource faster, and moves slightly faster, but has less health in combat"
+    },
+    {
+      "type": 6,
+      "chance": 30,
+      "incompatibleWith": [3, 5],
+      "description": "Building and crafting takes longer, but produces more output"
+    },
+    {
+      "type": 7,
+      "chance": 30,
+      "incompatibleWith": [8],
+      "description": "Does not need to marry another villager in order to reproduce with them"
+    },
+    {
+      "type": 8,
+      "chance": 30,
+      "incompatibleWith": [4, 7],
+      "description": "Less likely to get married"
+    }
+  ]
+}

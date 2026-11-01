@@ -4,7 +4,8 @@ public class VillagerHandMotion : MonoBehaviour
 {
     private Transform arm;
     private Vector3 startingLocalPosition;
-    private Vector2[] hitPositions;
+    private Quaternion startingLocalRotation;
+    private ArmMotionPoint[] hitPositions;
     private float hitDuration;
     private float hitTimer;
 
@@ -18,9 +19,10 @@ public class VillagerHandMotion : MonoBehaviour
 
         arm = villagerArm;
         startingLocalPosition = arm.localPosition;
+        startingLocalRotation = arm.localRotation;
     }
 
-    public void PlayHit(Vector2[] positions, float duration)
+    public void PlayHit(ArmMotionPoint[] positions, float duration)
     {
         if (arm == null || positions == null || positions.Length == 0 || duration <= 0f)
         {
@@ -46,17 +48,30 @@ public class VillagerHandMotion : MonoBehaviour
         int segmentIndex = Mathf.Min(Mathf.FloorToInt(segmentProgress), segmentCount - 1);
         float interpolation = Mathf.Clamp01(segmentProgress - segmentIndex);
 
-        Vector3 segmentStart = segmentIndex == 0
-            ? startingLocalPosition
-            : startingLocalPosition + (Vector3)hitPositions[segmentIndex - 1];
-        Vector3 segmentEnd = segmentIndex < hitPositions.Length
-            ? startingLocalPosition + (Vector3)hitPositions[segmentIndex]
-            : startingLocalPosition;
+        ArmMotionPoint previousPoint = segmentIndex == 0 ? null : hitPositions[segmentIndex - 1];
+        ArmMotionPoint nextPoint = segmentIndex < hitPositions.Length
+            ? hitPositions[segmentIndex]
+            : null;
+        float startX = previousPoint != null ? previousPoint.x : 0f;
+        float startY = previousPoint != null ? previousPoint.y : 0f;
+        float startRotation = previousPoint != null ? previousPoint.z : 0f;
+        float endX = nextPoint != null ? nextPoint.x : 0f;
+        float endY = nextPoint != null ? nextPoint.y : 0f;
+        float endRotation = nextPoint != null ? nextPoint.z : 0f;
 
-        arm.localPosition = Vector3.Lerp(segmentStart, segmentEnd, interpolation);
+        arm.localPosition = startingLocalPosition + new Vector3(
+            Mathf.Lerp(startX, endX, interpolation),
+            Mathf.Lerp(startY, endY, interpolation),
+            0f);
+        float rotationOffset = Mathf.LerpAngle(
+            startRotation,
+            endRotation,
+            interpolation);
+        arm.localRotation = startingLocalRotation * Quaternion.Euler(0f, 0f, rotationOffset);
         if (hitTimer <= 0f)
         {
             arm.localPosition = startingLocalPosition;
+            arm.localRotation = startingLocalRotation;
         }
     }
 }

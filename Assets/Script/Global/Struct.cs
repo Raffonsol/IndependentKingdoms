@@ -137,13 +137,14 @@ public class UISettings
     public bool trackVillagers = true;
     public Vector2 villagerIndicatorSize = new Vector2(24f, 24f);
     public float villagerIndicatorEdgeInset = 48f;
-    public Vector2 villagerHoverTooltipWorldOffset = new Vector2(0f, -2f);
+    public Vector2 hoverTooltipWorldOffset = new Vector2(0f, -2f);
 }
 
 [Serializable]
 public class MapSettings
 {
     public float gridCellSize = 2f;
+    public float roadMovementSpeedMultiplier = 1.2f;
     public float keyPointSelectionRadius = 9f;
     public float roadEndpointKeyPointTolerance = 2.5f;
     public float clickDragThresholdPixels = 5f;
@@ -170,6 +171,14 @@ public class ResourceCost
 }
 
 [Serializable]
+public class ArmMotionPoint
+{
+    public float x;
+    public float y;
+    public float z; // Local rotation offset in degrees.
+}
+
+[Serializable]
 public class HouseSettings
 {
     public Vector2Int defaultHouseDimensions = new Vector2Int(3, 3);
@@ -182,10 +191,10 @@ public class HouseSettings
     public float secondConstructionDurationSeconds = 15f;
     public float hammerMotionDurationSeconds = 0.35f;
     public float hammerPauseDurationSeconds = 1.65f;
-    public Vector2[] hammerHitPositions =
+    public ArmMotionPoint[] hammerHitPositions =
     {
-        new Vector2(0.15f, 0.2f),
-        new Vector2(0.3f, 0.05f)
+        new ArmMotionPoint { x = 0.15f, y = 0.2f, z = 0f },
+        new ArmMotionPoint { x = 0.3f, y = 0.05f, z = 0f }
     };
 }
 
@@ -197,13 +206,33 @@ public class VillagerSettings
     public float roadSearchDistance = 35f;
     public float runningSpeed = 4f;
     public Vector2 reactionTimeRange = new Vector2(0.5f, 1.3f);
+    public float hungerIncreasePerSecond = 1f;
+    public float fatigueIncreasePerSecond = 1f;
+    public float fatigueRecoveryPerSecond = 2f;
+    public float homelessIdleFatigueRecoveryPerSecond = 0.25f;
+    public float homeRestFatigueThreshold = 40f;
+    public float lazyHomeRestFatigueThreshold = 10f;
+    public float productiveFatigueThreshold = 75f;
+    public float emergencyFoodHungerThreshold = 70f;
+    public float resumeTaskHungerThreshold = 50f;
+    public float boredFoodSeekingHungerThreshold = 40f;
+    public float hungerRestoredPerFoodUnit = 60f;
+    public float housingOperationPriority = 100f;
+    public float lazyHousingPriorityPenalty = 40f;
+    public float foodOperationPriority = 0f;
+    public float hungerFoodPriorityMultiplier = 2f;
+    public float emergencyFoodPriorityBonus = 1000f;
+    public float productiveOperationPriority = 80f;
+    public float foodResourceSearchRetrySeconds = 1f;
+    public int housingSearchAttemptsBeforePause = 3;
+    public float housingSearchRetrySeconds = 3f;
     public float gatheringDistance = 1.2f;
     public float gatheringPauseDurationSeconds = 1.65f;
     public float handMotionDurationSeconds = 0.35f;
-    public Vector2[] handHitPositions =
+    public ArmMotionPoint[] handHitPositions =
     {
-        new Vector2(0.15f, 0.2f),
-        new Vector2(0.3f, 0.05f)
+        new ArmMotionPoint { x = 0.15f, y = 0.2f, z = 0f },
+        new ArmMotionPoint { x = 0.3f, y = 0.05f, z = 0f }
     };
 }
 
@@ -216,6 +245,21 @@ public class ResourceSettings
 }
 
 [Serializable]
+public class CombatSettings
+{
+    public float maximumHealth = 100f;
+    public float attackDamage = 10f;
+    public float attackRange = 1.5f;
+    public float attackWindupSeconds = 0.35f;
+    public float attackRecoverySeconds = 0.65f;
+    public ArmMotionPoint[] attackHitPositions =
+    {
+        new ArmMotionPoint { x = 0.25f, y = 0.15f, z = 0f },
+        new ArmMotionPoint { x = 0.45f, y = 0f, z = 0f }
+    };
+}
+
+[Serializable]
 public class GameSettingsCollection
 {
     public UISettings uiSettings = new UISettings();
@@ -224,6 +268,7 @@ public class GameSettingsCollection
     public HouseSettings houseSettings = new HouseSettings();
     public VillagerSettings villagerSettings = new VillagerSettings();
     public ResourceSettings resourceSettings = new ResourceSettings();
+    public CombatSettings combatSettings = new CombatSettings();
 }
 
 public enum VillagerItemType
@@ -234,7 +279,14 @@ public enum VillagerItemType
 public enum VillagerWeaponType
 {
     None,
-    Axe
+    Axe,
+    Pickaxe,
+    Sword,
+    SwordAndShield,
+    Spear,
+    SpearAndShield,
+    Bow,
+    Staff,
 }
 
 [Serializable]
@@ -381,7 +433,9 @@ public enum VillagerBehaviorMode
     Fighting,
     Fleeing,
     Dying,
-    Building
+    Building,
+    LookingForFood,
+    Foraging
 }
 
 [Serializable]
@@ -392,6 +446,34 @@ public class VillagerBehaviorStage
     public bool isPrimary;
 }
 
+public enum VillagerPersonalityType
+{
+    Angry, //Stops whatever they are doing when there is a chance to go for a fight
+    Coward, //Runs from fights
+    Explorer, //More likely to go hunting/foraging
+    Lazy, //Takes longer to start new actions/routines
+    Helpful, //helps other villagers build their homes and upgrades
+    Impatient, //Gathers resource faster, and moves slightly faster, but has less health in combat
+    Perfectionist, //Building and crafting takes longer, but produces more output
+    Polyamorous, //Does not need to marry another villager in order to reproduce with them
+    Loner, //Less likely to get married
+}
+
+[Serializable]
+public class VillagerPersonalityValue
+{
+    public VillagerPersonalityType type;
+    public int chance; //percentage
+    public VillagerPersonalityType[] incompatibleWith;
+    public string description;
+}
+
+[Serializable]
+public class VillagerPersonalityValueCollection
+{
+    public VillagerPersonalityValue[] villagerPersonalityValues;
+}
+
 [Serializable]
 public class Person
 {
@@ -400,6 +482,7 @@ public class Person
     public int age;
     public bool isMale;
     public float reactionTime;
+    public VillagerPersonalityType[] personalityTypes;
 
     public string skinColor;
     public string hairColor;
@@ -470,6 +553,8 @@ public class ResourceDefinition
     public int fullCutAmount;
     public int bareHandAmount;
     public Vector2Int interactionOffset;
+    public float treeRegenerationPerSecond;
+    public int treeRegenerationLimit;
 }
 
 [Serializable]

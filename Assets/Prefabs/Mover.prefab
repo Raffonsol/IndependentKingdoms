@@ -30,13 +30,11 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
-  - {fileID: 2028058552199896221}
   - {fileID: 6924764903321637705}
   - {fileID: 5809399049549445685}
   - {fileID: 3686794392434889033}
   - {fileID: 1952956889391573046}
   - {fileID: 4398983128562795461}
-  - {fileID: 6611758417936347623}
   - {fileID: 1478838946549209829}
   m_Father: {fileID: 7531736675924857985}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
@@ -129,7 +127,8 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 2028058552199896221}
   m_Father: {fileID: 8633402187961859125}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!212 &5336550354692306575
@@ -498,7 +497,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 8633402187961859125}
+  m_Father: {fileID: 6924764903321637705}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!212 &4888808792290773878
 SpriteRenderer:
@@ -1011,7 +1010,7 @@ SpriteRenderer:
   m_SortingLayer: 1
   m_SortingOrder: 65
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: ba7091bfb6af0464286c9a1181e3b1f4, type: 3}
+  m_Sprite: {fileID: 21300000, guid: 5d44abd0f7d0071499baaf50ed92d15a, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
@@ -1019,7 +1018,7 @@ SpriteRenderer:
   m_Size: {x: 5.34, y: 7.95}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 0
+  m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []
 --- !u!1 &6493871307403872210
@@ -1145,7 +1144,8 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children: []
+  m_Children:
+  - {fileID: 6611758417936347623}
   m_Father: {fileID: 8633402187961859125}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!212 &2573732248210803677
@@ -1330,7 +1330,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
-  m_Father: {fileID: 8633402187961859125}
+  m_Father: {fileID: 1478838946549209829}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!212 &7697173886648141011
 SpriteRenderer:
@@ -1473,15 +1473,15 @@ SpriteRenderer:
   m_SortingLayer: 1
   m_SortingOrder: 75
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: eeeed155650a3b345a0ca5d1f347a3b3, type: 3}
+  m_Sprite: {fileID: 21300000, guid: 11d8ac0b8129c194299a5f0787854930, type: 3}
   m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
-  m_Size: {x: 5.34, y: 7.95}
+  m_Size: {x: 15.6, y: 14.64}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 0
+  m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []
 --- !u!1 &9206597002220656848
@@ -1495,6 +1495,8 @@ GameObject:
   - component: {fileID: 7531736675924857985}
   - component: {fileID: 5361892244134251091}
   - component: {fileID: 4540155034284423631}
+  - component: {fileID: 3265872461982334444}
+  - component: {fileID: 4075932187281333641}
   m_Layer: 0
   m_Name: Mover
   m_TagString: Untagged
@@ -1545,15 +1547,35 @@ MonoBehaviour:
   - {fileID: 6493871307403872210}
   - {fileID: 5336111746898150858}
   torso: {fileID: 472738285346844722}
-  idleBehaviorDuration: 30
-  roadDetectionDistance: 2
-  roadSearchDistance: 35
-  runningSpeed: 4
   currentBehavior:
     duration: 0
     mode: 0
     isPrimary: 0
   behaviorTimer: 0
+--- !u!114 &3265872461982334444
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9206597002220656848}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6b84a233e05f49c596ff8dc98256a6c1, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::VillagerBrain
+--- !u!114 &4075932187281333641
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9206597002220656848}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7880d71ba3364de2a47e228b1fe56a11, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::VillagerJobController
 --- !u!210 &4540155034284423631
 SortingGroup:
   m_ObjectHideFlags: 0

@@ -6,7 +6,7 @@ public class HouseVisual : MonoBehaviour
 {
     private const int BasePartSortingOrder = 55;
     private const int RoofPartSortingOrder = 105;
-    private const string HouseSortingLayer = "LowObjects";
+    private const string HouseSortingLayer = "Everything";
     private const float SpriteDepthOffset = -0.01f;
     private readonly List<GameObject> visualParts = new List<GameObject>();
 
@@ -54,6 +54,10 @@ public class HouseVisual : MonoBehaviour
             footprintWidth,
             RoofPartSortingOrder,
             definition.visualOffset);
+
+        Vector3 visualScale = transform.localScale;
+        visualScale.x = Mathf.Abs(visualScale.x) * (Random.value < 0.5f ? -1f : 1f);
+        transform.localScale = visualScale;
     }
 
     private void ConfigureSortingGroup()
@@ -64,8 +68,10 @@ public class HouseVisual : MonoBehaviour
             sortingGroup = gameObject.AddComponent<SortingGroup>();
         }
 
+        sortingGroup.enabled = true;
         sortingGroup.sortingLayerName = HouseSortingLayer;
         sortingGroup.sortingOrder = 0;
+        sortingGroup.sortAtRoot = true;
     }
 
     private void AddSpriteGroup(

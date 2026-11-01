@@ -6,8 +6,8 @@
     "houseDefinitions": [
         {
             "id": "h0",
-            "visualScale": 2.3,
-            "visualOffset": { "x": 3, "y": 7 },
+            "visualScale": 1.5,
+            "visualOffset": { "x": 1, "y": 6 },
             "baseSprites": ["b0_base0"],
             "baseColorCodes": ["#D8B88A", "#A76E3C"],
             "lowRoofSprites": ["b0_lowRoof0"],
@@ -27,8 +27,8 @@
         },
         {
             "id": "h1",
-            "visualScale": 2,
-            "visualOffset": { "x": 3, "y": 7 },
+            "visualScale": 1.5,
+            "visualOffset": { "x": 1, "y": 8 },
             "baseSprites": ["b1_base0"],
             "baseColorCodes": ["#D8B88A", "#A76E3C"],
             "lowRoofSprites": ["b1_lowRoof0"],

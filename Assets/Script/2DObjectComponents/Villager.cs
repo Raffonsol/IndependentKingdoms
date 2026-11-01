@@ -1,14 +1,49 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public class Villager : Mover
+[RequireComponent(typeof(VillagerBrain), typeof(VillagerJobController))]
+public class Villager : Combatant
 {
+    private enum FoodSeekingStage
+    {
+        CheckInventory,
+        CheckCommunityStorage,
+        Foraging
+    }
+
+    public const float MaximumHunger = 100f;
+    public const float MaximumFatigue = 100f;
+
     [SerializeField] private VillagerBehaviorStage currentBehavior;
     [SerializeField, Min(0f)] private float behaviorTimer;
 
     public Person Person { get; private set; }
     public Transform HoverAnchor { get; private set; }
     public VillagerHousingState HousingState { get; private set; }
+    public float Hunger { get; private set; }
+    public float Fatigue { get; private set; }
+    public JobType JobAssignment
+    {
+        get { return jobController != null ? jobController.JobAssignment : JobType.None; }
+    }
+    public bool CanChooseForagingAsBoredAction
+    {
+        get
+        {
+            return settings != null
+                && Hunger > settings.boredFoodSeekingHungerThreshold
+                && Hunger <= settings.emergencyFoodHungerThreshold
+                && HousingState == VillagerHousingState.Housed
+                && !IsCombatEngaged
+                && !isSeekingFood;
+        }
+    }
+
+    public bool HasHome
+    {
+        get { return HousingState == VillagerHousingState.Housed && housePlot != null; }
+    }
+
     public VillagerBehaviorStage CurrentBehavior
     {
         get { return currentBehavior; }
@@ -22,6 +57,8 @@ public class Villager : Mover
     public bool IsLookingForStreet { get; private set; }
 
     private VillagerSettings settings;
+    private VillagerBrain brain;
+    private VillagerJobController jobController;
     private HouseSettings houseSettings;
     private ResourceSettings resourceSettings;
     private HouseDefinition[] houseDefinitions;
@@ -34,8 +71,6 @@ public class Villager : Mover
     private HouseVisual houseVisual;
     private HouseDefinition selectedHouseDefinition;
     private ResourceObject gatheringResource;
-    private Transform rightArm;
-    private VillagerHandMotion handMotion;
     private readonly List<VillagerInventoryEntry> inventory = new List<VillagerInventoryEntry>();
     private readonly List<VillagerResourceEntry> resourceInventory = new List<VillagerResourceEntry>();
     private VillagerWeaponType equippedWeapon;
@@ -46,13 +81,23 @@ public class Villager : Mover
     private float roadReactionTimer;
     private float plotReactionTimer;
     private float resourceReactionTimer;
+    private float nextHousingSearchAttemptTime;
+    private float behaviorTimerBeforeFoodSeeking;
+    private int housingSearchAttempts;
     private int observedRoadRevision = -1;
     private Vector3 roadTargetPosition;
+    private VillagerBehaviorStage behaviorBeforeFoodSeeking;
+    private FoodSeekingStage foodSeekingStage;
     private bool isInMovementPhase;
     private bool isWaitingToClaimPlot;
     private bool isWaitingForRoadReaction;
     private bool isWaitingToApproachResource;
     private bool hasRoadTarget;
+    private bool isSeekingFood;
+    private bool isEmergencyFoodSeeking;
+    private bool isRestingAtHome;
+    private bool isIdlingWithoutHome;
+    private bool isWaitingForRoadChange;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
 
@@ -69,6 +114,23 @@ public class Villager : Mover
     public VillagerWeaponType EquippedWeapon
     {
         get { return equippedWeapon; }
+    }
+
+    public bool TryGetHomeCoordinates(out Vector2Int coordinates)
+    {
+        if (HasHome)
+        {
+            coordinates = housePlot.originCell;
+            return true;
+        }
+
+        coordinates = Vector2Int.zero;
+        return false;
+    }
+
+    public bool AssignJob(JobType job)
+    {
+        return jobController != null && jobController.AssignJob(job);
     }
 
     public void ConfigureIdentity(Person person, Transform hoverAnchor)
@@ -93,6 +155,8 @@ public class Villager : Mover
     {
         GameData gameData = GameData.Instance;
         settings = gameData.villagerSettings;
+        brain = GetComponent<VillagerBrain>();
+        jobController = GetComponent<VillagerJobController>();
         houseSettings = gameData.houseSettings;
         resourceSettings = gameData.resourceSettings;
         houseDefinitions = gameData.houseDefinitions;
@@ -121,6 +185,10 @@ public class Villager : Mover
             return;
         }
 
+        brain.Initialize(this, settings);
+        jobController.Initialize(this, settings, resourceSettings);
+        Hunger = 0f;
+        Fatigue = 0f;
         HousingState = VillagerHousingState.FindingRoad;
         MapManager mapManager = MapManager.Instance;
         if (mapManager != null)
@@ -227,27 +295,278 @@ public class Villager : Mover
 
     public void ConfigureGatheringAnimation(Transform villagerRightArm)
     {
-        if (villagerRightArm == null)
+        ConfigureCombatAnimation(villagerRightArm);
+    }
+
+    internal bool HasFailedPathRequestForAction
+    {
+        get { return HasFailedPathRequest; }
+    }
+
+    internal bool HasPersonality(VillagerPersonalityType personalityType)
+    {
+        return Person != null
+            && Person.personalityTypes != null
+            && System.Array.IndexOf(Person.personalityTypes, personalityType) >= 0;
+    }
+
+    internal bool TryRunHousingOperation()
+    {
+        isRestingAtHome = false;
+        isIdlingWithoutHome = false;
+        return UpdateHousingOperation();
+    }
+
+    internal bool TryRunFoodOperation(bool emergency)
+    {
+        isRestingAtHome = false;
+        isIdlingWithoutHome = false;
+        StartFoodSeeking(emergency);
+        UpdateFoodSeeking();
+        return true;
+    }
+
+    internal bool TryRunProductiveOperation()
+    {
+        bool started = jobController != null && jobController.TryStartProductiveOperation();
+        if (started)
         {
-            Debug.LogError("Cannot configure gathering animation without the villager's right arm.", this);
+            isRestingAtHome = false;
+            isIdlingWithoutHome = false;
+        }
+
+        return started;
+    }
+
+    internal bool TryGoHomeOperation()
+    {
+        return TryGoHome();
+    }
+
+    internal void IdleWithoutHome()
+    {
+        isRestingAtHome = false;
+        isIdlingWithoutHome = true;
+        if (currentBehavior == null || currentBehavior.mode != VillagerBehaviorMode.Wander)
+        {
+            EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
+        }
+
+        SetMovementSpeed(DefaultMovementSpeed);
+        MoveAround();
+    }
+
+    internal float GetReactionTimeForAction()
+    {
+        return GetReactionTime();
+    }
+
+    internal void StopForagingMovement()
+    {
+        StopMoving();
+    }
+
+    internal void MoveToForagingPosition(Vector3 position, float arrivalDistance)
+    {
+        MoveTo(position, arrivalDistance);
+    }
+
+    internal void PlayForagingMotion(ArmMotionPoint[] positions, float duration)
+    {
+        PlayArmMotion(positions, duration);
+    }
+
+    internal void OnForagedFood(int amount, bool storeInInventory)
+    {
+        if (storeInInventory)
+        {
+            if (!AddResourceInventory(ResourceType.Food, amount))
+            {
+                Debug.LogError("Could not add foraged food to the villager's inventory.", this);
+            }
+
             return;
         }
 
-        rightArm = villagerRightArm;
-        handMotion = GetComponent<VillagerHandMotion>();
-        if (handMotion == null)
+        Hunger = Mathf.Max(0f, Hunger - amount * settings.hungerRestoredPerFoodUnit);
+        if (ShouldFinishFoodSeeking())
         {
-            handMotion = gameObject.AddComponent<VillagerHandMotion>();
+            FinishFoodSeeking();
         }
-
-        handMotion.Configure(rightArm);
     }
 
     protected override void Update()
     {
+        if (!IsAlive)
+        {
+            return;
+        }
+
         if (settings == null || houseSettings == null || resourceSettings == null)
         {
             return;
+        }
+
+        Hunger = Mathf.Min(
+            MaximumHunger,
+            Hunger + settings.hungerIncreasePerSecond * Time.deltaTime);
+        if (Hunger >= MaximumHunger)
+        {
+            Die();
+            return;
+        }
+
+        RefreshHousingRoadRevision();
+        if (IsCombatEngaged)
+        {
+            isRestingAtHome = false;
+            isIdlingWithoutHome = false;
+            base.Update();
+            return;
+        }
+
+        if (isSeekingFood)
+        {
+            if (Hunger > settings.emergencyFoodHungerThreshold)
+            {
+                isEmergencyFoodSeeking = true;
+            }
+
+            if (ShouldFinishFoodSeeking())
+            {
+                FinishFoodSeeking();
+            }
+            else
+            {
+                UpdateFoodSeeking();
+                UpdateFatigue(Time.deltaTime);
+                base.Update();
+                return;
+            }
+        }
+
+        brain.DecideNextOperation();
+        UpdateFatigue(Time.deltaTime);
+        base.Update();
+    }
+
+    private bool TryGoHome()
+    {
+        if (!HasHome)
+        {
+            return false;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
+        {
+            return false;
+        }
+
+        Vector3 homePosition = GetHouseWorkPosition(mapManager);
+        if (Vector2.Distance(transform.position, homePosition) > 0.1f)
+        {
+            isRestingAtHome = false;
+            isIdlingWithoutHome = false;
+            MoveTo(homePosition, 0.1f);
+            return true;
+        }
+
+        StopMoving();
+        isIdlingWithoutHome = false;
+        float restFatigueThreshold = HasPersonality(VillagerPersonalityType.Lazy)
+            ? settings.lazyHomeRestFatigueThreshold
+            : settings.homeRestFatigueThreshold;
+        isRestingAtHome = Fatigue > restFatigueThreshold;
+        if (currentBehavior.mode != VillagerBehaviorMode.Idle)
+        {
+            EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+        }
+
+        return true;
+    }
+
+    private void UpdateFatigue(float deltaTime)
+    {
+        if (isRestingAtHome)
+        {
+            Fatigue = Mathf.Max(
+                0f,
+                Fatigue - settings.fatigueRecoveryPerSecond * deltaTime);
+            return;
+        }
+
+        if (isIdlingWithoutHome)
+        {
+            Fatigue = Mathf.Max(
+                0f,
+                Fatigue - settings.homelessIdleFatigueRecoveryPerSecond * deltaTime);
+            return;
+        }
+
+        bool isWorking = HousingState == VillagerHousingState.GatheringHouseResources
+            || HousingState == VillagerHousingState.DeliveringHouseResources
+            || HousingState == VillagerHousingState.BuildingHouseStageOne
+            || HousingState == VillagerHousingState.BuildingHouseStageTwo
+            || (isSeekingFood && foodSeekingStage == FoodSeekingStage.Foraging)
+            || (jobController != null && jobController.IsForagingForJob);
+        if (isWorking)
+        {
+            Fatigue = Mathf.Min(
+                MaximumFatigue,
+                Fatigue + settings.fatigueIncreasePerSecond * deltaTime);
+        }
+    }
+
+    private void RefreshHousingRoadRevision()
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || observedRoadRevision == mapManager.RoadRevision)
+        {
+            return;
+        }
+
+        observedRoadRevision = mapManager.RoadRevision;
+        housingSearchAttempts = 0;
+        nextHousingSearchAttemptTime = 0f;
+        isWaitingForRoadChange = false;
+        if (HousingState == VillagerHousingState.FindingRoad)
+        {
+            roadReactionTimer = GetReactionTime();
+            isWaitingForRoadReaction = true;
+        }
+    }
+
+    private void RegisterHousingSearchFailure()
+    {
+        if (Time.time < nextHousingSearchAttemptTime)
+        {
+            return;
+        }
+
+        housingSearchAttempts++;
+        nextHousingSearchAttemptTime = Time.time + settings.housingSearchRetrySeconds;
+        if (housingSearchAttempts >= settings.housingSearchAttemptsBeforePause)
+        {
+            isWaitingForRoadChange = true;
+            IsLookingForStreet = false;
+            isWaitingToClaimPlot = false;
+            StopMoving();
+        }
+    }
+
+    private bool UpdateHousingOperation()
+    {
+        if (TryMoveIntoAvailableHouse())
+        {
+            housingSearchAttempts = 0;
+            isWaitingForRoadChange = false;
+            return true;
+        }
+
+        if (isWaitingForRoadChange)
+        {
+            return false;
         }
 
         behaviorTimer += Time.deltaTime;
@@ -277,9 +596,208 @@ public class Villager : Mover
             case VillagerHousingState.Housed:
                 StopMoving();
                 break;
+            default:
+                Debug.LogError("Villager has an unsupported housing state.", this);
+                break;
         }
 
-        base.Update();
+        return true;
+    }
+
+    private bool TryMoveIntoAvailableHouse()
+    {
+        if (HousingState == VillagerHousingState.Housed
+            || IsHouseConstructionStarted(HousingState))
+        {
+            return false;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null
+            || !mapManager.HasAvailableHouse(houseSettings.defaultHouseDimensions))
+        {
+            return false;
+        }
+
+        ReleaseGatheringResource(mapManager);
+        if (housePlot != null)
+        {
+            mapManager.ReleaseHousePlot(this);
+            if (claimedSpaceObject != null)
+            {
+                Destroy(claimedSpaceObject);
+                claimedSpaceObject = null;
+            }
+
+            housePlot = null;
+            houseVisual = null;
+        }
+
+        if (!mapManager.TryClaimAvailableHouse(
+                this,
+                houseSettings.defaultHouseDimensions,
+                out housePlot,
+                out claimedSpaceObject))
+        {
+            HousingState = VillagerHousingState.FindingRoad;
+            return false;
+        }
+
+        houseVisual = claimedSpaceObject.GetComponent<HouseVisual>();
+        if (houseVisual == null)
+        {
+            Debug.LogError("An available house is missing its HouseVisual component.", claimedSpaceObject);
+            mapManager.ReleaseCompletedHouse(this);
+            housePlot = null;
+            claimedSpaceObject = null;
+            HousingState = VillagerHousingState.FindingRoad;
+            return false;
+        }
+
+        IsLookingForStreet = false;
+        isWaitingToClaimPlot = false;
+        HousingState = VillagerHousingState.Housed;
+        EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+        return true;
+    }
+
+    private static bool IsHouseConstructionStarted(VillagerHousingState housingState)
+    {
+        return housingState == VillagerHousingState.BuildingHouseStageOne
+            || housingState == VillagerHousingState.HouseConstructionBreak
+            || housingState == VillagerHousingState.BuildingHouseStageTwo;
+    }
+
+    private void StartFoodSeeking(bool emergency)
+    {
+        if (isSeekingFood)
+        {
+            isEmergencyFoodSeeking = isEmergencyFoodSeeking || emergency;
+            return;
+        }
+
+        isSeekingFood = true;
+        isEmergencyFoodSeeking = emergency;
+        jobController.PauseJobForEmergencyFood();
+
+        foodSeekingStage = FoodSeekingStage.CheckInventory;
+        behaviorBeforeFoodSeeking = currentBehavior;
+        behaviorTimerBeforeFoodSeeking = behaviorTimer;
+        jobController.BeginEmergencyFoodSearch();
+        MapManager mapManager = MapManager.Instance;
+        if (gatheringResource != null)
+        {
+            ReleaseGatheringResource(mapManager);
+        }
+
+        SetFoodSeekingBehavior(VillagerBehaviorMode.LookingForFood);
+        StopMoving();
+    }
+
+    private void UpdateFoodSeeking()
+    {
+        switch (foodSeekingStage)
+        {
+            case FoodSeekingStage.CheckInventory:
+                if (TryConsumeStoredFood())
+                {
+                    if (ShouldFinishFoodSeeking())
+                    {
+                        FinishFoodSeeking();
+                        return;
+                    }
+
+                    if (GetResourceInventoryAmount(ResourceType.Food) > 0)
+                    {
+                        break;
+                    }
+                }
+
+                foodSeekingStage = FoodSeekingStage.CheckCommunityStorage;
+                break;
+            case FoodSeekingStage.CheckCommunityStorage:
+                if (TryConsumeFoodFromCommunityStorage())
+                {
+                    if (ShouldFinishFoodSeeking())
+                    {
+                        FinishFoodSeeking();
+                        return;
+                    }
+                }
+
+                foodSeekingStage = FoodSeekingStage.Foraging;
+                SetFoodSeekingBehavior(VillagerBehaviorMode.Foraging);
+                break;
+            case FoodSeekingStage.Foraging:
+                jobController.UpdateEmergencyFoodSearch();
+                break;
+            default:
+                Debug.LogError("Villager has an unsupported food-seeking stage.", this);
+                FinishFoodSeeking();
+                break;
+        }
+    }
+
+    private bool TryConsumeStoredFood()
+    {
+        int foodAmount = GetResourceInventoryAmount(ResourceType.Food);
+        if (foodAmount <= 0 || !TryRemoveResourceInventory(ResourceType.Food, 1))
+        {
+            return false;
+        }
+
+        Hunger = Mathf.Max(0f, Hunger - settings.hungerRestoredPerFoodUnit);
+        return true;
+    }
+
+    private bool TryConsumeFoodFromCommunityStorage()
+    {
+        return false;
+    }
+
+    private bool ShouldFinishFoodSeeking()
+    {
+        return isEmergencyFoodSeeking
+            ? Hunger < settings.resumeTaskHungerThreshold
+            : Hunger <= settings.boredFoodSeekingHungerThreshold;
+    }
+
+    private bool TryRemoveResourceInventory(ResourceType resourceType, int amount)
+    {
+        for (int index = 0; index < resourceInventory.Count; index++)
+        {
+            VillagerResourceEntry entry = resourceInventory[index];
+            if (entry.resourceType != resourceType || entry.amount < amount)
+            {
+                continue;
+            }
+
+            entry.amount -= amount;
+            if (entry.amount == 0)
+            {
+                resourceInventory.RemoveAt(index);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SetFoodSeekingBehavior(VillagerBehaviorMode mode)
+    {
+        EnterBehavior(mode, settings.idleBehaviorDuration);
+    }
+
+    private void FinishFoodSeeking()
+    {
+        jobController.ReleaseFoodResource();
+        isSeekingFood = false;
+        isEmergencyFoodSeeking = false;
+        StopMoving();
+        currentBehavior = behaviorBeforeFoodSeeking;
+        behaviorTimer = behaviorTimerBeforeFoodSeeking;
+        behaviorBeforeFoodSeeking = null;
     }
 
     private void UpdateFindingRoad()
@@ -298,13 +816,6 @@ public class Villager : Mover
         }
 
         loggedMissingMapManager = false;
-        if (observedRoadRevision != mapManager.RoadRevision)
-        {
-            observedRoadRevision = mapManager.RoadRevision;
-            roadReactionTimer = GetReactionTime();
-            isWaitingForRoadReaction = true;
-        }
-
         if (isWaitingForRoadReaction)
         {
             roadReactionTimer = Mathf.Max(0f, roadReactionTimer - Time.deltaTime);
@@ -315,6 +826,17 @@ public class Villager : Mover
 
             isWaitingForRoadReaction = false;
             hasRoadTarget = false;
+        }
+
+        if (hasRoadTarget && HasFailedPathRequest)
+        {
+            hasRoadTarget = false;
+            StopMoving();
+            RegisterHousingSearchFailure();
+            if (isWaitingForRoadChange)
+            {
+                return;
+            }
         }
 
         bool foundRoad = mapManager.TryGetClosestRoadPoint(
@@ -346,6 +868,7 @@ public class Villager : Mover
             isWaitingToClaimPlot = false;
             IsLookingForStreet = false;
             StopMoving();
+            nextHousingSearchAttemptTime = 0f;
             HousingState = VillagerHousingState.ClaimingHousePlot;
             EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
             return;
@@ -370,6 +893,12 @@ public class Villager : Mover
         }
 
         hasRoadTarget = false;
+        RegisterHousingSearchFailure();
+        if (isWaitingForRoadChange)
+        {
+            return;
+        }
+
         SetMovementSpeed(settings.runningSpeed);
         MoveAround();
     }
@@ -396,16 +925,25 @@ public class Villager : Mover
             return;
         }
 
-        if (!mapManager.TryClaimHousePlot(this, houseSettings.defaultHouseDimensions, out housePlot))
+        if (Time.time < nextHousingSearchAttemptTime)
         {
             return;
         }
 
+        if (!mapManager.TryClaimHousePlot(this, houseSettings.defaultHouseDimensions, out housePlot))
+        {
+            RegisterHousingSearchFailure();
+            return;
+        }
+
+        housingSearchAttempts = 0;
+        nextHousingSearchAttemptTime = 0f;
         claimedSpaceObject = player.PlaceClaimedSpace(housePlot);
         if (claimedSpaceObject == null)
         {
             mapManager.ReleaseHousePlot(this);
             housePlot = null;
+            RegisterHousingSearchFailure();
             return;
         }
 
@@ -476,10 +1014,12 @@ public class Villager : Mover
             isWaitingToApproachResource = false;
         }
 
-        bool usesOffsetInteractionCell = gatheringResource.InteractionOffset != Vector2Int.zero;
+        Vector2Int resourceInteractionOffset =
+            gatheringResource.GetInteractionOffset(missingCost.resourceType);
+        bool usesOffsetInteractionCell = resourceInteractionOffset != Vector2Int.zero;
         Vector3 interactionPosition = usesOffsetInteractionCell
             ? mapManager.GetGridCellBounds(
-                gatheringResource.GridCell + gatheringResource.InteractionOffset).center
+                gatheringResource.GridCell + resourceInteractionOffset).center
             : gatheringResource.transform.position;
         float interactionDistance = usesOffsetInteractionCell
             ? 0.1f
@@ -501,15 +1041,7 @@ public class Villager : Mover
             return;
         }
 
-        if (handMotion == null && rightArm != null)
-        {
-            ConfigureGatheringAnimation(rightArm);
-        }
-
-        if (handMotion != null)
-        {
-            handMotion.PlayHit(settings.handHitPositions, settings.handMotionDurationSeconds);
-        }
+        PlayArmMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
 
         gatheringResource.PlayShake(
             resourceSettings.shakeDurationSeconds,
@@ -630,6 +1162,11 @@ public class Villager : Mover
             : housePlot.dimensions.x * selectedHouseDefinition.visualScale;
         houseVisual.ShowFinishedHouse(selectedHouseDefinition, visualWidth);
         HousingState = VillagerHousingState.Housed;
+        if (mapManager != null)
+        {
+            mapManager.RegisterCompletedHouse(this, claimedSpaceObject);
+        }
+
         EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
         StopMoving();
     }
@@ -655,17 +1192,9 @@ public class Villager : Mover
         hammeringTimer -= Time.deltaTime;
         if (hammeringTimer <= 0f)
         {
-            if (handMotion == null && rightArm != null)
-            {
-                ConfigureGatheringAnimation(rightArm);
-            }
-
-            if (handMotion != null)
-            {
-                handMotion.PlayHit(
-                    houseSettings.hammerHitPositions,
-                    houseSettings.hammerMotionDurationSeconds);
-            }
+            PlayArmMotion(
+                houseSettings.hammerHitPositions,
+                houseSettings.hammerMotionDurationSeconds);
 
             hammeringTimer = houseSettings.hammerPauseDurationSeconds;
         }
@@ -852,6 +1381,30 @@ public class Villager : Mover
         }
     }
 
+    protected override void OnDeath()
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (HousingState == VillagerHousingState.Housed && mapManager != null)
+        {
+            mapManager.ReleaseCompletedHouse(this);
+        }
+
+        ReleaseGatheringResource(mapManager);
+        jobController.ReleaseFoodResource();
+        currentBehavior = new VillagerBehaviorStage
+        {
+            mode = VillagerBehaviorMode.Dying,
+            isPrimary = true
+        };
+        StopMoving();
+
+        Player player = Player.Instance;
+        if (player != null)
+        {
+            player.UnregisterVillager(this);
+        }
+    }
+
     private void EnterBehavior(VillagerBehaviorMode mode, float duration)
     {
         currentBehavior = new VillagerBehaviorStage
@@ -868,6 +1421,12 @@ public class Villager : Mover
 
     private void OnDestroy()
     {
+        Player player = Player.Instance;
+        if (player != null)
+        {
+            player.UnregisterVillager(this);
+        }
+
         MapManager mapManager = MapManager.Instance;
         if (mapManager != null)
         {

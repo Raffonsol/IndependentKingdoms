@@ -52,6 +52,16 @@ public class Mover : MonoBehaviour
         get { return defaultMovementSpeed; }
     }
 
+    protected virtual bool PrioritizeRoadPaths
+    {
+        get { return true; }
+    }
+
+    protected bool HasFailedPathRequest
+    {
+        get { return hasPathRequest && !pathCompleted && pathWaypoints.Count == 0; }
+    }
+
     private void OnValidate()
     {
         if (legs != null && legs.Length != 2)
@@ -60,7 +70,7 @@ public class Mover : MonoBehaviour
         }
     }
 
-    private void Awake()
+    protected virtual void Awake()
     {
         defaultMovementSpeed = movementSpeed;
         InitializeRuntimeState();
@@ -171,10 +181,16 @@ public class Mover : MonoBehaviour
         float mapInset = mapManager.GridCellSize * 0.5f;
         destination.x = Mathf.Clamp(destination.x, mapMinimum.x + mapInset, mapMaximum.x - mapInset);
         destination.y = Mathf.Clamp(destination.y, mapMinimum.y + mapInset, mapMaximum.y - mapInset);
+        if (PrioritizeRoadPaths
+            && mapManager.TryGetClosestRoadCellPosition(destination, out Vector3 roadDestination))
+        {
+            destination = roadDestination;
+        }
+
         MoveTo(new Vector3(destination.x, destination.y, transform.position.z));
     }
 
-    private void UpdateFacingFromDirection(Vector2 direction)
+    protected void UpdateFacingFromDirection(Vector2 direction)
     {
         if (direction.x < -0.0001f)
         {
@@ -242,7 +258,8 @@ public class Mover : MonoBehaviour
                 transform.position,
                 requestedDestination,
                 requestedArrivalDistance,
-                out List<Vector3> waypoints))
+                out List<Vector3> waypoints,
+                PrioritizeRoadPaths))
         {
             movementDirection = Vector2.zero;
             return;
@@ -278,7 +295,15 @@ public class Mover : MonoBehaviour
             return;
         }
 
-        float remainingDistance = movementSpeed * deltaTime;
+        float currentMovementSpeed = movementSpeed;
+        if (mapManager != null
+            && mapManager.GridCellSize > 0f
+            && mapManager.IsRoadCell(WorldPositionToGridCell(transform.position, mapManager.GridCellSize)))
+        {
+            currentMovementSpeed *= mapManager.RoadMovementSpeedMultiplier;
+        }
+
+        float remainingDistance = currentMovementSpeed * deltaTime;
         while (nextWaypointIndex < pathWaypoints.Count)
         {
             Vector3 waypoint = pathWaypoints[nextWaypointIndex];

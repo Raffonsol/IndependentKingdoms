@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 using UnityEngine;
 
 public class VillagerNameGenerator : MonoBehaviour
@@ -110,7 +111,8 @@ public class VillagerNameGenerator : MonoBehaviour
             return null;
         }
 
-        return firstPart.value + lastPart.value;
+    //regex to remove duplicated vowels
+        return Regex.Replace(firstPart.value + lastPart.value, @"([aeiou])\1", "$1", RegexOptions.IgnoreCase);
     }
 
     private bool MatchesGender(NamePart namePart, bool isMale)

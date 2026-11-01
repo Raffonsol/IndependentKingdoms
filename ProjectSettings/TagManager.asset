@@ -47,7 +47,7 @@ TagManager:
   - name: Default
     uniqueID: 0
     locked: 0
-  - name: Humanoids
+  - name: Everything
     uniqueID: 2537263013
     locked: 0
   - name: HighObjects

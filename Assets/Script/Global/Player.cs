@@ -27,6 +27,7 @@ public class Player : MonoBehaviour
     private int manaResourceIndex = -1;
     private Body[] bodies;
     private CharacterSettings characterSettings;
+    private VillagerPersonalityValue[] villagerPersonalityValues;
 
     private void Awake()
     {
@@ -41,6 +42,7 @@ public class Player : MonoBehaviour
         GameData gameData = GameData.Instance;
         bodies = gameData.bodies;
         characterSettings = gameData.characterSettings;
+        villagerPersonalityValues = gameData.villagerPersonalityValues;
         if (!InitializeResources(gameData.resourceDefinitions))
         {
             return;
@@ -82,6 +84,16 @@ public class Player : MonoBehaviour
         }
 
         Villagers.Add(new VillagerRecord(person, villager));
+    }
+
+    public void UnregisterVillager(Villager villager)
+    {
+        if (villager == null)
+        {
+            return;
+        }
+
+        Villagers.RemoveAll(record => record == null || record.Villager == villager);
     }
 
     private bool InitializeResources(ResourceDefinition[] resourceDefinitions)
@@ -250,6 +262,13 @@ public class Player : MonoBehaviour
             return;
         }
 
+        if (villagerPersonalityValues == null
+            || villagerPersonalityValues.Length != Enum.GetValues(typeof(VillagerPersonalityType)).Length)
+        {
+            Debug.LogError("Villager personality values could not be loaded from GameData.", this);
+            return;
+        }
+
         if (baseBodyPrefab == null || baseBodyPrefab.GetComponent<Villager>() == null)
         {
             Debug.LogError("Player requires a base body prefab with a Villager component.", this);
@@ -403,6 +422,7 @@ public class Player : MonoBehaviour
             reactionTime = UnityEngine.Random.Range(
                 GameData.Instance.villagerSettings.reactionTimeRange.x,
                 GameData.Instance.villagerSettings.reactionTimeRange.y),
+            personalityTypes = SelectRandomPersonalityTypes(),
             skinColor = skinColorCode,
             hairColor = hairColorCode,
             eyeColor = eyeColorCode,
@@ -430,6 +450,67 @@ public class Player : MonoBehaviour
         }
 
         return new VillagerRecord(person, villager);
+    }
+
+    private VillagerPersonalityType[] SelectRandomPersonalityTypes()
+    {
+        List<VillagerPersonalityValue> candidates =
+            new List<VillagerPersonalityValue>(villagerPersonalityValues);
+        for (int index = candidates.Count - 1; index > 0; index--)
+        {
+            int swapIndex = UnityEngine.Random.Range(0, index + 1);
+            VillagerPersonalityValue candidate = candidates[index];
+            candidates[index] = candidates[swapIndex];
+            candidates[swapIndex] = candidate;
+        }
+
+        List<VillagerPersonalityType> selectedTypes = new List<VillagerPersonalityType>();
+        foreach (VillagerPersonalityValue candidate in candidates)
+        {
+            if (UnityEngine.Random.Range(0, 100) >= candidate.chance)
+            {
+                continue;
+            }
+
+            bool compatibleWithAll = true;
+            foreach (VillagerPersonalityType selectedType in selectedTypes)
+            {
+                VillagerPersonalityValue selectedValue = FindPersonalityValue(selectedType);
+                if (Array.IndexOf(candidate.incompatibleWith, selectedType) >= 0
+                    || Array.IndexOf(selectedValue.incompatibleWith, candidate.type) >= 0)
+                {
+                    compatibleWithAll = false;
+                    break;
+                }
+            }
+
+            if (compatibleWithAll)
+            {
+                selectedTypes.Add(candidate.type);
+            }
+        }
+
+        if (selectedTypes.Count == 0)
+        {
+            int fallbackIndex = UnityEngine.Random.Range(0, candidates.Count);
+            selectedTypes.Add(candidates[fallbackIndex].type);
+        }
+
+        return selectedTypes.ToArray();
+    }
+
+    private VillagerPersonalityValue FindPersonalityValue(VillagerPersonalityType type)
+    {
+        foreach (VillagerPersonalityValue value in villagerPersonalityValues)
+        {
+            if (value.type == type)
+            {
+                return value;
+            }
+        }
+
+        Debug.LogError("Villager personality value not found for type " + type + ".", this);
+        return null;
     }
 
     private Transform ConfigureVillagerHoverTarget(Transform villagerTransform)

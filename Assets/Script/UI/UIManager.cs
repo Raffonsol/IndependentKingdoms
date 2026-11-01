@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public class UIManager : MonoBehaviour
@@ -14,6 +15,9 @@ public class UIManager : MonoBehaviour
 
     [SerializeField] private GameObject[] buildingPrefabs;
     [SerializeField] private GameObject[] panels;
+    [SerializeField] private int villagerDetailsPanelIndex = -1;
+    [SerializeField] private GameObject villagerJobAssignmentPanelPrefab;
+    [SerializeField] private int villagerJobAssignmentPanelIndex = 2;
     [SerializeField] private GameObject topPanel;
     [SerializeField] private GameObject bottomPanel;
     [SerializeField] private Sprite[] resourceIcons;
@@ -23,6 +27,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private LineRenderer roadPreviewPrefab;
     [SerializeField] private Sprite villagerOffscreenIndicatorSprite;
     [SerializeField] private VillagerHoverTooltip villagerHoverTooltipPrefab;
+    [SerializeField] private ResourceHoverTooltip resourceHoverTooltipPrefab;
     [SerializeField] private bool showDebugGrid;
     [SerializeField] private Color debugGridColor = new Color(0.1f, 0.85f, 1f, 0.55f);
     [SerializeField] private Color debugOccupiedCellFillColor = new Color(1f, 0.2f, 0.1f, 0.3f);
@@ -113,30 +118,62 @@ public class UIManager : MonoBehaviour
 
         SetRoadBuildingCursor(false);
 
-        if (villagerHoverTooltipPrefab != null)
+        if (villagerHoverTooltipPrefab != null || resourceHoverTooltipPrefab != null)
         {
             Transform canvasTransform = transform.Find("Canvas");
-            Canvas villagerHoverTooltipCanvas = canvasTransform != null
+            Canvas hoverTooltipCanvas = canvasTransform != null
                 ? canvasTransform.GetComponent<Canvas>()
                 : null;
-            VillagerHoverTooltipController tooltipController =
-                GetComponent<VillagerHoverTooltipController>();
+            HoverTooltipController tooltipController =
+                GetComponent<HoverTooltipController>();
             if (tooltipController == null)
             {
-                tooltipController = gameObject.AddComponent<VillagerHoverTooltipController>();
+                tooltipController = gameObject.AddComponent<HoverTooltipController>();
             }
 
             tooltipController.Initialize(
                 villagerHoverTooltipPrefab,
-                villagerHoverTooltipCanvas,
-                settings.villagerHoverTooltipWorldOffset);
+                resourceHoverTooltipPrefab,
+                hoverTooltipCanvas,
+                settings.hoverTooltipWorldOffset);
         }
     }
 
     private void Start()
     {
+        InitializeVillagerJobAssignmentPanel();
         CreateInitialResourceDisplays();
         HideUnusedVillagerIndicators(0);
+    }
+
+    private void Update()
+    {
+        if (!Input.GetMouseButtonDown(0)
+            || (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
+            || (MapManager.Instance != null && MapManager.Instance.IsRoadBuilding))
+        {
+            return;
+        }
+
+        UnityEngine.Camera mainCamera = UnityEngine.Camera.main;
+        if (mainCamera == null)
+        {
+            return;
+        }
+
+        Ray pointerRay = mainCamera.ScreenPointToRay(Input.mousePosition);
+        Plane villagerPlane = new Plane(Vector3.forward, Vector3.zero);
+        if (!villagerPlane.Raycast(pointerRay, out float rayDistance))
+        {
+            return;
+        }
+
+        Collider2D collider = Physics2D.OverlapPoint(pointerRay.GetPoint(rayDistance));
+        Villager villager = collider != null ? collider.GetComponentInParent<Villager>() : null;
+        if (villager != null && villager.isActiveAndEnabled)
+        {
+            ShowVillagerDetails(villager);
+        }
     }
 
     private void LateUpdate()
@@ -784,6 +821,60 @@ public class UIManager : MonoBehaviour
         panel.SetActive(!panel.activeSelf);
     }
 
+    public void ShowVillagerDetails(Villager villager)
+    {
+        if (villager == null)
+        {
+            Debug.LogError("Cannot show villager details for a null villager.", this);
+            return;
+        }
+
+        if (!TryGetPanel(villagerDetailsPanelIndex, out GameObject panelObject))
+        {
+            return;
+        }
+
+        VillagerDetailsPanel detailsPanel =
+            panelObject.GetComponentInChildren<VillagerDetailsPanel>(true);
+        if (detailsPanel == null)
+        {
+            Debug.LogError(
+                "The configured villager details panel does not contain a VillagerDetailsPanel component.",
+                panelObject);
+            return;
+        }
+
+        detailsPanel.SetVillager(villager);
+        panelObject.SetActive(true);
+    }
+
+    public void ShowVillagerJobAssignment(Villager villager)
+    {
+        if (villager == null)
+        {
+            Debug.LogError("Cannot show job assignment for a null villager.", this);
+            return;
+        }
+
+        if (!TryGetPanel(villagerJobAssignmentPanelIndex, out GameObject panelObject))
+        {
+            return;
+        }
+
+        VillagerJobAssignmentPanel jobPanel =
+            panelObject.GetComponentInChildren<VillagerJobAssignmentPanel>(true);
+        if (jobPanel == null)
+        {
+            Debug.LogError(
+                "The configured villager job panel does not contain a VillagerJobAssignmentPanel component.",
+                panelObject);
+            return;
+        }
+
+        jobPanel.SetVillager(villager);
+        panelObject.SetActive(true);
+    }
+
     public void ToggleRoadBuilding()
     {
         if (MapManager.Instance == null)
@@ -793,6 +884,70 @@ public class UIManager : MonoBehaviour
         }
 
         MapManager.Instance.ToggleRoadBuilding();
+    }
+
+    private bool TryGetPanel(int panelIndex, out GameObject panel)
+    {
+        panel = null;
+        if (panels == null || panelIndex < 0 || panelIndex >= panels.Length)
+        {
+            Debug.LogError(
+                "Villager details panel index " + panelIndex + " is outside the configured panel range.",
+                this);
+            return false;
+        }
+
+        panel = panels[panelIndex];
+        if (panel == null)
+        {
+            Debug.LogError("No panel is configured at index " + panelIndex + ".", this);
+            return false;
+        }
+
+        return true;
+    }
+
+    private void InitializeVillagerJobAssignmentPanel()
+    {
+        if (villagerJobAssignmentPanelPrefab == null)
+        {
+            Debug.LogError("A villager job assignment panel prefab is required.", this);
+            return;
+        }
+
+        if (panels == null
+            || villagerJobAssignmentPanelIndex < 0
+            || villagerJobAssignmentPanelIndex >= panels.Length)
+        {
+            Debug.LogError(
+                "Villager job assignment panel index " + villagerJobAssignmentPanelIndex
+                + " is outside the configured panel array.",
+                this);
+            return;
+        }
+
+        if (panels[villagerJobAssignmentPanelIndex] != null)
+        {
+            Debug.LogError(
+                "The villager job assignment panel array slot must be empty before initialization.",
+                this);
+            return;
+        }
+
+        Transform canvasTransform = transform.Find("Canvas");
+        if (canvasTransform == null)
+        {
+            Debug.LogError("The villager job assignment panel requires a child Canvas.", this);
+            return;
+        }
+
+        GameObject panel = Instantiate(
+            villagerJobAssignmentPanelPrefab,
+            canvasTransform,
+            false);
+        panel.name = "VillagerJobAssignmentPanel";
+        panel.SetActive(false);
+        panels[villagerJobAssignmentPanelIndex] = panel;
     }
 
     public void SetRoadBuildingCursor(bool isRoadBuilding)
