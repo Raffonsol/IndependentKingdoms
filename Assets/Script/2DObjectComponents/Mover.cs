@@ -30,6 +30,7 @@ public class Mover : MonoBehaviour
     private Quaternion[] legStartingRotations;
     private Vector3[] legPivotLocalOffsets;
     private Vector3 torsoStartingLocalPosition;
+    private SortingAnchor sortingAnchor;
 
     protected Vector2 MovementDurationRange
     {
@@ -74,6 +75,12 @@ public class Mover : MonoBehaviour
     protected virtual void Awake()
     {
         defaultMovementSpeed = movementSpeed;
+        sortingAnchor = GetComponent<SortingAnchor>();
+        if (sortingAnchor == null)
+        {
+            sortingAnchor = gameObject.AddComponent<SortingAnchor>();
+        }
+
         CombatSettings combatSettings = GameData.Instance.combatSettings;
         if (combatSettings == null)
         {
@@ -118,6 +125,7 @@ public class Mover : MonoBehaviour
         idleHeaveSpeed = bodyData.idleHeaveSpeed;
         torso = bodyTorso;
         legs = bodyLegs;
+        sortingAnchor.Configure(bodyData.sortingAnchorOffset);
 
         InitializeRuntimeState();
     }

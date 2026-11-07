@@ -22,7 +22,19 @@
     "playerSettings": {
         "initialVillagerCount": 8,
         "manaGainIntervalSeconds": 5,
-        "manaGainAmount": 1
+        "manaGainAmount": 1,
+        "initialResourceAmounts": [
+            { "type": "Gold", "initialAmount": 0 },
+            { "type": "Food", "initialAmount": 0 },
+            { "type": "Mana", "initialAmount": 0 },
+            { "type": "Wood", "initialAmount": 0 },
+            { "type": "Stone", "initialAmount": 0 },
+            { "type": "Iron", "initialAmount": 0 },
+            { "type": "Leather", "initialAmount": 0 },
+            { "type": "Cloth", "initialAmount": 0 },
+            { "type": "Gems", "initialAmount": 0 },
+            { "type": "Herbs", "initialAmount": 0 }
+        ]
     },
     "houseSettings": {
         "defaultHouseDimensions": { "x": 10, "y": 10 },

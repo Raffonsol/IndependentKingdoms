@@ -558,7 +558,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 01787cd03b094c8ea42353be9f26b3a7, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MonsterManager
   monsterPrefab: {fileID: 7357056511071685196, guid: 73742cf9726da894e878495ca364dbad, type: 3}
 --- !u!1 &326455561
@@ -2483,15 +2483,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MapManager
   mapSize: {x: 1000, y: 1000}
-  treePrefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
-  treeCount: 700
-  treeEdgePadding: 2
-  minimumTreeSpacing: 3
-  treePlacementAttemptsPerTree: 6
-  randomizeTreeRotation: 0
-  treeVisualOffset: {x: 0, y: 4}
-  treeScaleRange: {x: 0.9, y: 1.1}
-  treeRandomSeed: 0
+  resourceObjectPrefabs:
+  - id: tree_wood
+    prefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
+  - id: rock_stone
+    prefab: {fileID: 4558023136005666554, guid: 4ce1d5a0350d22249b19c6e4c2834190, type: 3}
 --- !u!1 &1899186161
 GameObject:
   m_ObjectHideFlags: 0

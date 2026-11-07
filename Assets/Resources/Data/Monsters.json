@@ -1,7 +1,7 @@
 {
     "spawnSettings": {
-        "spawnIntervalSeconds": 30,
-        "maximumTotalAmount": 18,
+        "spawnIntervalSeconds": 20,
+        "maximumTotalAmount": 28,
         "minimumVillagerDistance": 30,
         "spawnPositionAttemptsPerInterval": 100
     },
@@ -9,7 +9,7 @@
         {
             "id": "Boar",
             "spawnWeight": 10,
-            "maximumAmount": 5,
+            "maximumAmount": 10,
             "movementSpeed": 2,
             "movementDurationRange": { "x": 1, "y": 3 },
             "idleDurationRange": { "x": 1, "y": 3 },

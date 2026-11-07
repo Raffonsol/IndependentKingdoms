@@ -2,103 +2,43 @@
     "resourceDefinitions": [
         {
             "type": "Gold",
-            "iconIndex": 0,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 0
         },
         {
             "type": "Food",
-            "iconIndex": 1,
-            "initialAmount": 0,
-            "fullCutAmount": 3,
-            "bareHandAmount": 3,
-            "interactionOffset": { "x": 0, "y": 1 },
-            "resourceRegenerationPerSecond": 0.02,
-            "resourceRegenerationLimit": 3
+            "iconIndex": 1
         },
         {
             "type": "Mana",
-            "iconIndex": 2,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 2
         },
         {
             "type": "Wood",
-            "iconIndex": 3,
-            "initialAmount": 0,
-            "fullCutAmount": 10,
-            "bareHandAmount": 2,
-            "interactionOffset": { "x": 0, "y": 1 },
-            "resourceRegenerationPerSecond": 0.05,
-            "resourceRegenerationLimit": 10
+            "iconIndex": 3
         },
         {
             "type": "Stone",
-            "iconIndex": 4,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 4
         },
         {
             "type": "Iron",
-            "iconIndex": 5,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 5
         },
         {
             "type": "Leather",
-            "iconIndex": 6,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 6
         },
         {
             "type": "Cloth",
-            "iconIndex": 7,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 7
         },
         {
             "type": "Gems",
-            "iconIndex": 8,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 8
         },
         {
             "type": "Herbs",
-            "iconIndex": 9,
-            "initialAmount": 0,
-            "fullCutAmount": 0,
-            "bareHandAmount": 0,
-            "interactionOffset": { "x": 0, "y": 0 },
-            "resourceRegenerationPerSecond": 0,
-            "resourceRegenerationLimit": 0
+            "iconIndex": 9
          }
     ]
 }

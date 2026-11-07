@@ -9,14 +9,16 @@ public class HouseVisual : MonoBehaviour
     private const string HouseSortingLayer = "Everything";
     private const float SpriteDepthOffset = -0.01f;
     private readonly List<GameObject> visualParts = new List<GameObject>();
+    private SortingAnchor sortingAnchor;
 
     public void ShowConstructionStage(
         Sprite[] stageSprites,
         Color[] stageColors,
         float footprintWidth,
-        Vector2 visualOffset)
+        Vector2 visualOffset,
+        Vector2 sortingAnchorOffset)
     {
-        ConfigureSortingGroup();
+        ConfigureSortingGroup(sortingAnchorOffset);
         ClearVisualParts();
         LineRenderer plotOutline = GetComponent<LineRenderer>();
         if (plotOutline != null)
@@ -40,7 +42,7 @@ public class HouseVisual : MonoBehaviour
             return;
         }
 
-        ConfigureSortingGroup();
+        ConfigureSortingGroup(definition.sortingAnchorOffset);
         ClearVisualParts();
         AddSprite(
             SelectSprite(definition.baseSprites),
@@ -60,18 +62,26 @@ public class HouseVisual : MonoBehaviour
         transform.localScale = visualScale;
     }
 
-    private void ConfigureSortingGroup()
+    private void ConfigureSortingGroup(Vector2 sortingAnchorOffset)
     {
-        SortingGroup sortingGroup = GetComponent<SortingGroup>();
+        sortingAnchor = GetComponent<SortingAnchor>();
+        if (sortingAnchor == null)
+        {
+            sortingAnchor = gameObject.AddComponent<SortingAnchor>();
+        }
+
+        SortingGroup sortingGroup = sortingAnchor.Group;
         if (sortingGroup == null)
         {
-            sortingGroup = gameObject.AddComponent<SortingGroup>();
+            Debug.LogError("House sorting anchor has no SortingGroup.", this);
+            return;
         }
 
         sortingGroup.enabled = true;
         sortingGroup.sortingLayerName = HouseSortingLayer;
         sortingGroup.sortingOrder = 0;
         sortingGroup.sortAtRoot = true;
+        sortingAnchor.Configure(sortingAnchorOffset);
     }
 
     private void AddSpriteGroup(
@@ -110,8 +120,14 @@ public class HouseVisual : MonoBehaviour
         Vector2 pixelPosition = sprite.rect.position + sprite.pivot;
         pixelPosition -= new Vector2(sprite.texture.width, sprite.texture.height) * 0.5f;
 
+        if (sortingAnchor == null || sortingAnchor.VisualRoot == null)
+        {
+            Debug.LogError("Cannot create house visuals without a configured sorting anchor.", this);
+            return;
+        }
+
         GameObject part = new GameObject(sprite.name);
-        part.transform.SetParent(transform, false);
+        part.transform.SetParent(sortingAnchor.VisualRoot, false);
         part.transform.localPosition = new Vector3(
             pixelPosition.x * pixelsToWorld + visualOffset.x,
             pixelPosition.y * pixelsToWorld + visualOffset.y,

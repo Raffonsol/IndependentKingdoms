@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -14,15 +15,16 @@ public class ResourceObject : MonoBehaviour
         public Vector2Int interactionOffset;
     }
 
-    [SerializeField] private ResourceType resourceType = ResourceType.Wood;
-
     public Vector2Int GridCell { get; private set; }
 
     public bool HasGridCell { get; private set; }
+    public string DefinitionId { get; private set; }
 
     private readonly Dictionary<ResourceType, ResourceStock> resourceStocks =
         new Dictionary<ResourceType, ResourceStock>();
     private readonly List<ResourceType> availableResourceTypes = new List<ResourceType>();
+    private ResourceType resourceType;
+    private bool isConfigured;
     private Vector3 startingLocalPosition;
     private float shakeTimer;
     private float activeShakeDuration;
@@ -69,31 +71,16 @@ public class ResourceObject : MonoBehaviour
 
     private void Awake()
     {
-        GameData gameData = GameData.Instance;
-        if (gameData == null
-            || !gameData.TryGetResourceDefinition(resourceType, out ResourceDefinition definition))
-        {
-            Debug.LogError("Could not load harvest amounts for resource type " + resourceType + ".", this);
-            return;
-        }
-
-        AddResourceStock(definition);
-        InteractionOffset = definition.interactionOffset;
-        foreach (ResourceDefinition resourceDefinition in gameData.resourceDefinitions)
-        {
-            if (resourceDefinition != null
-                && resourceDefinition.type != resourceType
-                && resourceDefinition.resourceRegenerationLimit > 0)
-            {
-                AddResourceStock(resourceDefinition);
-            }
-        }
-
         startingLocalPosition = transform.localPosition;
     }
 
     private void Update()
     {
+        if (!isConfigured)
+        {
+            return;
+        }
+
         RegenerateResources(Time.deltaTime);
 
         if (shakeTimer > 0f)
@@ -116,7 +103,47 @@ public class ResourceObject : MonoBehaviour
         }
     }
 
-    private void AddResourceStock(ResourceDefinition definition)
+    public bool Initialize(ResourceObjectDefinition definition)
+    {
+        if (definition == null || string.IsNullOrWhiteSpace(definition.id)
+            || definition.outputs == null
+            || definition.outputs.Length == 0
+            || definition.outputs[0] == null
+            || !Enum.IsDefined(typeof(ResourceType), definition.outputs[0].type))
+        {
+            Debug.LogError("Cannot initialize a resource object without a valid definition.", this);
+            return false;
+        }
+
+        isConfigured = false;
+        resourceStocks.Clear();
+        availableResourceTypes.Clear();
+        DefinitionId = definition.id;
+        resourceType = definition.outputs[0].type;
+        InteractionOffset = definition.outputs[0].interactionOffset;
+        foreach (ResourceOutputDefinition output in definition.outputs)
+        {
+            if (output == null
+                || !Enum.IsDefined(typeof(ResourceType), output.type)
+                || resourceStocks.ContainsKey(output.type))
+            {
+                Debug.LogError(
+                    "Resource object definition '" + definition.id + "' has an invalid or duplicate output.",
+                    this);
+                resourceStocks.Clear();
+                availableResourceTypes.Clear();
+                return false;
+            }
+
+            AddResourceStock(output);
+        }
+
+        startingLocalPosition = transform.localPosition;
+        isConfigured = true;
+        return true;
+    }
+
+    private void AddResourceStock(ResourceOutputDefinition definition)
     {
         int amount = definition.resourceRegenerationLimit > 0
             ? Mathf.Min(definition.fullCutAmount, definition.resourceRegenerationLimit)

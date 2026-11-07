@@ -45,7 +45,9 @@ public class Player : MonoBehaviour
         characterSettings = gameData.characterSettings;
         villagerSettings = gameData.villagerSettings;
         villagerPersonalityValues = gameData.villagerPersonalityValues;
-        if (!InitializeResources(gameData.resourceDefinitions))
+        if (!InitializeResources(
+                gameData.resourceDefinitions,
+                gameData.playerSettings != null ? gameData.playerSettings.initialResourceAmounts : null))
         {
             return;
         }
@@ -98,16 +100,47 @@ public class Player : MonoBehaviour
         Villagers.RemoveAll(record => record == null || record.Villager == villager);
     }
 
-    private bool InitializeResources(ResourceDefinition[] resourceDefinitions)
+    private bool InitializeResources(
+        ResourceDefinition[] resourceDefinitions,
+        ResourceInitialAmount[] resourceInitialAmounts)
     {
         Array resourceTypes = Enum.GetValues(typeof(ResourceType));
-        if (resourceDefinitions == null || resourceDefinitions.Length != resourceTypes.Length)
+        if (resourceDefinitions == null
+            || resourceDefinitions.Length != resourceTypes.Length
+            || resourceInitialAmounts == null
+            || resourceInitialAmounts.Length != resourceTypes.Length)
         {
-            Debug.LogError("Resource definitions could not be loaded from GameData.", this);
+            Debug.LogError("Resource definitions or starting amounts could not be loaded from GameData.", this);
             return false;
         }
 
         resources = new ResourceRecord[resourceTypes.Length];
+        int[] initialAmountsByType = new int[resourceTypes.Length];
+        bool[] foundInitialAmount = new bool[resourceTypes.Length];
+        foreach (ResourceInitialAmount initialAmount in resourceInitialAmounts)
+        {
+            if (initialAmount == null || !Enum.IsDefined(typeof(ResourceType), initialAmount.type))
+            {
+                Debug.LogError("GameData contains an invalid resource starting amount.", this);
+                resources = null;
+                return false;
+            }
+
+            int resourceIndex = Convert.ToInt32(initialAmount.type);
+            if (resourceIndex < 0
+                || resourceIndex >= initialAmountsByType.Length
+                || foundInitialAmount[resourceIndex]
+                || initialAmount.initialAmount < 0)
+            {
+                Debug.LogError("GameData contains a duplicate or invalid resource starting amount.", this);
+                resources = null;
+                return false;
+            }
+
+            foundInitialAmount[resourceIndex] = true;
+            initialAmountsByType[resourceIndex] = initialAmount.initialAmount;
+        }
+
         foreach (ResourceDefinition definition in resourceDefinitions)
         {
             if (definition == null || !Enum.IsDefined(typeof(ResourceType), definition.type))
@@ -121,7 +154,7 @@ public class Player : MonoBehaviour
             if (resourceIndex < 0
                 || resourceIndex >= resources.Length
                 || resources[resourceIndex] != null
-                || definition.initialAmount < 0)
+                || !foundInitialAmount[resourceIndex])
             {
                 Debug.LogError("GameData contains an invalid or duplicate resource definition.", this);
                 resources = null;
@@ -131,7 +164,7 @@ public class Player : MonoBehaviour
             resources[resourceIndex] = new ResourceRecord
             {
                 type = definition.type,
-                amount = definition.initialAmount
+                amount = initialAmountsByType[resourceIndex]
             };
 
             if (definition.type == ResourceType.Mana)

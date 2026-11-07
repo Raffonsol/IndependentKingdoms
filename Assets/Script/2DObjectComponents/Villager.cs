@@ -1130,7 +1130,8 @@ public class Villager : Combatant
             houseBuildStageOneSprites,
             houseBuildStageOneColors,
             visualWidth,
-            selectedHouseDefinition.visualOffset);
+            selectedHouseDefinition.visualOffset,
+            selectedHouseDefinition.sortingAnchorOffset);
         HousingState = VillagerHousingState.BuildingHouseStageOne;
         constructionTimer = 0f;
         hammeringTimer = 0f;
@@ -1155,7 +1156,8 @@ public class Villager : Combatant
             houseBuildStageTwoSprites,
             houseBuildStageTwoColors,
             GetHouseVisualWidth(mapManager),
-            selectedHouseDefinition.visualOffset);
+            selectedHouseDefinition.visualOffset,
+            selectedHouseDefinition.sortingAnchorOffset);
         HousingState = VillagerHousingState.HouseConstructionBreak;
         constructionTimer = 0f;
         hammeringTimer = 0f;

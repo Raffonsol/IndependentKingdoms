@@ -1,0 +1,58 @@
+{
+    "resourceObjects": [
+        {
+            "id": "tree_wood",
+            "spawnSettings": {
+                "count": 700,
+                "edgePadding": 2,
+                "minimumSpacing": 3,
+                "placementAttemptsPerObject": 6,
+                "randomizeRotation": false,
+                "visualOffset": { "x": 0, "y": 4 },
+                "scaleRange": { "x": 0.9, "y": 1.1 },
+                "randomSeed": 0
+            },
+            "outputs": [
+                {
+                    "type": "Wood",
+                    "fullCutAmount": 10,
+                    "bareHandAmount": 2,
+                    "interactionOffset": { "x": 0, "y": 1 },
+                    "resourceRegenerationPerSecond": 0.05,
+                    "resourceRegenerationLimit": 10
+                },
+                {
+                    "type": "Food",
+                    "fullCutAmount": 3,
+                    "bareHandAmount": 3,
+                    "interactionOffset": { "x": 0, "y": 3 },
+                    "resourceRegenerationPerSecond": 0.02,
+                    "resourceRegenerationLimit": 3
+                }
+            ]
+        },
+        {
+            "id": "rock_stone",
+            "spawnSettings": {
+                "count": 650,
+                "edgePadding": 2,
+                "minimumSpacing": 1,
+                "placementAttemptsPerObject": 2,
+                "randomizeRotation": true,
+                "visualOffset": { "x": 0, "y": 0 },
+                "scaleRange": { "x": 1, "y": 1 },
+                "randomSeed": 0
+            },
+            "outputs": [
+                {
+                    "type": "Stone",
+                    "fullCutAmount": 2,
+                    "bareHandAmount": 2,
+                    "interactionOffset": { "x": 0, "y": 0 },
+                    "resourceRegenerationPerSecond": 0,
+                    "resourceRegenerationLimit": 2
+                }
+            ]
+        }
+    ]
+}

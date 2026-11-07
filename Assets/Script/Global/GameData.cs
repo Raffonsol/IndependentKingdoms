@@ -9,6 +9,7 @@ public class GameData
     private const string GameSettingsResourcePath = "Data/GameSettings";
     private const string MonsterDataResourcePath = "Data/Monsters";
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
+    private const string ResourceObjectDataResourcePath = "Data/ResourceObjects";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
     private const string VillagerPersonalityValuesResourcePath = "Data/VillagerPersonalityValues";
@@ -32,6 +33,7 @@ public class GameData
     public MonsterSpawnSettings monsterSpawnSettings;
     public MonsterDefinition[] monsterDefinitions;
     public ResourceDefinition[] resourceDefinitions;
+    public ResourceObjectDefinition[] resourceObjectDefinitions;
     public NamePart[] nameParts;
     public VillagerPersonalityValue[] villagerPersonalityValues;
     public HouseDefinition[] houseDefinitions;
@@ -62,6 +64,7 @@ public class GameData
     {
         GameSettingsCollection gameSettings = LoadGameSettings();
         MonsterDataCollection monsterData = LoadMonsterData();
+        ResourceObjectData resourceObjectData = LoadResourceObjectData();
         HouseDefinitionCollection houseDefinitionCollection = LoadHouseDefinitionCollection();
         return new GameData
         {
@@ -77,6 +80,7 @@ public class GameData
             monsterSpawnSettings = monsterData.spawnSettings,
             monsterDefinitions = monsterData.monsters,
             resourceDefinitions = LoadResourceDefinitions(),
+            resourceObjectDefinitions = resourceObjectData.resourceObjects,
             nameParts = LoadNameParts(),
             villagerPersonalityValues = LoadVillagerPersonalityValues(),
             houseDefinitions = LoadHouseDefinitions(houseDefinitionCollection),
@@ -286,6 +290,7 @@ public class GameData
                 id = record.id,
                 visualScale = record.visualScale,
                 visualOffset = record.visualOffset,
+                sortingAnchorOffset = record.sortingAnchorOffset,
                 baseSprites = LoadHouseSprites(record.baseSprites, record.id, "baseSprites", true),
                 baseColors = LoadHouseColors(record.baseColorCodes, record.id, "baseColorCodes"),
                 lowRoofSprites = LoadHouseSprites(record.lowRoofSprites, record.id, "lowRoofSprites", true),
@@ -308,10 +313,13 @@ public class GameData
                 annexRoofSprites = LoadHouseSprites(record.annexRoofSprites, record.id, "annexRoofSprites", false),
                 annexRoofColors = LoadHouseColors(record.annexRoofColorCodes, record.id, "annexRoofColorCodes")
             };
-            if (definition.visualScale <= 0f)
+            if (definition.visualScale <= 0f
+                || !IsFinite(definition.sortingAnchorOffset.x)
+                || !IsFinite(definition.sortingAnchorOffset.y))
             {
                 Debug.LogError(
-                    "House '" + record.id + "' must define a visualScale greater than zero.");
+                    "House '" + record.id
+                    + "' must define a positive visualScale and finite sortingAnchorOffset.");
                 return new HouseDefinition[0];
             }
 
@@ -464,6 +472,14 @@ public class GameData
                 continue;
             }
 
+            if (!IsFinite(record.sortingAnchorOffset.x)
+                || !IsFinite(record.sortingAnchorOffset.y))
+            {
+                Debug.LogError(
+                    "Body '" + record.name + "' must define a finite sortingAnchorOffset.");
+                return new Body[0];
+            }
+
             bodies[index] = new Body
             {
                 name = record.name,
@@ -483,6 +499,7 @@ public class GameData
                 rightSleeveSprite = LoadSprites(record.rightSleeveSprite, record.name, "rightSleeveSprite"),
                 rightLegXOffset = record.rightLegXOffset,
                 rightLegYOffset = record.rightLegYOffset,
+                sortingAnchorOffset = record.sortingAnchorOffset,
                 movementSpeed = record.movementSpeed,
                 movementDurationRangeX = record.movementDurationRangeX,
                 movementDurationRangeY = record.movementDurationRangeY,
@@ -883,13 +900,7 @@ public class GameData
                 ResourceDefinition definition = new ResourceDefinition
                 {
                     type = type,
-                    iconIndex = jsonDefinition.iconIndex,
-                    initialAmount = jsonDefinition.initialAmount,
-                    fullCutAmount = jsonDefinition.fullCutAmount,
-                    bareHandAmount = jsonDefinition.bareHandAmount,
-                    interactionOffset = jsonDefinition.interactionOffset,
-                    resourceRegenerationPerSecond = jsonDefinition.resourceRegenerationPerSecond,
-                    resourceRegenerationLimit = jsonDefinition.resourceRegenerationLimit
+                    iconIndex = jsonDefinition.iconIndex
                 };
                 definitions[index] = definition;
                 int enumIndex = Convert.ToInt32(definition.type);
@@ -905,31 +916,6 @@ public class GameData
                     return new ResourceDefinition[0];
                 }
 
-                if (definition.initialAmount < 0)
-                {
-                    Debug.LogError("Initial resource amounts cannot be negative.");
-                    return new ResourceDefinition[0];
-                }
-
-                if (definition.fullCutAmount < 0
-                    || definition.bareHandAmount < 0
-                    || definition.bareHandAmount > definition.fullCutAmount)
-                {
-                    Debug.LogError(
-                        "Resource harvest amounts must be non-negative, and bareHandAmount cannot exceed fullCutAmount.");
-                    return new ResourceDefinition[0];
-                }
-
-                if (definition.resourceRegenerationPerSecond < 0f
-                    || definition.resourceRegenerationLimit < 0
-                    || (definition.resourceRegenerationPerSecond > 0f
-                        && definition.resourceRegenerationLimit <= 0))
-                {
-                    Debug.LogError(
-                        "Resource regeneration rates and limits must be non-negative, and a positive rate requires a positive limit.");
-                    return new ResourceDefinition[0];
-                }
-
                 foundTypes[enumIndex] = true;
             }
 
@@ -942,6 +928,137 @@ public class GameData
                 + ".json: " + exception.Message);
             return new ResourceDefinition[0];
         }
+    }
+
+    private static ResourceObjectData LoadResourceObjectData()
+    {
+        TextAsset dataJson = Resources.Load<TextAsset>(ResourceObjectDataResourcePath);
+        if (dataJson == null)
+        {
+            Debug.LogError(
+                "Could not load resource object data at Resources/"
+                + ResourceObjectDataResourcePath + ".json.");
+            return new ResourceObjectData();
+        }
+
+        try
+        {
+            ResourceObjectDataCollection collection =
+                JsonUtility.FromJson<ResourceObjectDataCollection>(dataJson.text);
+            Array resourceTypes = Enum.GetValues(typeof(ResourceType));
+            if (collection == null
+                || collection.resourceObjects == null
+                || collection.resourceObjects.Length == 0)
+            {
+                Debug.LogError(
+                    "Resource object data must define at least one resource object.");
+                return new ResourceObjectData();
+            }
+
+            ResourceObjectDefinition[] definitions =
+                new ResourceObjectDefinition[collection.resourceObjects.Length];
+            for (int index = 0; index < collection.resourceObjects.Length; index++)
+            {
+                ResourceObjectDefinitionRecord record = collection.resourceObjects[index];
+                if (record == null
+                    || string.IsNullOrWhiteSpace(record.id)
+                    || record.spawnSettings == null
+                    || record.outputs == null
+                    || record.outputs.Length == 0
+                    || !IsValidResourceObjectSpawnSettings(record.spawnSettings))
+                {
+                    Debug.LogError("Resource object data contains an invalid definition at index " + index + ".");
+                    return new ResourceObjectData();
+                }
+
+                for (int previousIndex = 0; previousIndex < index; previousIndex++)
+                {
+                    if (string.Equals(
+                            collection.resourceObjects[previousIndex].id,
+                            record.id,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.LogError("Resource object IDs must be unique.");
+                        return new ResourceObjectData();
+                    }
+                }
+
+                ResourceOutputDefinition[] outputs =
+                    new ResourceOutputDefinition[record.outputs.Length];
+                bool[] foundOutputTypes = new bool[resourceTypes.Length];
+                for (int outputIndex = 0; outputIndex < record.outputs.Length; outputIndex++)
+                {
+                    ResourceOutputRecord outputRecord = record.outputs[outputIndex];
+                    if (outputRecord == null
+                        || !TryParseEnumName(outputRecord.type, out ResourceType type)
+                        || outputRecord.fullCutAmount < 0
+                        || outputRecord.bareHandAmount < 0
+                        || outputRecord.bareHandAmount > outputRecord.fullCutAmount
+                        || outputRecord.resourceRegenerationPerSecond < 0f
+                        || !IsFinite(outputRecord.resourceRegenerationPerSecond)
+                        || outputRecord.resourceRegenerationLimit < 0
+                        || (outputRecord.resourceRegenerationPerSecond > 0f
+                            && outputRecord.resourceRegenerationLimit <= 0))
+                    {
+                        Debug.LogError(
+                            "Resource object '" + record.id + "' contains an invalid resource output.");
+                        return new ResourceObjectData();
+                    }
+
+                    int typeIndex = Convert.ToInt32(type);
+                    if (typeIndex < 0 || typeIndex >= foundOutputTypes.Length || foundOutputTypes[typeIndex])
+                    {
+                        Debug.LogError(
+                            "Resource object '" + record.id
+                            + "' cannot define the same ResourceType more than once.");
+                        return new ResourceObjectData();
+                    }
+
+                    foundOutputTypes[typeIndex] = true;
+                    outputs[outputIndex] = new ResourceOutputDefinition
+                    {
+                        type = type,
+                        fullCutAmount = outputRecord.fullCutAmount,
+                        bareHandAmount = outputRecord.bareHandAmount,
+                        interactionOffset = outputRecord.interactionOffset,
+                        resourceRegenerationPerSecond = outputRecord.resourceRegenerationPerSecond,
+                        resourceRegenerationLimit = outputRecord.resourceRegenerationLimit
+                    };
+                }
+
+                definitions[index] = new ResourceObjectDefinition
+                {
+                    id = record.id,
+                    spawnSettings = record.spawnSettings,
+                    outputs = outputs
+                };
+            }
+
+            return new ResourceObjectData
+            {
+                resourceObjects = definitions
+            };
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse resource object data at Resources/"
+                + ResourceObjectDataResourcePath + ".json: " + exception.Message);
+            return new ResourceObjectData();
+        }
+    }
+
+    private static bool IsValidResourceObjectSpawnSettings(ResourceObjectSpawnSettings settings)
+    {
+        return settings.count >= 0
+            && IsFiniteNonNegative(settings.edgePadding)
+            && IsFiniteNonNegative(settings.minimumSpacing)
+            && settings.placementAttemptsPerObject > 0
+            && IsFinite(settings.visualOffset.x)
+            && IsFinite(settings.visualOffset.y)
+            && IsFinitePositive(settings.scaleRange.x)
+            && IsFinitePositive(settings.scaleRange.y)
+            && settings.scaleRange.y >= settings.scaleRange.x;
     }
 
     private static GameSettingsCollection LoadGameSettings()
@@ -976,6 +1093,48 @@ public class GameData
                 return new GameSettingsCollection();
             }
 
+            Array resourceTypes = Enum.GetValues(typeof(ResourceType));
+            if (jsonSettings.playerSettings.initialResourceAmounts == null
+                || jsonSettings.playerSettings.initialResourceAmounts.Length != resourceTypes.Length)
+            {
+                Debug.LogError(
+                    "Player settings must define one initial resource amount per ResourceType.");
+                return new GameSettingsCollection();
+            }
+
+            ResourceInitialAmount[] initialResourceAmounts =
+                new ResourceInitialAmount[jsonSettings.playerSettings.initialResourceAmounts.Length];
+            bool[] foundInitialAmounts = new bool[resourceTypes.Length];
+            for (int index = 0; index < jsonSettings.playerSettings.initialResourceAmounts.Length; index++)
+            {
+                ResourceInitialAmountRecord record =
+                    jsonSettings.playerSettings.initialResourceAmounts[index];
+                if (record == null
+                    || !TryParseEnumName(record.type, out ResourceType resourceType)
+                    || record.initialAmount < 0)
+                {
+                    Debug.LogError("Player resource starting amounts contain an invalid entry.");
+                    return new GameSettingsCollection();
+                }
+
+                int resourceIndex = Convert.ToInt32(resourceType);
+                if (resourceIndex < 0
+                    || resourceIndex >= foundInitialAmounts.Length
+                    || foundInitialAmounts[resourceIndex])
+                {
+                    Debug.LogError(
+                        "Player resource starting amounts must define each ResourceType exactly once.");
+                    return new GameSettingsCollection();
+                }
+
+                foundInitialAmounts[resourceIndex] = true;
+                initialResourceAmounts[index] = new ResourceInitialAmount
+                {
+                    type = resourceType,
+                    initialAmount = record.initialAmount
+                };
+            }
+
             ResourceCost[] houseCosts = new ResourceCost[jsonSettings.houseSettings.baseHouseCosts.Length];
             for (int index = 0; index < jsonSettings.houseSettings.baseHouseCosts.Length; index++)
             {
@@ -999,7 +1158,13 @@ public class GameData
             {
                 uiSettings = jsonSettings.uiSettings,
                 mapSettings = jsonSettings.mapSettings,
-                playerSettings = jsonSettings.playerSettings,
+                playerSettings = new PlayerSettings
+                {
+                    initialVillagerCount = jsonSettings.playerSettings.initialVillagerCount,
+                    manaGainIntervalSeconds = jsonSettings.playerSettings.manaGainIntervalSeconds,
+                    manaGainAmount = jsonSettings.playerSettings.manaGainAmount,
+                    initialResourceAmounts = initialResourceAmounts
+                },
                 houseSettings = new HouseSettings
                 {
                     defaultHouseDimensions = jsonHouseSettings.defaultHouseDimensions,

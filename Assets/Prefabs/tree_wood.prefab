@@ -47,7 +47,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 64323119c628473e82f8431ef5996336, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ResourceObject
-  resourceType: 3
 --- !u!210 &-2869055114709231648
 SortingGroup:
   m_ObjectHideFlags: 0

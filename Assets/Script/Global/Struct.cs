@@ -63,6 +63,7 @@ public class Body
 
     public float rightLegXOffset;
     public float rightLegYOffset;
+    public Vector2 sortingAnchorOffset;
 
    public float movementSpeed = 2f;
    public float movementDurationRangeX = 1f;
@@ -117,6 +118,7 @@ public class BodyRecord
     public bool isMale;
     public float rightLegXOffset;
     public float rightLegYOffset;
+    public Vector2 sortingAnchorOffset;
     public float movementSpeed = 2f;
     public float movementDurationRangeX = 1f;
     public float movementDurationRangeY = 3f;
@@ -250,6 +252,7 @@ public class PlayerSettings
     public int initialVillagerCount = 8;
     public float manaGainIntervalSeconds = 5f;
     public int manaGainAmount = 1;
+    public ResourceInitialAmount[] initialResourceAmounts;
 }
 
 [Serializable]
@@ -312,11 +315,20 @@ public class GameSettingsJsonCollection
 {
     public UISettings uiSettings;
     public MapSettings mapSettings;
-    public PlayerSettings playerSettings;
+    public PlayerSettingsJson playerSettings;
     public HouseSettingsJson houseSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
+}
+
+[Serializable]
+public class PlayerSettingsJson
+{
+    public int initialVillagerCount = 8;
+    public float manaGainIntervalSeconds = 5f;
+    public int manaGainAmount = 1;
+    public ResourceInitialAmountRecord[] initialResourceAmounts;
 }
 
 [Serializable]
@@ -474,6 +486,7 @@ public class HouseDefinitionRecord
     public string id;
     public float visualScale = 1f;
     public Vector2 visualOffset;
+    public Vector2 sortingAnchorOffset;
     public string[] baseSprites;
     public string[] baseColorCodes;
     public string[] lowRoofSprites;
@@ -508,6 +521,7 @@ public class HouseDefinition
     public string id;
     public float visualScale;
     public Vector2 visualOffset;
+    public Vector2 sortingAnchorOffset;
     public Sprite[] baseSprites;
     public Color[] baseColors;
     public Sprite[] lowRoofSprites;
@@ -711,12 +725,6 @@ public class ResourceDefinition
 {
     public ResourceType type;
     public int iconIndex;
-    public int initialAmount;
-    public int fullCutAmount;
-    public int bareHandAmount;
-    public Vector2Int interactionOffset;
-    public float resourceRegenerationPerSecond;
-    public int resourceRegenerationLimit;
 }
 
 [Serializable]
@@ -724,7 +732,44 @@ public class ResourceDefinitionJson
 {
     public string type;
     public int iconIndex;
+}
+
+[Serializable]
+public class ResourceDefinitionJsonCollection
+{
+    public ResourceDefinitionJson[] resourceDefinitions;
+}
+
+[Serializable]
+public class ResourceObjectDataCollection
+{
+    public ResourceObjectDefinitionRecord[] resourceObjects;
+}
+
+[Serializable]
+public class ResourceInitialAmountRecord
+{
+    public string type;
     public int initialAmount;
+}
+
+[Serializable]
+public class ResourceObjectData
+{
+    public ResourceObjectDefinition[] resourceObjects;
+}
+
+[Serializable]
+public class ResourceInitialAmount
+{
+    public ResourceType type;
+    public int initialAmount;
+}
+
+[Serializable]
+public class ResourceOutputRecord
+{
+    public string type;
     public int fullCutAmount;
     public int bareHandAmount;
     public Vector2Int interactionOffset;
@@ -733,7 +778,48 @@ public class ResourceDefinitionJson
 }
 
 [Serializable]
-public class ResourceDefinitionJsonCollection
+public class ResourceOutputDefinition
 {
-    public ResourceDefinitionJson[] resourceDefinitions;
+    public ResourceType type;
+    public int fullCutAmount;
+    public int bareHandAmount;
+    public Vector2Int interactionOffset;
+    public float resourceRegenerationPerSecond;
+    public int resourceRegenerationLimit;
+}
+
+[Serializable]
+public class ResourceObjectSpawnSettings
+{
+    public int count;
+    public float edgePadding;
+    public float minimumSpacing;
+    public int placementAttemptsPerObject;
+    public bool randomizeRotation;
+    public Vector2 visualOffset;
+    public Vector2 scaleRange = Vector2.one;
+    public int randomSeed;
+}
+
+[Serializable]
+public class ResourceObjectDefinitionRecord
+{
+    public string id;
+    public ResourceObjectSpawnSettings spawnSettings;
+    public ResourceOutputRecord[] outputs;
+}
+
+[Serializable]
+public class ResourceObjectDefinition
+{
+    public string id;
+    public ResourceObjectSpawnSettings spawnSettings;
+    public ResourceOutputDefinition[] outputs;
+}
+
+[Serializable]
+public class ResourceObjectPrefabReference
+{
+    public string id;
+    public GameObject prefab;
 }

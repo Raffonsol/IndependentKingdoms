@@ -41,15 +41,7 @@ public class MapManager : MonoBehaviour
         new List<AvailableHouseRecord>();
 
     [SerializeField] private Vector2 mapSize = new Vector2(100f, 100f);
-    [SerializeField] private GameObject treePrefab;
-    [SerializeField, Min(0)] private int treeCount;
-    [SerializeField, Min(0f)] private float treeEdgePadding = 2f;
-    [SerializeField, Min(0f)] private float minimumTreeSpacing = 3f;
-    [SerializeField, Min(1)] private int treePlacementAttemptsPerTree = 20;
-    [SerializeField] private bool randomizeTreeRotation = true;
-    [SerializeField] private Vector2 treeVisualOffset;
-    [SerializeField] private Vector2 treeScaleRange = new Vector2(0.9f, 1.1f);
-    [SerializeField] private int treeRandomSeed;
+    [SerializeField] private ResourceObjectPrefabReference[] resourceObjectPrefabs;
 
     private MapSettings settings;
     private UnityEngine.Camera mapCamera;
@@ -63,7 +55,7 @@ public class MapManager : MonoBehaviour
 
     private void Start()
     {
-        SpawnTrees();
+        SpawnResourceObjects();
     }
 
     public IReadOnlyList<Vector3> RoadKeyPoints
@@ -1512,47 +1504,74 @@ public class MapManager : MonoBehaviour
         }
     }
 
-    private void SpawnTrees()
+    private void SpawnResourceObjects()
     {
-        if (treeCount == 0)
+        ResourceObjectDefinition[] definitions = GameData.Instance.resourceObjectDefinitions;
+        if (definitions == null)
+        {
+            Debug.LogError("Resource object definitions could not be loaded from GameData.", this);
+            return;
+        }
+
+        foreach (ResourceObjectDefinition definition in definitions)
+        {
+            SpawnResourceObjects(definition);
+        }
+    }
+
+    private void SpawnResourceObjects(ResourceObjectDefinition definition)
+    {
+        if (definition == null || definition.spawnSettings == null)
+        {
+            Debug.LogError("A resource object definition or its spawn settings are missing.", this);
+            return;
+        }
+
+        ResourceObjectSpawnSettings spawnSettings = definition.spawnSettings;
+        if (spawnSettings.count == 0)
         {
             return;
         }
 
-        if (treeCount < 0
-            || mapSize.x <= 0f
+        if (mapSize.x <= 0f
             || mapSize.y <= 0f
-            || treeEdgePadding < 0f
-            || treeEdgePadding * 2f >= mapSize.x
-            || treeEdgePadding * 2f >= mapSize.y
-            || minimumTreeSpacing < 0f
-            || treePlacementAttemptsPerTree < 1
-            || treeScaleRange.x <= 0f
-            || treeScaleRange.y < treeScaleRange.x)
+            || spawnSettings.edgePadding < 0f
+            || spawnSettings.edgePadding * 2f >= mapSize.x
+            || spawnSettings.edgePadding * 2f >= mapSize.y
+            || spawnSettings.minimumSpacing < 0f
+            || spawnSettings.placementAttemptsPerObject < 1
+            || spawnSettings.scaleRange.x <= 0f
+            || spawnSettings.scaleRange.y < spawnSettings.scaleRange.x)
         {
-            Debug.LogError("Tree spawning settings are invalid.", this);
+            Debug.LogError("Resource object spawn settings are invalid for '" + definition.id + "'.", this);
             return;
         }
 
-        if (treePrefab == null)
+        GameObject prefab = GetResourceObjectPrefab(definition.id);
+        if (prefab == null)
         {
-            Debug.LogError("A tree prefab must be assigned when treeCount is greater than zero.", this);
+            Debug.LogError(
+                "No Inspector prefab is assigned for resource object definition '" + definition.id + "'.",
+                this);
             return;
         }
 
-        if (treePrefab.GetComponent<ResourceObject>() == null)
+        if (prefab.GetComponent<ResourceObject>() == null)
         {
-            Debug.LogError("The tree prefab must have a ResourceObject component.", this);
+            Debug.LogError(
+                "The prefab for resource object '" + definition.id
+                + "' must have a ResourceObject component.",
+                this);
             return;
         }
 
         if (settings == null || settings.gridCellSize <= 0f)
         {
-            Debug.LogError("A positive gridCellSize is required to place trees on map cells.", this);
+            Debug.LogError("A positive gridCellSize is required to place resource objects on map cells.", this);
             return;
         }
 
-        SpriteRenderer[] spriteRenderers = treePrefab.GetComponentsInChildren<SpriteRenderer>(true);
+        SpriteRenderer[] spriteRenderers = prefab.GetComponentsInChildren<SpriteRenderer>(true);
         bool hasSprite = false;
         foreach (SpriteRenderer spriteRenderer in spriteRenderers)
         {
@@ -1565,20 +1584,23 @@ public class MapManager : MonoBehaviour
 
         if (!hasSprite)
         {
-            Debug.LogError("The tree prefab must contain a SpriteRenderer with a Sprite.", this);
+            Debug.LogError(
+                "The prefab for resource object '" + definition.id
+                + "' must contain a SpriteRenderer with a Sprite.",
+                this);
             return;
         }
 
         System.Random random = new System.Random(
-            treeRandomSeed == 0 ? Environment.TickCount : treeRandomSeed);
+            spawnSettings.randomSeed == 0 ? Environment.TickCount : spawnSettings.randomSeed);
         float gridCellSize = settings.gridCellSize;
         float halfCellSize = gridCellSize * 0.5f;
         Vector2 halfMapSize = mapSize * 0.5f;
         Vector2 spawnCenter = transform.position;
-        float minX = spawnCenter.x - halfMapSize.x + treeEdgePadding;
-        float maxX = spawnCenter.x + halfMapSize.x - treeEdgePadding;
-        float minY = spawnCenter.y - halfMapSize.y + treeEdgePadding;
-        float maxY = spawnCenter.y + halfMapSize.y - treeEdgePadding;
+        float minX = spawnCenter.x - halfMapSize.x + spawnSettings.edgePadding;
+        float maxX = spawnCenter.x + halfMapSize.x - spawnSettings.edgePadding;
+        float minY = spawnCenter.y - halfMapSize.y + spawnSettings.edgePadding;
+        float maxY = spawnCenter.y + halfMapSize.y - spawnSettings.edgePadding;
         int minCellX = Mathf.CeilToInt((minX - halfCellSize) / gridCellSize);
         int maxCellX = Mathf.FloorToInt((maxX - halfCellSize) / gridCellSize);
         int minCellY = Mathf.CeilToInt((minY - halfCellSize) / gridCellSize);
@@ -1586,21 +1608,23 @@ public class MapManager : MonoBehaviour
 
         if (minCellX > maxCellX || minCellY > maxCellY)
         {
-            Debug.LogError("The map is too small to contain any grid cells for tree placement.", this);
+            Debug.LogError(
+                "The map is too small to contain grid cells for resource object '" + definition.id + "'.",
+                this);
             return;
         }
 
-        float minimumDistanceSquared = minimumTreeSpacing * minimumTreeSpacing;
+        float minimumDistanceSquared = spawnSettings.minimumSpacing * spawnSettings.minimumSpacing;
         HashSet<Vector2Int> occupiedCells = new HashSet<Vector2Int>(resourceObjectsByCell.Keys);
-        int spawnedTreeCount = 0;
+        int spawnedCount = 0;
 
-        for (int treeIndex = 0; treeIndex < treeCount; treeIndex++)
+        for (int objectIndex = 0; objectIndex < spawnSettings.count; objectIndex++)
         {
             bool foundPosition = false;
             Vector2Int cell = Vector2Int.zero;
             Vector3 cellPosition = Vector3.zero;
 
-            for (int attempt = 0; attempt < treePlacementAttemptsPerTree; attempt++)
+            for (int attempt = 0; attempt < spawnSettings.placementAttemptsPerObject; attempt++)
             {
                 cell = new Vector2Int(
                     random.Next(minCellX, maxCellX + 1),
@@ -1636,46 +1660,83 @@ public class MapManager : MonoBehaviour
                 continue;
             }
 
-            float rotation = randomizeTreeRotation
+            float rotation = spawnSettings.randomizeRotation
                 ? RandomRange(random, 0f, 360f)
                 : 0f;
-            float scale = RandomRange(random, treeScaleRange.x, treeScaleRange.y);
-            GameObject tree = Instantiate(
-                treePrefab,
+            float scale = RandomRange(random, spawnSettings.scaleRange.x, spawnSettings.scaleRange.y);
+            GameObject resourceObjectInstance = Instantiate(
+                prefab,
                 cellPosition,
                 Quaternion.Euler(0f, 0f, rotation),
                 transform);
-            tree.transform.localScale *= scale;
-            ApplyTreeVisualOffset(tree.transform);
+            resourceObjectInstance.transform.localScale *= scale;
+            ApplyResourceObjectVisualOffset(resourceObjectInstance.transform, spawnSettings.visualOffset);
 
-            ResourceObject resourceObject = tree.GetComponent<ResourceObject>();
+            ResourceObject resourceObject = resourceObjectInstance.GetComponent<ResourceObject>();
+            if (!resourceObject.Initialize(definition))
+            {
+                Destroy(resourceObjectInstance);
+                continue;
+            }
+
             resourceObject.SetGridCell(cell);
             resourceObjectsByCell.Add(cell, resourceObject);
             occupiedCells.Add(cell);
             PathfindingRevision++;
-            spawnedTreeCount++;
+            spawnedCount++;
         }
 
-        if (spawnedTreeCount < treeCount)
+        if (spawnedCount < spawnSettings.count)
         {
             Debug.LogWarning(
-                "Placed " + spawnedTreeCount + " of " + treeCount
-                + " requested trees. Increase the map size or placement attempts, or reduce minimum tree spacing.",
+                "Placed " + spawnedCount + " of " + spawnSettings.count
+                + " requested '" + definition.id
+                + "' resource objects. Increase the map size or placement attempts, or reduce minimum spacing.",
                 this);
         }
     }
 
-    private void ApplyTreeVisualOffset(Transform treeTransform)
+    private GameObject GetResourceObjectPrefab(string id)
     {
-        if (treeVisualOffset == Vector2.zero)
+        if (resourceObjectPrefabs == null)
+        {
+            return null;
+        }
+
+        GameObject matchedPrefab = null;
+        bool foundReference = false;
+        foreach (ResourceObjectPrefabReference reference in resourceObjectPrefabs)
+        {
+            if (reference != null && string.Equals(reference.id, id, StringComparison.OrdinalIgnoreCase))
+            {
+                if (foundReference)
+                {
+                    Debug.LogError(
+                        "More than one Inspector prefab is assigned for resource object definition '"
+                        + id + "'.",
+                        this);
+                    return null;
+                }
+
+                foundReference = true;
+                matchedPrefab = reference.prefab;
+            }
+        }
+
+        return matchedPrefab;
+    }
+
+    private static void ApplyResourceObjectVisualOffset(Transform resourceObjectTransform, Vector2 visualOffset)
+    {
+        if (visualOffset == Vector2.zero)
         {
             return;
         }
 
-        Vector3 worldOffset = new Vector3(treeVisualOffset.x, treeVisualOffset.y, 0f);
-        for (int childIndex = 0; childIndex < treeTransform.childCount; childIndex++)
+        Vector3 worldOffset = new Vector3(visualOffset.x, visualOffset.y, 0f);
+        for (int childIndex = 0; childIndex < resourceObjectTransform.childCount; childIndex++)
         {
-            Transform visualChild = treeTransform.GetChild(childIndex);
+            Transform visualChild = resourceObjectTransform.GetChild(childIndex);
             if (visualChild.GetComponentInChildren<SpriteRenderer>(true) != null)
             {
                 visualChild.position += worldOffset;
