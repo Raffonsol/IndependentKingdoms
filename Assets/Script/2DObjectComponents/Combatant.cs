@@ -13,6 +13,7 @@ public abstract class Combatant : Mover
     private float health;
     private float attackWindupTimer;
     private float attackRecoveryTimer;
+    private float detectionTimer;
     private bool attackHasImpacted;
 
     public int FactionId
@@ -58,6 +59,11 @@ public abstract class Combatant : Mover
         get { return 1; }
     }
 
+    protected virtual float DetectionReactionTime
+    {
+        get { return combatSettings != null ? combatSettings.monsterReactionTimeSeconds : 0f; }
+    }
+
     protected override void Awake()
     {
         base.Awake();
@@ -99,39 +105,59 @@ public abstract class Combatant : Mover
             return;
         }
 
-        Combatant target = FindNearestEnemy();
-        if (target == null)
+        if (currentTarget != null && (!currentTarget.IsAlive || !currentTarget.isActiveAndEnabled))
+        {
+            currentTarget = null;
+            StopMoving();
+            SetMovementSpeed(DefaultMovementSpeed);
+            IsCombatEngaged = false;
+            detectionTimer = 0f;
+            ResetAttack();
+        }
+
+        if (currentTarget == null)
+        {
+            detectionTimer -= Time.deltaTime;
+            if (detectionTimer <= 0f)
+            {
+                currentTarget = FindEnemyInDetectionCone();
+                detectionTimer = Mathf.Max(
+                    Time.deltaTime,
+                    DetectionReactionTime * combatSettings.detectionIntervalReactionTimeMultiplier);
+            }
+        }
+
+        if (currentTarget == null)
         {
             if (IsCombatEngaged)
             {
                 StopMoving();
+                SetMovementSpeed(DefaultMovementSpeed);
                 ResetAttack();
             }
 
-            currentTarget = null;
             IsCombatEngaged = false;
             base.Update();
             return;
         }
 
-        if (currentTarget != target)
+        if (!IsCombatEngaged)
         {
-            ResetAttack();
-            currentTarget = target;
+            SetMovementSpeed(RunningSpeed);
         }
 
         IsCombatEngaged = true;
-        float distance = Vector2.Distance(transform.position, target.transform.position);
-        UpdateFacingFromDirection(target.transform.position - transform.position);
+        float distance = Vector2.Distance(transform.position, currentTarget.transform.position);
+        UpdateFacingFromDirection(currentTarget.transform.position - transform.position);
         if (distance > combatSettings.attackRange)
         {
             ResetAttack();
-            MoveTo(target.transform.position, combatSettings.attackRange);
+            MoveTo(currentTarget.transform.position, combatSettings.attackRange);
         }
         else
         {
             StopMoving();
-            UpdateAttack(target);
+            UpdateAttack(currentTarget);
         }
 
         base.Update();
@@ -147,6 +173,28 @@ public abstract class Combatant : Mover
 
         factionId = newFactionId;
         currentTarget = null;
+        StopMoving();
+        SetMovementSpeed(DefaultMovementSpeed);
+        detectionTimer = 0f;
+        IsCombatEngaged = false;
+        ResetAttack();
+        return true;
+    }
+
+    internal bool ConfigureCombatSettings(CombatSettings settings)
+    {
+        if (settings == null)
+        {
+            Debug.LogError("Cannot configure a combatant without combat settings.", this);
+            return false;
+        }
+
+        combatSettings = settings;
+        health = settings.maximumHealth;
+        IsAlive = true;
+        currentTarget = null;
+        detectionTimer = 0f;
+        IsCombatEngaged = false;
         ResetAttack();
         return true;
     }
@@ -194,14 +242,22 @@ public abstract class Combatant : Mover
     {
     }
 
-    private Combatant FindNearestEnemy()
+    private Combatant FindEnemyInDetectionCone()
     {
-        Combatant nearest = null;
-        float nearestDistanceSquared = float.PositiveInfinity;
+        float gridCellSize = GameData.Instance.mapSettings.gridCellSize;
+        if (gridCellSize <= 0f)
+        {
+            return null;
+        }
+
+        Vector2Int ownCell = WorldPositionToGridCell(transform.position, gridCellSize);
+        Vector2Int forward = FacingDirection;
+        Combatant detected = null;
+        int nearestDistanceSquared = int.MaxValue;
         for (int index = activeCombatants.Count - 1; index >= 0; index--)
         {
             Combatant candidate = activeCombatants[index];
-            if (candidate == null || !candidate.IsAlive)
+            if (candidate == null || !candidate.IsAlive || !candidate.isActiveAndEnabled)
             {
                 activeCombatants.RemoveAt(index);
                 continue;
@@ -212,15 +268,35 @@ public abstract class Combatant : Mover
                 continue;
             }
 
-            float distanceSquared = (candidate.transform.position - transform.position).sqrMagnitude;
+            Vector2Int candidateCell = WorldPositionToGridCell(
+                candidate.transform.position,
+                gridCellSize);
+            Vector2Int offset = candidateCell - ownCell;
+            int forwardDistance = offset.x * forward.x + offset.y * forward.y;
+            int sideDistance = Mathf.Abs(offset.x * forward.y - offset.y * forward.x);
+            if (forwardDistance < 1
+                || forwardDistance > combatSettings.detectionRangeCells
+                || sideDistance > forwardDistance)
+            {
+                continue;
+            }
+
+            int distanceSquared = offset.sqrMagnitude;
             if (distanceSquared < nearestDistanceSquared)
             {
-                nearest = candidate;
+                detected = candidate;
                 nearestDistanceSquared = distanceSquared;
             }
         }
 
-        return nearest;
+        return detected;
+    }
+
+    private static Vector2Int WorldPositionToGridCell(Vector3 position, float gridCellSize)
+    {
+        return new Vector2Int(
+            Mathf.FloorToInt(position.x / gridCellSize),
+            Mathf.FloorToInt(position.y / gridCellSize));
     }
 
     private void UpdateAttack(Combatant target)

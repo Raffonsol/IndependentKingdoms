@@ -7,6 +7,7 @@ public class GameData
     private const string BodyDataResourcePath = "Data/Bodies";
     private const string CharacterSettingsDataResourcePath = "Data/CharacterSettings";
     private const string GameSettingsResourcePath = "Data/GameSettings";
+    private const string MonsterDataResourcePath = "Data/Monsters";
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
@@ -28,6 +29,8 @@ public class GameData
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
+    public MonsterSpawnSettings monsterSpawnSettings;
+    public MonsterDefinition[] monsterDefinitions;
     public ResourceDefinition[] resourceDefinitions;
     public NamePart[] nameParts;
     public VillagerPersonalityValue[] villagerPersonalityValues;
@@ -58,6 +61,7 @@ public class GameData
     private static GameData Load()
     {
         GameSettingsCollection gameSettings = LoadGameSettings();
+        MonsterDataCollection monsterData = LoadMonsterData();
         HouseDefinitionCollection houseDefinitionCollection = LoadHouseDefinitionCollection();
         return new GameData
         {
@@ -70,6 +74,8 @@ public class GameData
             villagerSettings = gameSettings.villagerSettings,
             resourceSettings = gameSettings.resourceSettings,
             combatSettings = gameSettings.combatSettings,
+            monsterSpawnSettings = monsterData.spawnSettings,
+            monsterDefinitions = monsterData.monsters,
             resourceDefinitions = LoadResourceDefinitions(),
             nameParts = LoadNameParts(),
             villagerPersonalityValues = LoadVillagerPersonalityValues(),
@@ -102,12 +108,12 @@ public class GameData
 
         try
         {
-            VillagerPersonalityValueCollection collection =
-                JsonUtility.FromJson<VillagerPersonalityValueCollection>(valuesJson.text);
+            VillagerPersonalityValueJsonCollection jsonCollection =
+                JsonUtility.FromJson<VillagerPersonalityValueJsonCollection>(valuesJson.text);
             Array personalityTypes = Enum.GetValues(typeof(VillagerPersonalityType));
-            if (collection == null
-                || collection.villagerPersonalityValues == null
-                || collection.villagerPersonalityValues.Length != personalityTypes.Length)
+            if (jsonCollection == null
+                || jsonCollection.villagerPersonalityValues == null
+                || jsonCollection.villagerPersonalityValues.Length != personalityTypes.Length)
             {
                 Debug.LogError(
                     "Villager personality values at Resources/" + VillagerPersonalityValuesResourcePath
@@ -116,14 +122,44 @@ public class GameData
             }
 
             bool[] foundTypes = new bool[personalityTypes.Length];
-            foreach (VillagerPersonalityValue value in collection.villagerPersonalityValues)
+            VillagerPersonalityValue[] values =
+                new VillagerPersonalityValue[jsonCollection.villagerPersonalityValues.Length];
+            for (int index = 0; index < jsonCollection.villagerPersonalityValues.Length; index++)
             {
-                if (value == null || !Enum.IsDefined(typeof(VillagerPersonalityType), value.type))
+                VillagerPersonalityValueJson jsonValue =
+                    jsonCollection.villagerPersonalityValues[index];
+                if (jsonValue == null
+                    || !TryParseEnumName(jsonValue.type, out VillagerPersonalityType type)
+                    || jsonValue.incompatibleWith == null)
                 {
                     Debug.LogError("Villager personality values contain an invalid or null type.");
                     return new VillagerPersonalityValue[0];
                 }
 
+                VillagerPersonalityType[] incompatibleTypes =
+                    new VillagerPersonalityType[jsonValue.incompatibleWith.Length];
+                for (int incompatibleIndex = 0;
+                    incompatibleIndex < jsonValue.incompatibleWith.Length;
+                    incompatibleIndex++)
+                {
+                    if (!TryParseEnumName(
+                            jsonValue.incompatibleWith[incompatibleIndex],
+                            out incompatibleTypes[incompatibleIndex]))
+                    {
+                        Debug.LogError(
+                            "Villager personality values contain an invalid incompatible personality name.");
+                        return new VillagerPersonalityValue[0];
+                    }
+                }
+
+                VillagerPersonalityValue value = new VillagerPersonalityValue
+                {
+                    type = type,
+                    chance = jsonValue.chance,
+                    incompatibleWith = incompatibleTypes,
+                    description = jsonValue.description
+                };
+                values[index] = value;
                 int typeIndex = Convert.ToInt32(value.type);
                 if (typeIndex < 0 || typeIndex >= foundTypes.Length || foundTypes[typeIndex])
                 {
@@ -166,7 +202,7 @@ public class GameData
                 foundTypes[typeIndex] = true;
             }
 
-            return collection.villagerPersonalityValues;
+            return values;
         }
         catch (ArgumentException exception)
         {
@@ -456,12 +492,278 @@ public class GameData
                 legSwingSpeed = record.legSwingSpeed,
                 legPivotOffsetX = record.legPivotOffsetX,
                 legPivotOffsetY = record.legPivotOffsetY,
+                legSwingRunningAngle = record.legSwingRunningAngle,
+                legSwingRunningSpeed = record.legSwingRunningSpeed,
                 idleHeaveHeight = record.idleHeaveHeight,
                 idleHeaveSpeed = record.idleHeaveSpeed
             };
         }
 
         return bodies;
+    }
+
+    private static MonsterDataCollection LoadMonsterData()
+    {
+        TextAsset monsterDataJson = Resources.Load<TextAsset>(MonsterDataResourcePath);
+        if (monsterDataJson == null)
+        {
+            Debug.LogError(
+                "Could not load monster data at Resources/" + MonsterDataResourcePath + ".json.");
+            return new MonsterDataCollection();
+        }
+
+        try
+        {
+            MonsterDataRecordCollection collection =
+                JsonUtility.FromJson<MonsterDataRecordCollection>(monsterDataJson.text);
+            if (collection == null
+                || collection.spawnSettings == null
+                || collection.monsters == null
+                || collection.monsters.Length == 0)
+            {
+                Debug.LogError(
+                    "Monster data at Resources/" + MonsterDataResourcePath
+                    + ".json must define spawnSettings and at least one monster.");
+                return new MonsterDataCollection();
+            }
+
+            MonsterSpawnSettings spawnSettings = collection.spawnSettings;
+            if (!IsFinitePositive(spawnSettings.spawnIntervalSeconds)
+                || spawnSettings.maximumTotalAmount < 0
+                || !IsFiniteNonNegative(spawnSettings.minimumVillagerDistance)
+                || spawnSettings.spawnPositionAttemptsPerInterval <= 0)
+            {
+                Debug.LogError(
+                    "Monster spawn settings must define a positive interval and attempt count, "
+                    + "a non-negative population cap, and a non-negative villager distance.");
+                return new MonsterDataCollection();
+            }
+
+            MonsterDefinition[] definitions = new MonsterDefinition[collection.monsters.Length];
+            for (int index = 0; index < collection.monsters.Length; index++)
+            {
+                MonsterDefinitionRecord record = collection.monsters[index];
+                if (record == null
+                    || string.IsNullOrWhiteSpace(record.id)
+                    || record.id.IndexOfAny(new[] { '/', '\\' }) >= 0
+                    || record.spawnWeight < 0f
+                    || !IsFiniteNonNegative(record.spawnWeight)
+                    || record.maximumAmount < 0
+                    || !IsFinitePositive(record.movementSpeed)
+                    || !IsValidDurationRange(record.movementDurationRange)
+                    || !IsValidDurationRange(record.idleDurationRange)
+                    || !IsValidMonsterLegDefinitions(record.legDefinitions)
+                    || !IsValidMonsterCombatSettings(record.combatSettings)
+                    || !IsFinite(record.rightFrontLegOffset.x)
+                    || !IsFinite(record.rightFrontLegOffset.y)
+                    || !IsFinite(record.rightBackLegOffset.x)
+                    || !IsFinite(record.rightBackLegOffset.y))
+                {
+                    Debug.LogError("Monster data contains an invalid definition at index " + index + ".");
+                    return new MonsterDataCollection();
+                }
+
+                for (int previousIndex = 0; previousIndex < index; previousIndex++)
+                {
+                    if (string.Equals(
+                            collection.monsters[previousIndex].id,
+                            record.id,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.LogError("Monster definition IDs must be unique.");
+                        return new MonsterDataCollection();
+                    }
+                }
+
+                MonsterDefinition definition = new MonsterDefinition
+                {
+                    id = record.id,
+                    spawnWeight = record.spawnWeight,
+                    maximumAmount = record.maximumAmount,
+                    movementSpeed = record.movementSpeed,
+                    movementDurationRange = record.movementDurationRange,
+                    idleDurationRange = record.idleDurationRange,
+                    faceSprites = LoadMonsterSprites(record.faceSprites, record.id, "faceSprites"),
+                    torsoSprites = LoadMonsterSprites(record.torsoSprites, record.id, "torsoSprites"),
+                    frontLegSprites = LoadMonsterSprites(
+                        record.frontLegSprites,
+                        record.id,
+                        "frontLegSprites"),
+                    backLegSprites = LoadMonsterSprites(
+                        record.backLegSprites,
+                        record.id,
+                        "backLegSprites"),
+                    tailSprites = LoadMonsterSprites(record.tailSprites, record.id, "tailSprites"),
+                    legDefinitions = record.legDefinitions,
+                    rightFrontLegOffset = record.rightFrontLegOffset,
+                    rightBackLegOffset = record.rightBackLegOffset,
+                    combatSettings = record.combatSettings
+                };
+                if (!AreLoadedSpritesValid(definition.faceSprites)
+                    || !AreLoadedSpritesValid(definition.torsoSprites)
+                    || !AreLoadedSpritesValid(definition.frontLegSprites)
+                    || !AreLoadedSpritesValid(definition.backLegSprites)
+                    || !AreLoadedSpritesValid(definition.tailSprites))
+                {
+                    Debug.LogError("Monster definition '" + record.id + "' has missing part sprites.");
+                    return new MonsterDataCollection();
+                }
+
+                definitions[index] = definition;
+            }
+
+            bool hasSpawnableDefinition = false;
+            foreach (MonsterDefinition definition in definitions)
+            {
+                if (definition.spawnWeight > 0f && definition.maximumAmount > 0)
+                {
+                    hasSpawnableDefinition = true;
+                    break;
+                }
+            }
+
+            if (!hasSpawnableDefinition)
+            {
+                Debug.LogError("Monster data must include at least one definition with a positive weight and cap.");
+                return new MonsterDataCollection();
+            }
+
+            float totalSpawnWeight = 0f;
+            foreach (MonsterDefinition definition in definitions)
+            {
+                totalSpawnWeight += definition.spawnWeight;
+            }
+
+            if (!IsFinitePositive(totalSpawnWeight))
+            {
+                Debug.LogError("Monster definition spawn weights must have a finite, positive total.");
+                return new MonsterDataCollection();
+            }
+
+            return new MonsterDataCollection
+            {
+                spawnSettings = spawnSettings,
+                monsters = definitions
+            };
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse monster data at Resources/" + MonsterDataResourcePath
+                + ".json: " + exception.Message);
+            return new MonsterDataCollection();
+        }
+    }
+
+    private static Sprite[] LoadMonsterSprites(string[] spriteNames, string monsterId, string fieldName)
+    {
+        if (spriteNames == null || spriteNames.Length == 0)
+        {
+            Debug.LogError(
+                "Monster '" + monsterId + "' must define at least one sprite in '" + fieldName + "'.");
+            return new Sprite[0];
+        }
+
+        Sprite[] sprites = new Sprite[spriteNames.Length];
+        for (int index = 0; index < spriteNames.Length; index++)
+        {
+            string spriteName = spriteNames[index];
+            sprites[index] = string.IsNullOrWhiteSpace(spriteName)
+                ? null
+                : LoadSprite(
+                    "Monsters/" + monsterId + "/" + spriteName,
+                    monsterId,
+                    fieldName);
+        }
+
+        return sprites;
+    }
+
+    private static bool AreLoadedSpritesValid(Sprite[] sprites)
+    {
+        if (sprites == null || sprites.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (Sprite sprite in sprites)
+        {
+            if (sprite == null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidDurationRange(Vector2 range)
+    {
+        return IsFiniteNonNegative(range.x)
+            && IsFiniteNonNegative(range.y)
+            && range.y >= range.x;
+    }
+
+    private static bool IsValidMonsterLegDefinitions(MonsterLegDefinition[] definitions)
+    {
+        if (definitions == null || definitions.Length == 0)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < definitions.Length; index++)
+        {
+            MonsterLegDefinition definition = definitions[index];
+            if (definition == null
+                || string.IsNullOrWhiteSpace(definition.partName)
+                || !IsFinite(definition.legSwingAngle)
+                || !IsFiniteNonNegative(definition.legSwingSpeed)
+                || !IsFinite(definition.legPivotOffset.x)
+                || !IsFinite(definition.legPivotOffset.y)
+                || !IsFinite(definition.legSwingRunningAngle)
+                || !IsFiniteNonNegative(definition.legSwingRunningSpeed))
+            {
+                return false;
+            }
+
+            for (int previousIndex = 0; previousIndex < index; previousIndex++)
+            {
+                if (string.Equals(
+                        definitions[previousIndex].partName,
+                        definition.partName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidMonsterCombatSettings(CombatSettings settings)
+    {
+        return settings != null
+            && IsFinitePositive(settings.maximumHealth)
+            && IsFinitePositive(settings.attackDamage)
+            && IsFinitePositive(settings.attackRange)
+            && IsFinitePositive(settings.attackWindupSeconds)
+            && IsFiniteNonNegative(settings.attackRecoverySeconds)
+            && IsFinitePositive(settings.runningSpeed)
+            && IsFiniteNonNegative(settings.monsterReactionTimeSeconds)
+            && IsFinitePositive(settings.detectionIntervalReactionTimeMultiplier)
+            && settings.detectionRangeCells > 0
+            && AreValidArmMotionPoints(settings.attackHitPositions);
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsFiniteNonNegative(float value)
+    {
+        return value >= 0f && IsFinite(value);
     }
 
     private static CharacterSettings LoadCharacterSettings()
@@ -502,14 +804,35 @@ public class GameData
 
         try
         {
-            NamePartCollection collection = JsonUtility.FromJson<NamePartCollection>(namingPartsJson.text);
-            if (collection == null || collection.nameParts == null)
+            NamePartJsonCollection jsonCollection =
+                JsonUtility.FromJson<NamePartJsonCollection>(namingPartsJson.text);
+            if (jsonCollection == null || jsonCollection.nameParts == null)
             {
                 Debug.LogError("Naming parts at Resources/" + NamingPartsResourcePath + ".json must contain a JSON array.");
                 return new NamePart[0];
             }
 
-            return collection.nameParts;
+            NamePart[] nameParts = new NamePart[jsonCollection.nameParts.Length];
+            for (int index = 0; index < jsonCollection.nameParts.Length; index++)
+            {
+                NamePartJson jsonNamePart = jsonCollection.nameParts[index];
+                if (jsonNamePart == null
+                    || !TryParseEnumName(jsonNamePart.type, out NamePartType type))
+                {
+                    Debug.LogError("Naming parts contain an invalid or null NamePartType name.");
+                    return new NamePart[0];
+                }
+
+                nameParts[index] = new NamePart
+                {
+                    type = type,
+                    value = jsonNamePart.value,
+                    worksForMen = jsonNamePart.worksForMen,
+                    worksForWomen = jsonNamePart.worksForWomen
+                };
+            }
+
+            return nameParts;
         }
         catch (ArgumentException exception)
         {
@@ -531,12 +854,12 @@ public class GameData
 
         try
         {
-            ResourceDefinitionCollection collection =
-                JsonUtility.FromJson<ResourceDefinitionCollection>(definitionsJson.text);
+            ResourceDefinitionJsonCollection jsonCollection =
+                JsonUtility.FromJson<ResourceDefinitionJsonCollection>(definitionsJson.text);
             Array resourceTypes = Enum.GetValues(typeof(ResourceType));
-            if (collection == null
-                || collection.resourceDefinitions == null
-                || collection.resourceDefinitions.Length != resourceTypes.Length)
+            if (jsonCollection == null
+                || jsonCollection.resourceDefinitions == null
+                || jsonCollection.resourceDefinitions.Length != resourceTypes.Length)
             {
                 Debug.LogError(
                     "Resource definitions at Resources/" + ResourceDefinitionsResourcePath
@@ -545,14 +868,30 @@ public class GameData
             }
 
             bool[] foundTypes = new bool[resourceTypes.Length];
-            foreach (ResourceDefinition definition in collection.resourceDefinitions)
+            ResourceDefinition[] definitions =
+                new ResourceDefinition[jsonCollection.resourceDefinitions.Length];
+            for (int index = 0; index < jsonCollection.resourceDefinitions.Length; index++)
             {
-                if (definition == null || !Enum.IsDefined(typeof(ResourceType), definition.type))
+                ResourceDefinitionJson jsonDefinition = jsonCollection.resourceDefinitions[index];
+                if (jsonDefinition == null
+                    || !TryParseEnumName(jsonDefinition.type, out ResourceType type))
                 {
                     Debug.LogError("Resource definitions contain an invalid or null ResourceType entry.");
                     return new ResourceDefinition[0];
                 }
 
+                ResourceDefinition definition = new ResourceDefinition
+                {
+                    type = type,
+                    iconIndex = jsonDefinition.iconIndex,
+                    initialAmount = jsonDefinition.initialAmount,
+                    fullCutAmount = jsonDefinition.fullCutAmount,
+                    bareHandAmount = jsonDefinition.bareHandAmount,
+                    interactionOffset = jsonDefinition.interactionOffset,
+                    resourceRegenerationPerSecond = jsonDefinition.resourceRegenerationPerSecond,
+                    resourceRegenerationLimit = jsonDefinition.resourceRegenerationLimit
+                };
+                definitions[index] = definition;
                 int enumIndex = Convert.ToInt32(definition.type);
                 if (enumIndex < 0 || enumIndex >= foundTypes.Length || foundTypes[enumIndex])
                 {
@@ -581,20 +920,20 @@ public class GameData
                     return new ResourceDefinition[0];
                 }
 
-                if (definition.treeRegenerationPerSecond < 0f
-                    || definition.treeRegenerationLimit < 0
-                    || (definition.treeRegenerationPerSecond > 0f
-                        && definition.treeRegenerationLimit <= 0))
+                if (definition.resourceRegenerationPerSecond < 0f
+                    || definition.resourceRegenerationLimit < 0
+                    || (definition.resourceRegenerationPerSecond > 0f
+                        && definition.resourceRegenerationLimit <= 0))
                 {
                     Debug.LogError(
-                        "Tree regeneration rates and limits must be non-negative, and a positive rate requires a positive limit.");
+                        "Resource regeneration rates and limits must be non-negative, and a positive rate requires a positive limit.");
                     return new ResourceDefinition[0];
                 }
 
                 foundTypes[enumIndex] = true;
             }
 
-            return collection.resourceDefinitions;
+            return definitions;
         }
         catch (ArgumentException exception)
         {
@@ -616,17 +955,74 @@ public class GameData
 
         try
         {
-            GameSettingsCollection settings = JsonUtility.FromJson<GameSettingsCollection>(settingsJson.text);
-            if (settings == null
-                || settings.uiSettings == null
-                || settings.mapSettings == null
-                || settings.playerSettings == null
-                || settings.houseSettings == null
-                || settings.villagerSettings == null
-                || settings.resourceSettings == null
-                || settings.combatSettings == null)
+            GameSettingsJsonCollection jsonSettings =
+                JsonUtility.FromJson<GameSettingsJsonCollection>(settingsJson.text);
+            if (jsonSettings == null
+                || jsonSettings.uiSettings == null
+                || jsonSettings.mapSettings == null
+                || jsonSettings.playerSettings == null
+                || jsonSettings.houseSettings == null
+                || jsonSettings.villagerSettings == null
+                || jsonSettings.resourceSettings == null
+                || jsonSettings.combatSettings == null)
             {
                 Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, villagerSettings, resourceSettings, and combatSettings.");
+                return new GameSettingsCollection();
+            }
+
+            if (jsonSettings.houseSettings.baseHouseCosts == null)
+            {
+                Debug.LogError("House settings must define baseHouseCosts with named resource types.");
+                return new GameSettingsCollection();
+            }
+
+            ResourceCost[] houseCosts = new ResourceCost[jsonSettings.houseSettings.baseHouseCosts.Length];
+            for (int index = 0; index < jsonSettings.houseSettings.baseHouseCosts.Length; index++)
+            {
+                ResourceCostJson jsonCost = jsonSettings.houseSettings.baseHouseCosts[index];
+                if (jsonCost == null
+                    || !TryParseEnumName(jsonCost.resourceType, out ResourceType resourceType))
+                {
+                    Debug.LogError("House resource costs must use valid named ResourceType values.");
+                    return new GameSettingsCollection();
+                }
+
+                houseCosts[index] = new ResourceCost
+                {
+                    resourceType = resourceType,
+                    amount = jsonCost.amount
+                };
+            }
+
+            HouseSettingsJson jsonHouseSettings = jsonSettings.houseSettings;
+            GameSettingsCollection settings = new GameSettingsCollection
+            {
+                uiSettings = jsonSettings.uiSettings,
+                mapSettings = jsonSettings.mapSettings,
+                playerSettings = jsonSettings.playerSettings,
+                houseSettings = new HouseSettings
+                {
+                    defaultHouseDimensions = jsonHouseSettings.defaultHouseDimensions,
+                    baseHouseCosts = houseCosts,
+                    firstConstructionDurationSeconds = jsonHouseSettings.firstConstructionDurationSeconds,
+                    constructionBreakDurationSeconds = jsonHouseSettings.constructionBreakDurationSeconds,
+                    secondConstructionDurationSeconds = jsonHouseSettings.secondConstructionDurationSeconds,
+                    hammerMotionDurationSeconds = jsonHouseSettings.hammerMotionDurationSeconds,
+                    hammerPauseDurationSeconds = jsonHouseSettings.hammerPauseDurationSeconds,
+                    hammerHitPositions = jsonHouseSettings.hammerHitPositions
+                },
+                villagerSettings = jsonSettings.villagerSettings,
+                resourceSettings = jsonSettings.resourceSettings,
+                combatSettings = jsonSettings.combatSettings
+            };
+
+            if (settings.villagerSettings.villagerScaleSettings == null
+                || !IsValidScaleModifierRange(settings.villagerSettings.villagerScaleSettings.male)
+                || !IsValidScaleModifierRange(settings.villagerSettings.villagerScaleSettings.female))
+            {
+                Debug.LogError(
+                    "Villager scale settings must define positive minimum and maximum x/y modifiers "
+                    + "for both genders, with each minimum no greater than its maximum.");
                 return new GameSettingsCollection();
             }
 
@@ -707,6 +1103,9 @@ public class GameData
                 || villagerSettings.fatigueIncreasePerSecond <= 0f
                 || villagerSettings.fatigueRecoveryPerSecond <= 0f
                 || villagerSettings.homelessIdleFatigueRecoveryPerSecond < 0f
+                || villagerSettings.homeRestStartFatigueThreshold
+                    <= villagerSettings.homeRestFatigueThreshold
+                || villagerSettings.homeRestStartFatigueThreshold > 100f
                 || villagerSettings.homeRestFatigueThreshold < 0f
                 || villagerSettings.homeRestFatigueThreshold > 100f
                 || villagerSettings.lazyHomeRestFatigueThreshold < 0f
@@ -714,6 +1113,11 @@ public class GameData
                     > villagerSettings.homeRestFatigueThreshold
                 || villagerSettings.productiveFatigueThreshold < 0f
                 || villagerSettings.productiveFatigueThreshold > 100f
+                || villagerSettings.idleHomeStayProbability < 0f
+                || villagerSettings.idleHomeStayProbability > 1f
+                || villagerSettings.lazyIdleHomeStayProbability
+                    <= villagerSettings.idleHomeStayProbability
+                || villagerSettings.lazyIdleHomeStayProbability > 1f
                 || villagerSettings.emergencyFoodHungerThreshold <= 0f
                 || villagerSettings.emergencyFoodHungerThreshold > 100f
                 || villagerSettings.resumeTaskHungerThreshold < 0f
@@ -754,9 +1158,13 @@ public class GameData
                 || combatSettings.attackRange <= 0f
                 || combatSettings.attackWindupSeconds <= 0f
                 || combatSettings.attackRecoverySeconds < 0f
+                || combatSettings.runningSpeed <= 0f
+                || combatSettings.monsterReactionTimeSeconds < 0f
+                || combatSettings.detectionIntervalReactionTimeMultiplier <= 0f
+                || combatSettings.detectionRangeCells <= 0
                 || !AreValidArmMotionPoints(combatSettings.attackHitPositions))
             {
-                Debug.LogError("Combat settings must define positive health, damage, range, and windup, non-negative recovery, and attack positions.");
+                Debug.LogError("Combat settings must define positive health, damage, range, windup, running speed, detection interval multiplier, and detection range; reaction time and recovery must be non-negative, and attack positions must be valid.");
                 return new GameSettingsCollection();
             }
 
@@ -767,6 +1175,22 @@ public class GameData
             Debug.LogError("Could not parse settings at Resources/" + GameSettingsResourcePath + ".json: " + exception.Message);
             return new GameSettingsCollection();
         }
+    }
+
+    private static bool IsValidScaleModifierRange(ScaleModifierRange range)
+    {
+        return range != null
+            && IsFinitePositive(range.minimum.x)
+            && IsFinitePositive(range.minimum.y)
+            && IsFinitePositive(range.maximum.x)
+            && IsFinitePositive(range.maximum.y)
+            && range.minimum.x <= range.maximum.x
+            && range.minimum.y <= range.maximum.y;
+    }
+
+    private static bool IsFinitePositive(float value)
+    {
+        return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     private static bool AreValidArmMotionPoints(ArmMotionPoint[] points)
@@ -788,6 +1212,23 @@ public class GameData
         }
 
         return true;
+    }
+
+    private static bool TryParseEnumName<T>(string value, out T parsedValue)
+        where T : struct
+    {
+        parsedValue = default(T);
+        if (string.IsNullOrEmpty(value)
+            || !Enum.TryParse(value, false, out parsedValue)
+            || !Enum.IsDefined(typeof(T), parsedValue))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            Enum.GetName(typeof(T), parsedValue),
+            value,
+            StringComparison.Ordinal);
     }
 
     private static Sprite LoadSprite(string resourcePath, string bodyName, string fieldName)

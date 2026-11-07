@@ -41,9 +41,9 @@
             "secondLevelExtensionColorCodes": ["#D8B88A", "#A76E3C"],
             "extensionRoofSprites": ["b1_extensionRoof0"],
             "extensionRoofColorCodes": ["#8B4513", "#6A6A6A"],
-            "annexSprites": [],
+            "annexSprites": ["b1_annex0"],
             "annexColorCodes": ["#D8B88A", "#A76E3C"],
-            "annexRoofSprites": [],
+            "annexRoofSprites": ["b1_annexRoof0"],
             "annexRoofColorCodes": ["#8B4513", "#6A6A6A"]
         }
     ]

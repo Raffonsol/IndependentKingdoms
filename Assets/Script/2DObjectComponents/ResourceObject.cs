@@ -83,7 +83,7 @@ public class ResourceObject : MonoBehaviour
         {
             if (resourceDefinition != null
                 && resourceDefinition.type != resourceType
-                && resourceDefinition.treeRegenerationLimit > 0)
+                && resourceDefinition.resourceRegenerationLimit > 0)
             {
                 AddResourceStock(resourceDefinition);
             }
@@ -118,16 +118,16 @@ public class ResourceObject : MonoBehaviour
 
     private void AddResourceStock(ResourceDefinition definition)
     {
-        int amount = definition.treeRegenerationLimit > 0
-            ? Mathf.Min(definition.fullCutAmount, definition.treeRegenerationLimit)
+        int amount = definition.resourceRegenerationLimit > 0
+            ? Mathf.Min(definition.fullCutAmount, definition.resourceRegenerationLimit)
             : definition.fullCutAmount;
         ResourceStock stock = new ResourceStock
         {
             amount = amount,
             bareHandAmount = Mathf.Min(definition.bareHandAmount, amount),
             bareHandLimit = definition.bareHandAmount,
-            regenerationLimit = definition.treeRegenerationLimit,
-            regenerationPerSecond = definition.treeRegenerationPerSecond,
+            regenerationLimit = definition.resourceRegenerationLimit,
+            regenerationPerSecond = definition.resourceRegenerationPerSecond,
             interactionOffset = definition.interactionOffset
         };
         resourceStocks.Add(definition.type, stock);

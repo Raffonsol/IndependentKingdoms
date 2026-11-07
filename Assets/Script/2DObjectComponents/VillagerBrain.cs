@@ -11,6 +11,10 @@ public class VillagerBrain : MonoBehaviour
 
     private Villager villager;
     private VillagerSettings settings;
+    private bool hasNoWorkDecision;
+    private bool noWorkDecisionIsStayHome;
+    private VillagerHousingState observedHousingState;
+    private JobType observedJobAssignment;
 
     public void Initialize(Villager owner, VillagerSettings villagerSettings)
     {
@@ -22,6 +26,8 @@ public class VillagerBrain : MonoBehaviour
 
         villager = owner;
         settings = villagerSettings;
+        observedHousingState = owner.HousingState;
+        observedJobAssignment = owner.JobAssignment;
     }
 
     public void DecideNextOperation()
@@ -29,6 +35,14 @@ public class VillagerBrain : MonoBehaviour
         if (villager == null || settings == null)
         {
             return;
+        }
+
+        if (observedHousingState != villager.HousingState
+            || observedJobAssignment != villager.JobAssignment)
+        {
+            ResetNoWorkDecision();
+            observedHousingState = villager.HousingState;
+            observedJobAssignment = villager.JobAssignment;
         }
 
         bool housingAvailable = villager.HousingState != VillagerHousingState.Housed;
@@ -65,13 +79,35 @@ public class VillagerBrain : MonoBehaviour
 
         if (TryRunOperation(firstOperation, housingAvailable, foodAvailable)
             || TryRunOperation(secondOperation, housingAvailable, foodAvailable)
-            || TryRunOperation(thirdOperation, housingAvailable, foodAvailable)
-            || villager.TryGoHomeOperation())
+            || TryRunOperation(thirdOperation, housingAvailable, foodAvailable))
         {
+            ResetNoWorkDecision();
             return;
         }
 
-        villager.IdleWithoutHome();
+        if (villager.HasHome
+            && villager.Fatigue >= settings.homeRestStartFatigueThreshold)
+        {
+            noWorkDecisionIsStayHome = true;
+            hasNoWorkDecision = true;
+        }
+        else if (!hasNoWorkDecision)
+        {
+            float stayHomeProbability = villager.HasPersonality(VillagerPersonalityType.Lazy)
+                ? settings.lazyIdleHomeStayProbability
+                : settings.idleHomeStayProbability;
+            noWorkDecisionIsStayHome = villager.HasHome
+                && Random.value < stayHomeProbability;
+            hasNoWorkDecision = true;
+        }
+
+        villager.ApplyNoWorkDecision(noWorkDecisionIsStayHome);
+    }
+
+    public void ResetNoWorkDecision()
+    {
+        hasNoWorkDecision = false;
+        noWorkDecisionIsStayHome = false;
     }
 
     private bool TryRunOperation(Operation operation, bool housingAvailable, bool foodAvailable)

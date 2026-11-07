@@ -27,6 +27,7 @@ public class Player : MonoBehaviour
     private int manaResourceIndex = -1;
     private Body[] bodies;
     private CharacterSettings characterSettings;
+    private VillagerSettings villagerSettings;
     private VillagerPersonalityValue[] villagerPersonalityValues;
 
     private void Awake()
@@ -42,6 +43,7 @@ public class Player : MonoBehaviour
         GameData gameData = GameData.Instance;
         bodies = gameData.bodies;
         characterSettings = gameData.characterSettings;
+        villagerSettings = gameData.villagerSettings;
         villagerPersonalityValues = gameData.villagerPersonalityValues;
         if (!InitializeResources(gameData.resourceDefinitions))
         {
@@ -405,13 +407,18 @@ public class Player : MonoBehaviour
 
         GameObject npcContainer = GameObject.Find("NPC");
         bodyTransform.SetParent(npcContainer != null ? npcContainer.transform : transform, true);
+        ApplyGeneratedScale(bodyTransform, body.isMale);
         if (rightLeg != null)
         {
             rightLeg.transform.localPosition = new Vector3(body.rightLegXOffset, body.rightLegYOffset, 0f);
         }
 
         Villager villager = bodyObject.GetComponent<Villager>();
-        villager.Configure(body, torso, new[] { leftLeg, rightLeg });
+        villager.Configure(body, torso, new[]
+        {
+            CreateLegDefinition(leftLeg, body),
+            CreateLegDefinition(rightLeg, body)
+        });
         if (rightArm != null)
         {
             villager.ConfigureGatheringAnimation(rightArm.transform);
@@ -450,6 +457,30 @@ public class Player : MonoBehaviour
         }
 
         return new VillagerRecord(person, villager);
+    }
+
+    private void ApplyGeneratedScale(Transform villagerTransform, bool isMale)
+    {
+        ScaleModifierRange scaleRange = isMale
+            ? villagerSettings.villagerScaleSettings.male
+            : villagerSettings.villagerScaleSettings.female;
+        Vector3 scale = villagerTransform.localScale;
+        scale.x *= UnityEngine.Random.Range(scaleRange.minimum.x, scaleRange.maximum.x);
+        scale.y *= UnityEngine.Random.Range(scaleRange.minimum.y, scaleRange.maximum.y);
+        villagerTransform.localScale = scale;
+    }
+
+    private static LegDefinitions CreateLegDefinition(GameObject leg, Body body)
+    {
+        return new LegDefinitions
+        {
+            leg = leg,
+            legSwingAngle = body.legSwingAngle,
+            legSwingSpeed = body.legSwingSpeed,
+            legPivotOffset = new Vector2(body.legPivotOffsetX, body.legPivotOffsetY),
+            legSwingRunningAngle = body.legSwingRunningAngle,
+            legSwingRunningSpeed = body.legSwingRunningSpeed
+        };
     }
 
     private VillagerPersonalityType[] SelectRandomPersonalityTypes()

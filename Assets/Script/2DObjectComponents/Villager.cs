@@ -97,6 +97,8 @@ public class Villager : Combatant
     private bool isEmergencyFoodSeeking;
     private bool isRestingAtHome;
     private bool isIdlingWithoutHome;
+    private bool isStayingHomeWithoutWork;
+    private bool isAtHomeWithoutWork;
     private bool isWaitingForRoadChange;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
@@ -312,15 +314,18 @@ public class Villager : Combatant
 
     internal bool TryRunHousingOperation()
     {
-        isRestingAtHome = false;
-        isIdlingWithoutHome = false;
-        return UpdateHousingOperation();
+        bool started = UpdateHousingOperation();
+        if (started)
+        {
+            ClearNoWorkBehavior();
+        }
+
+        return started;
     }
 
     internal bool TryRunFoodOperation(bool emergency)
     {
-        isRestingAtHome = false;
-        isIdlingWithoutHome = false;
+        ClearNoWorkBehavior();
         StartFoodSeeking(emergency);
         UpdateFoodSeeking();
         return true;
@@ -331,20 +336,58 @@ public class Villager : Combatant
         bool started = jobController != null && jobController.TryStartProductiveOperation();
         if (started)
         {
-            isRestingAtHome = false;
-            isIdlingWithoutHome = false;
+            ClearNoWorkBehavior();
         }
 
         return started;
     }
 
-    internal bool TryGoHomeOperation()
+    internal void ApplyNoWorkDecision(bool stayHome)
     {
-        return TryGoHome();
-    }
+        if (stayHome && HasHome)
+        {
+            isStayingHomeWithoutWork = true;
+            isIdlingWithoutHome = false;
+            MapManager mapManager = MapManager.Instance;
+            if (mapManager == null)
+            {
+                if (!loggedMissingMapManager)
+                {
+                    Debug.LogError("Villager no-work behavior requires an active MapManager.", this);
+                    loggedMissingMapManager = true;
+                }
 
-    internal void IdleWithoutHome()
-    {
+                return;
+            }
+
+            loggedMissingMapManager = false;
+            Vector3 homePosition = GetHouseWorkPosition(mapManager);
+            if (Vector2.Distance(transform.position, homePosition) > 0.1f)
+            {
+                isAtHomeWithoutWork = false;
+                isRestingAtHome = false;
+                MoveTo(homePosition, 0.1f);
+                return;
+            }
+
+            bool justArrivedHome = !isAtHomeWithoutWork;
+            isAtHomeWithoutWork = true;
+            StopMoving();
+            if (justArrivedHome)
+            {
+                isRestingAtHome = Fatigue >= settings.homeRestStartFatigueThreshold;
+            }
+
+            if (currentBehavior == null || currentBehavior.mode != VillagerBehaviorMode.Idle)
+            {
+                EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+            }
+
+            return;
+        }
+
+        isStayingHomeWithoutWork = false;
+        isAtHomeWithoutWork = false;
         isRestingAtHome = false;
         isIdlingWithoutHome = true;
         if (currentBehavior == null || currentBehavior.mode != VillagerBehaviorMode.Wander)
@@ -419,8 +462,7 @@ public class Villager : Combatant
         RefreshHousingRoadRevision();
         if (IsCombatEngaged)
         {
-            isRestingAtHome = false;
-            isIdlingWithoutHome = false;
+            ClearNoWorkBehavior();
             base.Update();
             return;
         }
@@ -450,45 +492,24 @@ public class Villager : Combatant
         base.Update();
     }
 
-    private bool TryGoHome()
-    {
-        if (!HasHome)
-        {
-            return false;
-        }
-
-        MapManager mapManager = MapManager.Instance;
-        if (mapManager == null)
-        {
-            return false;
-        }
-
-        Vector3 homePosition = GetHouseWorkPosition(mapManager);
-        if (Vector2.Distance(transform.position, homePosition) > 0.1f)
-        {
-            isRestingAtHome = false;
-            isIdlingWithoutHome = false;
-            MoveTo(homePosition, 0.1f);
-            return true;
-        }
-
-        StopMoving();
-        isIdlingWithoutHome = false;
-        float restFatigueThreshold = HasPersonality(VillagerPersonalityType.Lazy)
-            ? settings.lazyHomeRestFatigueThreshold
-            : settings.homeRestFatigueThreshold;
-        isRestingAtHome = Fatigue > restFatigueThreshold;
-        if (currentBehavior.mode != VillagerBehaviorMode.Idle)
-        {
-            EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
-        }
-
-        return true;
-    }
-
     private void UpdateFatigue(float deltaTime)
     {
         if (isRestingAtHome)
+        {
+            float restFatigueThreshold = HasPersonality(VillagerPersonalityType.Lazy)
+                ? settings.lazyHomeRestFatigueThreshold
+                : settings.homeRestFatigueThreshold;
+            Fatigue = Mathf.Max(
+                restFatigueThreshold,
+                Fatigue - settings.fatigueRecoveryPerSecond * deltaTime);
+            if (Fatigue <= restFatigueThreshold)
+            {
+                isRestingAtHome = false;
+            }
+            return;
+        }
+
+        if (isStayingHomeWithoutWork && isAtHomeWithoutWork)
         {
             Fatigue = Mathf.Max(
                 0f,
@@ -516,6 +537,19 @@ public class Villager : Combatant
                 MaximumFatigue,
                 Fatigue + settings.fatigueIncreasePerSecond * deltaTime);
         }
+    }
+
+    private void ClearNoWorkBehavior()
+    {
+        if (brain != null)
+        {
+            brain.ResetNoWorkDecision();
+        }
+
+        isRestingAtHome = false;
+        isIdlingWithoutHome = false;
+        isStayingHomeWithoutWork = false;
+        isAtHomeWithoutWork = false;
     }
 
     private void RefreshHousingRoadRevision()
@@ -1306,10 +1340,7 @@ public class Villager : Combatant
 
     private Vector3 GetHouseWorkPosition(MapManager mapManager)
     {
-        float gridCellSize = mapManager.GridCellSize;
-        Vector3 position = housePlot.center;
-        position.y -= housePlot.dimensions.y * gridCellSize * 0.5f + gridCellSize * 0.5f;
-        return position;
+        return mapManager.GetHouseEntrancePosition(housePlot);
     }
 
     private float GetHouseVisualWidth(MapManager mapManager)
@@ -1322,6 +1353,11 @@ public class Villager : Combatant
     private float GetReactionTime()
     {
         return Person != null ? Mathf.Max(0f, Person.reactionTime) : 0f;
+    }
+
+    protected override float DetectionReactionTime
+    {
+        get { return GetReactionTime(); }
     }
 
     private void ReleaseGatheringResource(MapManager mapManager)

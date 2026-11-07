@@ -27,7 +27,7 @@
     "houseSettings": {
         "defaultHouseDimensions": { "x": 10, "y": 10 },
         "baseHouseCosts": [
-            { "resourceType": 3, "amount": 8 }
+            { "resourceType": "Wood", "amount": 8 }
         ],
         "firstConstructionDurationSeconds": 15,
         "constructionBreakDurationSeconds": 4,
@@ -40,6 +40,16 @@
         ]
     },
     "villagerSettings": {
+        "villagerScaleSettings": {
+            "male": {
+                "minimum": { "x": 0.65, "y": 0.8 },
+                "maximum": { "x": 1.05, "y": 1.1 }
+            },
+            "female": {
+                "minimum": { "x": 0.95, "y": 1 },
+                "maximum": { "x": 1.2, "y": 1.2 }
+            }
+        },
         "idleBehaviorDuration": 30,
         "roadDetectionDistance": 2,
         "roadSearchDistance": 35,
@@ -49,9 +59,12 @@
         "fatigueIncreasePerSecond": 1,
         "fatigueRecoveryPerSecond": 2,
         "homelessIdleFatigueRecoveryPerSecond": 0.25,
+        "homeRestStartFatigueThreshold": 70,
         "homeRestFatigueThreshold": 40,
         "lazyHomeRestFatigueThreshold": 10,
         "productiveFatigueThreshold": 75,
+        "idleHomeStayProbability": 0.5,
+        "lazyIdleHomeStayProbability": 0.8,
         "emergencyFoodHungerThreshold": 70,
         "resumeTaskHungerThreshold": 50,
         "boredFoodSeekingHungerThreshold": 40,
@@ -84,6 +97,10 @@
         "attackRange": 1.5,
         "attackWindupSeconds": 0.35,
         "attackRecoverySeconds": 0.65,
+        "runningSpeed": 4,
+        "monsterReactionTimeSeconds": 0.8,
+        "detectionIntervalReactionTimeMultiplier": 1,
+        "detectionRangeCells": 6,
         "attackHitPositions": [
             { "x": 1, "y": 1, "z": 160 },
             { "x": -0.4, "y": 1, "z": 260 }

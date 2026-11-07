@@ -123,6 +123,38 @@ public class MapManager : MonoBehaviour
         return new Bounds(center, new Vector3(gridCellSize, gridCellSize, 0f));
     }
 
+    public bool TryGetRandomMapCellPosition(out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (settings == null || settings.gridCellSize <= 0f || mapSize.x <= 0f || mapSize.y <= 0f)
+        {
+            return false;
+        }
+
+        Vector2 mapMinimum = (Vector2)MapCenter - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)MapCenter + mapSize * 0.5f;
+        int minimumCellX = Mathf.FloorToInt(mapMinimum.x / settings.gridCellSize);
+        int minimumCellY = Mathf.FloorToInt(mapMinimum.y / settings.gridCellSize);
+        int maximumCellX = Mathf.CeilToInt(mapMaximum.x / settings.gridCellSize) - 1;
+        int maximumCellY = Mathf.CeilToInt(mapMaximum.y / settings.gridCellSize) - 1;
+        if (maximumCellX < minimumCellX || maximumCellY < minimumCellY)
+        {
+            return false;
+        }
+
+        Vector2Int cell = new Vector2Int(
+            UnityEngine.Random.Range(minimumCellX, maximumCellX + 1),
+            UnityEngine.Random.Range(minimumCellY, maximumCellY + 1));
+        if (!IsCellInsideMap(cell))
+        {
+            return false;
+        }
+
+        position = GridCellToWorldPosition(cell, settings.gridCellSize);
+        position.z = MapCenter.z;
+        return true;
+    }
+
     public bool TryFindPath(
         Vector3 startPosition,
         Vector3 destination,
@@ -465,6 +497,19 @@ public class MapManager : MonoBehaviour
     public bool IsRoadCell(Vector2Int cell)
     {
         return roadCells.Contains(cell);
+    }
+
+    public Vector3 GetHouseEntrancePosition(HousePlotRecord housePlot)
+    {
+        if (housePlot == null || GridCellSize <= 0f)
+        {
+            Debug.LogError("Cannot get a house entrance position without a valid house plot and grid.", this);
+            return Vector3.zero;
+        }
+
+        Vector3 position = GridCellToWorldPosition(housePlot.entranceCell, GridCellSize);
+        position.z = housePlot.center.z;
+        return position;
     }
 
     public bool TryGetClosestRoadCellPosition(Vector3 position, out Vector3 roadPosition)
@@ -1006,7 +1051,8 @@ public class MapManager : MonoBehaviour
 
             foreach (Vector2Int origin in candidateOrigins)
             {
-                if (!IsHousePlotAvailable(origin, dimensions))
+                if (!IsHousePlotAvailable(origin, dimensions)
+                    || !TrySelectHouseEntranceCell(origin, dimensions, out Vector2Int entranceCell))
                 {
                     continue;
                 }
@@ -1022,6 +1068,7 @@ public class MapManager : MonoBehaviour
                 {
                     originCell = origin,
                     dimensions = dimensions,
+                    entranceCell = entranceCell,
                     center = center
                 };
                 return true;
@@ -1030,6 +1077,53 @@ public class MapManager : MonoBehaviour
 
         housePlot = null;
         return false;
+    }
+
+    private bool TrySelectHouseEntranceCell(
+        Vector2Int origin,
+        Vector2Int dimensions,
+        out Vector2Int entranceCell)
+    {
+        List<Vector2Int> adjacentRoadCells = new List<Vector2Int>();
+
+        for (int x = origin.x; x < origin.x + dimensions.x; x++)
+        {
+            Vector2Int southCell = new Vector2Int(x, origin.y - 1);
+            Vector2Int northCell = new Vector2Int(x, origin.y + dimensions.y);
+            if (roadCells.Contains(southCell))
+            {
+                adjacentRoadCells.Add(southCell);
+            }
+
+            if (roadCells.Contains(northCell))
+            {
+                adjacentRoadCells.Add(northCell);
+            }
+        }
+
+        for (int y = origin.y; y < origin.y + dimensions.y; y++)
+        {
+            Vector2Int westCell = new Vector2Int(origin.x - 1, y);
+            Vector2Int eastCell = new Vector2Int(origin.x + dimensions.x, y);
+            if (roadCells.Contains(westCell))
+            {
+                adjacentRoadCells.Add(westCell);
+            }
+
+            if (roadCells.Contains(eastCell))
+            {
+                adjacentRoadCells.Add(eastCell);
+            }
+        }
+
+        if (adjacentRoadCells.Count == 0)
+        {
+            entranceCell = Vector2Int.zero;
+            return false;
+        }
+
+        entranceCell = adjacentRoadCells[UnityEngine.Random.Range(0, adjacentRoadCells.Count)];
+        return true;
     }
 
     private bool IsHousePlotAvailable(Vector2Int origin, Vector2Int dimensions)

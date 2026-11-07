@@ -74,8 +74,21 @@ public class Body
    public float legSwingSpeed = 6f;
    public float legPivotOffsetX = 0.45f;
    public float legPivotOffsetY = 0.45f;
+   public float legSwingRunningAngle = 30f;
+   public float legSwingRunningSpeed = 6f;
    public float idleHeaveHeight = 0.05f;
    public float idleHeaveSpeed = 1.5f;
+}
+
+[Serializable]
+public class LegDefinitions
+{
+    public GameObject leg;
+    public float legSwingAngle = 30f;
+    public float legSwingSpeed = 6f;
+    public Vector2 legPivotOffset = new Vector2(0.45f, 0.45f);
+    public float legSwingRunningAngle = 30f;
+    public float legSwingRunningSpeed = 6f;
 }
 
 [Serializable]
@@ -113,8 +126,84 @@ public class BodyRecord
     public float legSwingSpeed = 6f;
     public float legPivotOffsetX = 0.45f;
     public float legPivotOffsetY = 0.45f;
+    public float legSwingRunningAngle = 30f;
+    public float legSwingRunningSpeed = 6f;
     public float idleHeaveHeight = 0.05f;
     public float idleHeaveSpeed = 1.5f;
+}
+
+[Serializable]
+public class MonsterSpawnSettings
+{
+    public float spawnIntervalSeconds = 30f;
+    public int maximumTotalAmount = 18;
+    public float minimumVillagerDistance = 30f;
+    public int spawnPositionAttemptsPerInterval = 100;
+}
+
+[Serializable]
+public class MonsterDataCollection
+{
+    public MonsterSpawnSettings spawnSettings;
+    public MonsterDefinition[] monsters;
+}
+
+[Serializable]
+public class MonsterDataRecordCollection
+{
+    public MonsterSpawnSettings spawnSettings;
+    public MonsterDefinitionRecord[] monsters;
+}
+
+[Serializable]
+public class MonsterDefinitionRecord
+{
+    public string id;
+    public float spawnWeight;
+    public int maximumAmount;
+    public float movementSpeed = 2f;
+    public Vector2 movementDurationRange = new Vector2(1f, 3f);
+    public Vector2 idleDurationRange = new Vector2(1f, 3f);
+    public string[] faceSprites;
+    public string[] torsoSprites;
+    public string[] frontLegSprites;
+    public string[] backLegSprites;
+    public string[] tailSprites;
+    public MonsterLegDefinition[] legDefinitions;
+    public Vector2 rightFrontLegOffset;
+    public Vector2 rightBackLegOffset;
+    public CombatSettings combatSettings = new CombatSettings();
+}
+
+[Serializable]
+public class MonsterDefinition
+{
+    public string id;
+    public float spawnWeight;
+    public int maximumAmount;
+    public float movementSpeed;
+    public Vector2 movementDurationRange;
+    public Vector2 idleDurationRange;
+    public Sprite[] faceSprites;
+    public Sprite[] torsoSprites;
+    public Sprite[] frontLegSprites;
+    public Sprite[] backLegSprites;
+    public Sprite[] tailSprites;
+    public MonsterLegDefinition[] legDefinitions;
+    public Vector2 rightFrontLegOffset;
+    public Vector2 rightBackLegOffset;
+    public CombatSettings combatSettings;
+}
+
+[Serializable]
+public class MonsterLegDefinition
+{
+    public string partName;
+    public float legSwingAngle = 30f;
+    public float legSwingSpeed = 6f;
+    public Vector2 legPivotOffset = new Vector2(0.45f, 0.45f);
+    public float legSwingRunningAngle = 30f;
+    public float legSwingRunningSpeed = 6f;
 }
 
 [Serializable]
@@ -199,8 +288,55 @@ public class HouseSettings
 }
 
 [Serializable]
+public class HouseSettingsJson
+{
+    public Vector2Int defaultHouseDimensions;
+    public ResourceCostJson[] baseHouseCosts;
+    public float firstConstructionDurationSeconds;
+    public float constructionBreakDurationSeconds;
+    public float secondConstructionDurationSeconds;
+    public float hammerMotionDurationSeconds;
+    public float hammerPauseDurationSeconds;
+    public ArmMotionPoint[] hammerHitPositions;
+}
+
+[Serializable]
+public class ResourceCostJson
+{
+    public string resourceType;
+    public int amount;
+}
+
+[Serializable]
+public class GameSettingsJsonCollection
+{
+    public UISettings uiSettings;
+    public MapSettings mapSettings;
+    public PlayerSettings playerSettings;
+    public HouseSettingsJson houseSettings;
+    public VillagerSettings villagerSettings;
+    public ResourceSettings resourceSettings;
+    public CombatSettings combatSettings;
+}
+
+[Serializable]
+public class ScaleModifierRange
+{
+    public Vector2 minimum = new Vector2(0.9f, 0.9f);
+    public Vector2 maximum = new Vector2(1.1f, 1.1f);
+}
+
+[Serializable]
+public class VillagerScaleSettings
+{
+    public ScaleModifierRange male = new ScaleModifierRange();
+    public ScaleModifierRange female = new ScaleModifierRange();
+}
+
+[Serializable]
 public class VillagerSettings
 {
+    public VillagerScaleSettings villagerScaleSettings = new VillagerScaleSettings();
     public float idleBehaviorDuration = 30f;
     public float roadDetectionDistance = 2f;
     public float roadSearchDistance = 35f;
@@ -210,9 +346,12 @@ public class VillagerSettings
     public float fatigueIncreasePerSecond = 1f;
     public float fatigueRecoveryPerSecond = 2f;
     public float homelessIdleFatigueRecoveryPerSecond = 0.25f;
+    public float homeRestStartFatigueThreshold = 70f;
     public float homeRestFatigueThreshold = 40f;
     public float lazyHomeRestFatigueThreshold = 10f;
     public float productiveFatigueThreshold = 75f;
+    public float idleHomeStayProbability = 0.5f;
+    public float lazyIdleHomeStayProbability = 0.8f;
     public float emergencyFoodHungerThreshold = 70f;
     public float resumeTaskHungerThreshold = 50f;
     public float boredFoodSeekingHungerThreshold = 40f;
@@ -252,6 +391,10 @@ public class CombatSettings
     public float attackRange = 1.5f;
     public float attackWindupSeconds = 0.35f;
     public float attackRecoverySeconds = 0.65f;
+    public float runningSpeed = 4f;
+    public float monsterReactionTimeSeconds = 0.8f;
+    public float detectionIntervalReactionTimeMultiplier = 1f;
+    public int detectionRangeCells = 6;
     public ArmMotionPoint[] attackHitPositions =
     {
         new ArmMotionPoint { x = 0.25f, y = 0.15f, z = 0f },
@@ -320,6 +463,7 @@ public class HousePlotRecord
 {
     public Vector2Int originCell;
     public Vector2Int dimensions;
+    public Vector2Int entranceCell;
     public Vector3 center;
     public ResourceCost[] storedMaterials;
 }
@@ -400,9 +544,18 @@ public class NamePart
 }
 
 [Serializable]
-public class NamePartCollection
+public class NamePartJson
 {
-    public NamePart[] nameParts;
+    public string type;
+    public string value;
+    public bool worksForMen;
+    public bool worksForWomen;
+}
+
+[Serializable]
+public class NamePartJsonCollection
+{
+    public NamePartJson[] nameParts;
 }
 
 public enum JobType
@@ -469,9 +622,18 @@ public class VillagerPersonalityValue
 }
 
 [Serializable]
-public class VillagerPersonalityValueCollection
+public class VillagerPersonalityValueJson
 {
-    public VillagerPersonalityValue[] villagerPersonalityValues;
+    public string type;
+    public int chance;
+    public string[] incompatibleWith;
+    public string description;
+}
+
+[Serializable]
+public class VillagerPersonalityValueJsonCollection
+{
+    public VillagerPersonalityValueJson[] villagerPersonalityValues;
 }
 
 [Serializable]
@@ -553,12 +715,25 @@ public class ResourceDefinition
     public int fullCutAmount;
     public int bareHandAmount;
     public Vector2Int interactionOffset;
-    public float treeRegenerationPerSecond;
-    public int treeRegenerationLimit;
+    public float resourceRegenerationPerSecond;
+    public int resourceRegenerationLimit;
 }
 
 [Serializable]
-public class ResourceDefinitionCollection
+public class ResourceDefinitionJson
 {
-    public ResourceDefinition[] resourceDefinitions;
+    public string type;
+    public int iconIndex;
+    public int initialAmount;
+    public int fullCutAmount;
+    public int bareHandAmount;
+    public Vector2Int interactionOffset;
+    public float resourceRegenerationPerSecond;
+    public int resourceRegenerationLimit;
+}
+
+[Serializable]
+public class ResourceDefinitionJsonCollection
+{
+    public ResourceDefinitionJson[] resourceDefinitions;
 }

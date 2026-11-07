@@ -1538,14 +1538,21 @@ MonoBehaviour:
   movementSpeed: 2
   movementDurationRange: {x: 1, y: 3}
   idleDurationRange: {x: 1, y: 3}
-  legSwingAngle: 15
-  legSwingSpeed: 6
-  legPivotOffset: {x: 0.45, y: 0.4}
   idleHeaveHeight: 0.05
   idleHeaveSpeed: 1.5
   legs:
-  - {fileID: 6493871307403872210}
-  - {fileID: 5336111746898150858}
+  - leg: {fileID: 6493871307403872210}
+    legSwingAngle: 15
+    legSwingSpeed: 6
+    legPivotOffset: {x: 0.45, y: 0.4}
+    legSwingRunningAngle: 15
+    legSwingRunningSpeed: 6
+  - leg: {fileID: 5336111746898150858}
+    legSwingAngle: 15
+    legSwingSpeed: 6
+    legPivotOffset: {x: 0.45, y: 0.4}
+    legSwingRunningAngle: 15
+    legSwingRunningSpeed: 6
   torso: {fileID: 472738285346844722}
   currentBehavior:
     duration: 0

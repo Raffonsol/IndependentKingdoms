@@ -1,57 +1,57 @@
 {
   "villagerPersonalityValues": [
     {
-      "type": 0,
+      "type": "Angry",
       "chance": 30,
-      "incompatibleWith": [1, 3],
+      "incompatibleWith": ["Coward", "Lazy"],
       "description": "Stops whatever they are doing when there is a chance to go for a fight"
     },
     {
-      "type": 1,
+      "type": "Coward",
       "chance": 30,
-      "incompatibleWith": [0, 2],
+      "incompatibleWith": ["Angry", "Explorer"],
       "description": "Runs from fights"
     },
     {
-      "type": 2,
+      "type": "Explorer",
       "chance": 30,
-      "incompatibleWith": [1, 3],
+      "incompatibleWith": ["Coward", "Lazy"],
       "description": "More likely to go hunting/foraging"
     },
     {
-      "type": 3,
+      "type": "Lazy",
       "chance": 30,
-      "incompatibleWith": [0, 2, 4, 6],
+      "incompatibleWith": ["Angry", "Explorer", "Helpful", "Perfectionist"],
       "description": "Takes longer to start new actions/routines"
     },
     {
-      "type": 4,
+      "type": "Helpful",
       "chance": 30,
-      "incompatibleWith": [3, 5, 8],
+      "incompatibleWith": ["Lazy", "Impatient", "Loner"],
       "description": "helps other villagers build their homes and upgrades"
     },
     {
-      "type": 5,
+      "type": "Impatient",
       "chance": 30,
-      "incompatibleWith": [4, 6],
+      "incompatibleWith": ["Helpful", "Perfectionist"],
       "description": "Gathers resource faster, and moves slightly faster, but has less health in combat"
     },
     {
-      "type": 6,
+      "type": "Perfectionist",
       "chance": 30,
-      "incompatibleWith": [3, 5],
+      "incompatibleWith": ["Lazy", "Impatient"],
       "description": "Building and crafting takes longer, but produces more output"
     },
     {
-      "type": 7,
+      "type": "Polyamorous",
       "chance": 30,
-      "incompatibleWith": [8],
+      "incompatibleWith": ["Loner"],
       "description": "Does not need to marry another villager in order to reproduce with them"
     },
     {
-      "type": 8,
+      "type": "Loner",
       "chance": 30,
-      "incompatibleWith": [4, 7],
+      "incompatibleWith": ["Helpful", "Polyamorous"],
       "description": "Less likely to get married"
     }
   ]

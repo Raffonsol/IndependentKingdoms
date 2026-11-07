@@ -1,0 +1,74 @@
+{
+    "spawnSettings": {
+        "spawnIntervalSeconds": 30,
+        "maximumTotalAmount": 18,
+        "minimumVillagerDistance": 30,
+        "spawnPositionAttemptsPerInterval": 100
+    },
+    "monsters": [
+        {
+            "id": "Boar",
+            "spawnWeight": 10,
+            "maximumAmount": 5,
+            "movementSpeed": 2,
+            "movementDurationRange": { "x": 1, "y": 3 },
+            "idleDurationRange": { "x": 1, "y": 3 },
+            "faceSprites": ["boar_face"],
+            "torsoSprites": ["boar_torso"],
+            "frontLegSprites": ["boar_frontLeg"],
+            "backLegSprites": ["boar_backLeg"],
+            "tailSprites": ["boar_tail"],
+            "legDefinitions": [
+                {
+                    "partName": "frontLeg",
+                    "legSwingAngle": 20,
+                    "legSwingSpeed": 6,
+                    "legPivotOffset": { "x": 0.45, "y": 0.3 },
+                    "legSwingRunningAngle": 45,
+                    "legSwingRunningSpeed": 9
+                },
+                {
+                    "partName": "backLeg",
+                    "legSwingAngle": 20,
+                    "legSwingSpeed": 6,
+                    "legPivotOffset": { "x": 0.65, "y": 0.3 },
+                    "legSwingRunningAngle": 30,
+                    "legSwingRunningSpeed": 9
+                },
+                {
+                    "partName": "frontLegRight",
+                    "legSwingAngle": 20,
+                    "legSwingSpeed": 6,
+                    "legPivotOffset": { "x": 0.45, "y": 0.3 },
+                    "legSwingRunningAngle": 40,
+                    "legSwingRunningSpeed": 9
+                },
+                {
+                    "partName": "backLegRight",
+                    "legSwingAngle": 20,
+                    "legSwingSpeed": 6,
+                    "legPivotOffset": { "x": 0.65, "y": 0.3 },
+                    "legSwingRunningAngle": 25,
+                    "legSwingRunningSpeed": 9
+                }
+            ],
+            "rightFrontLegOffset": { "x": -0.37, "y": 0 },
+            "rightBackLegOffset": { "x": -0.59, "y": 0 },
+            "combatSettings": {
+                "maximumHealth": 100,
+                "attackDamage": 10,
+                "attackRange": 1.5,
+                "attackWindupSeconds": 0.35,
+                "attackRecoverySeconds": 0.65,
+                "runningSpeed": 4,
+                "monsterReactionTimeSeconds": 0.8,
+                "detectionIntervalReactionTimeMultiplier": 1,
+                "detectionRangeCells": 6,
+                "attackHitPositions": [
+                    { "x": 1, "y": 1, "z": 160 },
+                    { "x": -0.4, "y": 1, "z": 260 }
+                ]
+            }
+        }
+    ]
+}

@@ -7,18 +7,17 @@ public class Mover : MonoBehaviour
     [SerializeField] private Vector2 movementDurationRange = new Vector2(1f, 3f);
     [SerializeField] private Vector2 idleDurationRange = new Vector2(1f, 3f);
     
-    [SerializeField] private float legSwingAngle = 30f;
-    [SerializeField] private float legSwingSpeed = 6f;
-    [SerializeField] private Vector2 legPivotOffset = new Vector2(0.45f, 0.45f);
     [SerializeField] private float idleHeaveHeight = 0.05f;
     [SerializeField] private float idleHeaveSpeed = 1.5f;
 
-    [SerializeField] private GameObject[] legs;
+    private float runningSpeed;
+    [SerializeField] private LegDefinitions[] legs;
     [SerializeField] private GameObject torso;
 
     private float defaultMovementSpeed;
     private Vector2 movementDirection;
     private bool facingLeft = true;
+    private Vector2Int facingDirection = Vector2Int.left;
     private readonly List<Vector3> pathWaypoints = new List<Vector3>();
     private int nextWaypointIndex;
     private Vector3 requestedDestination;
@@ -52,6 +51,16 @@ public class Mover : MonoBehaviour
         get { return defaultMovementSpeed; }
     }
 
+    protected float RunningSpeed
+    {
+        get { return runningSpeed; }
+    }
+
+    protected Vector2Int FacingDirection
+    {
+        get { return facingDirection; }
+    }
+
     protected virtual bool PrioritizeRoadPaths
     {
         get { return true; }
@@ -62,17 +71,18 @@ public class Mover : MonoBehaviour
         get { return hasPathRequest && !pathCompleted && pathWaypoints.Count == 0; }
     }
 
-    private void OnValidate()
-    {
-        if (legs != null && legs.Length != 2)
-        {
-            Debug.LogError("Character has a different number of legs than expected! Expected 2, but found " + legs.Length + ". Check the Mover component on " + gameObject.name + ".");
-        }
-    }
-
     protected virtual void Awake()
     {
         defaultMovementSpeed = movementSpeed;
+        CombatSettings combatSettings = GameData.Instance.combatSettings;
+        if (combatSettings == null)
+        {
+            Debug.LogError("Mover running speed could not be loaded from GameData.", this);
+            enabled = false;
+            return;
+        }
+
+        runningSpeed = combatSettings.runningSpeed;
         InitializeRuntimeState();
         UpdateFacingScale();
     }
@@ -92,7 +102,7 @@ public class Mover : MonoBehaviour
         }
     }
 
-    public void Configure(Body bodyData, GameObject bodyTorso, GameObject[] bodyLegs)
+    public void Configure(Body bodyData, GameObject bodyTorso, LegDefinitions[] bodyLegs)
     {
         if (bodyData == null)
         {
@@ -104,9 +114,6 @@ public class Mover : MonoBehaviour
         defaultMovementSpeed = bodyData.movementSpeed;
         movementDurationRange = new Vector2(bodyData.movementDurationRangeX, bodyData.movementDurationRangeY);
         idleDurationRange = new Vector2(bodyData.idleDurationRangeX, bodyData.idleDurationRangeY);
-        legSwingAngle = bodyData.legSwingAngle;
-        legSwingSpeed = bodyData.legSwingSpeed;
-        legPivotOffset = new Vector2(bodyData.legPivotOffsetX, bodyData.legPivotOffsetY);
         idleHeaveHeight = bodyData.idleHeaveHeight;
         idleHeaveSpeed = bodyData.idleHeaveSpeed;
         torso = bodyTorso;
@@ -115,32 +122,53 @@ public class Mover : MonoBehaviour
         InitializeRuntimeState();
     }
 
+    protected void ConfigureMovement(
+        float speed,
+        float configuredRunningSpeed,
+        Vector2 movementDurations,
+        Vector2 idleDurations)
+    {
+        movementSpeed = speed;
+        defaultMovementSpeed = speed;
+        runningSpeed = configuredRunningSpeed;
+        movementDurationRange = movementDurations;
+        idleDurationRange = idleDurations;
+    }
+
+    protected void ConfigureLegDefinitions(LegDefinitions[] bodyLegs)
+    {
+        legs = bodyLegs;
+        InitializeRuntimeState();
+    }
+
     private void InitializeRuntimeState()
     {
         torsoStartingLocalPosition = torso != null ? torso.transform.localPosition : Vector3.zero;
 
-        legStartingRotations = new Quaternion[2];
-        legPivotLocalOffsets = new Vector3[2];
+        int legCount = legs != null ? legs.Length : 0;
+        legStartingRotations = new Quaternion[legCount];
+        legPivotLocalOffsets = new Vector3[legCount];
         if (legs == null)
         {
             return;
         }
 
-        for (int index = 0; index < Mathf.Min(legs.Length, 2); index++)
+        for (int index = 0; index < legs.Length; index++)
         {
-            if (legs[index] == null)
+            LegDefinitions definition = legs[index];
+            if (definition == null || definition.leg == null)
             {
                 continue;
             }
 
-            Transform legTransform = legs[index].transform;
+            Transform legTransform = definition.leg.transform;
             legStartingRotations[index] = legTransform.localRotation;
 
-            SpriteRenderer spriteRenderer = legs[index].GetComponent<SpriteRenderer>();
+            SpriteRenderer spriteRenderer = definition.leg.GetComponent<SpriteRenderer>();
             if (spriteRenderer != null && spriteRenderer.sprite != null)
             {
                 Sprite sprite = spriteRenderer.sprite;
-                Vector2 pivotInPixels = Vector2.Scale(sprite.rect.size, legPivotOffset);
+                Vector2 pivotInPixels = Vector2.Scale(sprite.rect.size, definition.legPivotOffset);
                 Vector2 pivotOffsetInPixels = pivotInPixels - sprite.pivot;
                 legPivotLocalOffsets[index] = pivotOffsetInPixels / sprite.pixelsPerUnit;
             }
@@ -192,15 +220,20 @@ public class Mover : MonoBehaviour
 
     protected void UpdateFacingFromDirection(Vector2 direction)
     {
-        if (direction.x < -0.0001f)
+        if (direction.sqrMagnitude <= 0.00000001f)
         {
-            facingLeft = true;
+            return;
+        }
+
+        if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.y))
+        {
+            facingDirection = direction.x < 0f ? Vector2Int.left : Vector2Int.right;
+            facingLeft = direction.x < 0f;
             UpdateFacingScale();
         }
-        else if (direction.x > 0.0001f)
+        else
         {
-            facingLeft = false;
-            UpdateFacingScale();
+            facingDirection = direction.y < 0f ? Vector2Int.down : Vector2Int.up;
         }
     }
 
@@ -357,7 +390,7 @@ public class Mover : MonoBehaviour
         movementSpeed = Mathf.Max(0f, speed);
     }
 
-    /// <summary>Swings the two legs in opposite phases to imitate walking.</summary>
+    /// <summary>Swings opposing legs in alternating phases to imitate walking.</summary>
     public void AnimateLegs()
     {
         if (legs == null || legStartingRotations == null)
@@ -365,9 +398,34 @@ public class Mover : MonoBehaviour
             return;
         }
 
-        float swing = Mathf.Sin(Time.time * legSwingSpeed) * legSwingAngle;
-        SetLegRotation(0, swing);
-        SetLegRotation(1, -swing);
+        bool isRunning = movementSpeed > defaultMovementSpeed + 0.0001f;
+        for (int index = 0; index < legs.Length; index++)
+        {
+            LegDefinitions definition = legs[index];
+            if (definition == null)
+            {
+                continue;
+            }
+
+            float angle = isRunning
+                ? definition.legSwingRunningAngle
+                : definition.legSwingAngle;
+            float speed = isRunning
+                ? definition.legSwingRunningSpeed
+                : definition.legSwingSpeed;
+            float swing = Mathf.Sin(Time.time * speed) * angle;
+            SetLegRotation(index, swing * GetLegSwingDirection(index));
+        }
+    }
+
+    private float GetLegSwingDirection(int index)
+    {
+        if (legs.Length == 4)
+        {
+            return index == 0 || index == 3 ? 1f : -1f;
+        }
+
+        return index % 2 == 0 ? 1f : -1f;
     }
 
     private void SetLegRotation(int index, float angle)
@@ -378,9 +436,10 @@ public class Mover : MonoBehaviour
             return;
         }
 
-        if (legs[index] != null)
+        LegDefinitions definition = legs[index];
+        if (definition != null && definition.leg != null)
         {
-            Transform legTransform = legs[index].transform;
+            Transform legTransform = definition.leg.transform;
             Vector3 pivotPosition = legTransform.TransformPoint(legPivotLocalOffsets[index]);
             legTransform.localRotation = legStartingRotations[index] * Quaternion.Euler(0f, 0f, angle);
             legTransform.position += pivotPosition - legTransform.TransformPoint(legPivotLocalOffsets[index]);
@@ -394,7 +453,7 @@ public class Mover : MonoBehaviour
             return;
         }
 
-        for (int index = 0; index < Mathf.Min(legs.Length, 2); index++)
+        for (int index = 0; index < legs.Length; index++)
         {
             SetLegRotation(index, 0f);
         }
@@ -403,7 +462,7 @@ public class Mover : MonoBehaviour
     private void UpdateFacingScale()
     {
         Vector3 scale = transform.localScale;
-        scale.x = facingLeft ? 1f : -1f;
+        scale.x = Mathf.Abs(scale.x) * (facingLeft ? 1f : -1f);
         transform.localScale = scale;
     }
 

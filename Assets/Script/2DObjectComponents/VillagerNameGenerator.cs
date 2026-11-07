@@ -110,9 +110,15 @@ public class VillagerNameGenerator : MonoBehaviour
         {
             return null;
         }
+       
+        //regex to remove duplicated vowels 
+        string combinedName = Regex.Replace(firstPart.value + lastPart.value, @"([aeiou])\1", "$1", RegexOptions.IgnoreCase);
+        // Replace instances of "cn" at the end with "cken" and "zn" at the end with "zzen"
+        combinedName = Regex.Replace(combinedName, @"cn$", "cken", RegexOptions.IgnoreCase);
+        combinedName = Regex.Replace(combinedName, @"zn$", "zzen", RegexOptions.IgnoreCase);
+        combinedName = Regex.Replace(combinedName, @"gf$", "giff", RegexOptions.IgnoreCase);
 
-    //regex to remove duplicated vowels
-        return Regex.Replace(firstPart.value + lastPart.value, @"([aeiou])\1", "$1", RegexOptions.IgnoreCase);
+        return combinedName; 
     }
 
     private bool MatchesGender(NamePart namePart, bool isMale)
