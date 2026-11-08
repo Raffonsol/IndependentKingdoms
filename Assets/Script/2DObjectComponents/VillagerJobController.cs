@@ -7,15 +7,16 @@ public class VillagerJobController : MonoBehaviour
     private VillagerSettings settings;
     private ResourceSettings resourceSettings;
     private JobType jobAssignment;
-    private ResourceObject foodResource;
-    private readonly HashSet<ResourceObject> unreachableFoodResources =
+    private ResourceObject foragingResource;
+    private ResourceType foragingResourceType;
+    private readonly HashSet<ResourceObject> unreachableResources =
         new HashSet<ResourceObject>();
-    private float foodReactionTimer;
-    private float foodGatheringTimer;
-    private float nextFoodResourceSearchTime;
-    private int foodPathfindingRevision = -1;
-    private int foodAvailabilityRevision = -1;
-    private bool isWaitingToApproachFood;
+    private float foragingReactionTimer;
+    private float foragingGatheringTimer;
+    private float nextResourceSearchTime;
+    private int pathfindingRevision = -1;
+    private int availabilityRevision = -1;
+    private bool isWaitingToApproachResource;
     private bool isForagingForJob;
 
     public JobType JobAssignment
@@ -25,7 +26,7 @@ public class VillagerJobController : MonoBehaviour
 
     public bool IsForagingForJob
     {
-        get { return isForagingForJob && foodResource != null; }
+        get { return isForagingForJob && foragingResource != null; }
     }
 
     public void Initialize(
@@ -86,7 +87,7 @@ public class VillagerJobController : MonoBehaviour
                 if (!isForagingForJob)
                 {
                     isForagingForJob = true;
-                    ResetFoodSearch();
+                    ResetForagingSearch();
                 }
 
                 return UpdateForaging(true);
@@ -102,7 +103,7 @@ public class VillagerJobController : MonoBehaviour
 
     public void BeginEmergencyFoodSearch()
     {
-        ResetFoodSearch();
+        ResetForagingSearch();
     }
 
     public void UpdateEmergencyFoodSearch()
@@ -110,12 +111,12 @@ public class VillagerJobController : MonoBehaviour
         UpdateForaging(false);
     }
 
-    public void ReleaseFoodResource()
+    public void ReleaseForagingResource()
     {
-        ReleaseFoodResource(MapManager.Instance);
+        ReleaseForagingResource(MapManager.Instance);
     }
 
-    private bool UpdateForaging(bool storeFood)
+    private bool UpdateForaging(bool isForagerJob)
     {
         MapManager mapManager = MapManager.Instance;
         if (mapManager == null)
@@ -124,109 +125,132 @@ public class VillagerJobController : MonoBehaviour
             return false;
         }
 
-        if (foodPathfindingRevision != mapManager.PathfindingRevision)
+        if (pathfindingRevision != mapManager.PathfindingRevision)
         {
-            unreachableFoodResources.Clear();
-            foodPathfindingRevision = mapManager.PathfindingRevision;
-            nextFoodResourceSearchTime = 0f;
+            unreachableResources.Clear();
+            pathfindingRevision = mapManager.PathfindingRevision;
+            nextResourceSearchTime = 0f;
         }
 
-        if (foodAvailabilityRevision != mapManager.ResourceAvailabilityRevision)
+        if (availabilityRevision != mapManager.ResourceAvailabilityRevision)
         {
-            unreachableFoodResources.Clear();
-            foodAvailabilityRevision = mapManager.ResourceAvailabilityRevision;
-            nextFoodResourceSearchTime = 0f;
+            unreachableResources.Clear();
+            availabilityRevision = mapManager.ResourceAvailabilityRevision;
+            nextResourceSearchTime = 0f;
         }
 
-        if (foodResource != null && villager.HasFailedPathRequestForAction)
+        if (foragingResource != null && villager.HasFailedPathRequestForAction)
         {
-            unreachableFoodResources.Add(foodResource);
-            ReleaseFoodResource(mapManager);
+            unreachableResources.Add(foragingResource);
+            ReleaseForagingResource(mapManager);
         }
 
-        if (foodResource == null || !foodResource.CanGather(ResourceType.Food, false))
+        if (foragingResource == null
+            || !foragingResource.CanGather(foragingResourceType, false))
         {
-            ReleaseFoodResource(mapManager);
-            if (Time.time < nextFoodResourceSearchTime)
+            ReleaseForagingResource(mapManager);
+            if (Time.time < nextResourceSearchTime)
             {
                 villager.StopForagingMovement();
                 return false;
             }
 
-            if (!mapManager.TryGetClosestReachableResourceObject(
+            bool foundResource = isForagerJob
+                ? mapManager.TryGetClosestReachableBareHandResourceObject(
+                    villager,
+                    villager.transform.position,
+                    unreachableResources,
+                    settings.gatheringDistance,
+                    out foragingResource,
+                    out foragingResourceType)
+                : mapManager.TryGetClosestReachableResourceObject(
                     villager,
                     ResourceType.Food,
                     villager.transform.position,
                     false,
-                    unreachableFoodResources,
+                    unreachableResources,
                     settings.gatheringDistance,
-                    out foodResource))
+                    out foragingResource);
+            if (!foundResource)
             {
-                nextFoodResourceSearchTime = Time.time + settings.foodResourceSearchRetrySeconds;
+                nextResourceSearchTime = Time.time + settings.foodResourceSearchRetrySeconds;
                 villager.StopForagingMovement();
                 return false;
             }
 
-            nextFoodResourceSearchTime = 0f;
-            isWaitingToApproachFood = true;
-            foodReactionTimer = villager.GetReactionTimeForAction();
+            if (!isForagerJob)
+            {
+                foragingResourceType = ResourceType.Food;
+            }
+
+            nextResourceSearchTime = 0f;
+            isWaitingToApproachResource = true;
+            foragingReactionTimer = villager.GetReactionTimeForAction();
         }
 
-        if (isWaitingToApproachFood)
+        if (isWaitingToApproachResource)
         {
-            foodReactionTimer = Mathf.Max(0f, foodReactionTimer - Time.deltaTime);
-            if (foodReactionTimer > 0f)
+            foragingReactionTimer = Mathf.Max(0f, foragingReactionTimer - Time.deltaTime);
+            if (foragingReactionTimer > 0f)
             {
                 villager.StopForagingMovement();
                 return true;
             }
 
-            isWaitingToApproachFood = false;
+            isWaitingToApproachResource = false;
         }
 
-        Vector2Int interactionOffset = foodResource.GetInteractionOffset(ResourceType.Food);
+        Vector2Int interactionOffset =
+            foragingResource.GetInteractionOffset(foragingResourceType);
         Vector3 interactionPosition = interactionOffset != Vector2Int.zero
-            ? mapManager.GetGridCellBounds(foodResource.GridCell + interactionOffset).center
-            : foodResource.transform.position;
+            ? mapManager.GetGridCellBounds(foragingResource.GridCell + interactionOffset).center
+            : foragingResource.transform.position;
         float interactionDistance = interactionOffset != Vector2Int.zero
             ? 0.1f
             : settings.gatheringDistance;
         if (Vector2.Distance(villager.transform.position, interactionPosition) > interactionDistance)
         {
-            foodGatheringTimer = 0f;
+            foragingGatheringTimer = 0f;
             villager.MoveToForagingPosition(interactionPosition, interactionDistance);
             return true;
         }
 
         villager.StopForagingMovement();
-        foodGatheringTimer -= Time.deltaTime;
-        if (foodGatheringTimer > 0f)
+        foragingGatheringTimer -= Time.deltaTime;
+        if (foragingGatheringTimer > 0f)
         {
             return true;
         }
 
         villager.PlayForagingMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
-        foodResource.PlayShake(
+        foragingResource.PlayShake(
             resourceSettings.shakeDurationSeconds,
             resourceSettings.shakeMagnitude,
             resourceSettings.shakeFrequency);
         if (mapManager.TryGatherResource(
                 villager,
-                foodResource,
-                ResourceType.Food,
+                foragingResource,
+                foragingResourceType,
                 1,
                 false,
                 out int gatheredAmount)
             && gatheredAmount > 0)
         {
-            villager.OnForagedFood(gatheredAmount, storeFood);
+            if (isForagerJob)
+            {
+                villager.OnForagedResource(foragingResourceType, gatheredAmount);
+            }
+            else
+            {
+                villager.OnForagedFood(gatheredAmount);
+            }
         }
         else
         {
-            ReleaseFoodResource(mapManager);
+            ReleaseForagingResource(mapManager);
         }
 
-        foodGatheringTimer = settings.gatheringPauseDurationSeconds;
+        foragingGatheringTimer = settings.gatheringPauseDurationSeconds;
         return true;
     }
 
@@ -234,40 +258,41 @@ public class VillagerJobController : MonoBehaviour
     {
         if (isForagingForJob)
         {
-            ReleaseFoodResource(MapManager.Instance);
+            ReleaseForagingResource(MapManager.Instance);
         }
 
         isForagingForJob = false;
     }
 
-    private void ResetFoodSearch()
+    private void ResetForagingSearch()
     {
-        unreachableFoodResources.Clear();
-        nextFoodResourceSearchTime = 0f;
-        foodGatheringTimer = 0f;
-        isWaitingToApproachFood = false;
+        unreachableResources.Clear();
+        nextResourceSearchTime = 0f;
+        foragingGatheringTimer = 0f;
+        isWaitingToApproachResource = false;
         MapManager mapManager = MapManager.Instance;
-        foodPathfindingRevision = mapManager != null ? mapManager.PathfindingRevision : -1;
-        foodAvailabilityRevision = mapManager != null
+        pathfindingRevision = mapManager != null ? mapManager.PathfindingRevision : -1;
+        availabilityRevision = mapManager != null
             ? mapManager.ResourceAvailabilityRevision
             : -1;
-        ReleaseFoodResource(mapManager);
+        ReleaseForagingResource(mapManager);
     }
 
-    private void ReleaseFoodResource(MapManager mapManager)
+    private void ReleaseForagingResource(MapManager mapManager)
     {
         if (mapManager != null)
         {
-            mapManager.ReleaseResourceReservation(foodResource, villager);
+            mapManager.ReleaseResourceReservation(foragingResource, villager);
         }
 
-        foodResource = null;
-        isWaitingToApproachFood = false;
-        foodReactionTimer = 0f;
+        foragingResource = null;
+        foragingResourceType = default(ResourceType);
+        isWaitingToApproachResource = false;
+        foragingReactionTimer = 0f;
     }
 
     private void OnDestroy()
     {
-        ReleaseFoodResource(MapManager.Instance);
+        ReleaseForagingResource(MapManager.Instance);
     }
 }

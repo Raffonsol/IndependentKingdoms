@@ -479,7 +479,7 @@ public class Villager : Combatant
         isStayingHomeWithoutWork = false;
         isAtHomeWithoutWork = false;
         isRestingAtHome = false;
-        isIdlingWithoutHome = true;
+        isIdlingWithoutHome = !HasHome;
         if (currentBehavior == null || currentBehavior.mode != VillagerBehaviorMode.Wander)
         {
             EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
@@ -509,22 +509,22 @@ public class Villager : Combatant
         PlayArmMotion(positions, duration);
     }
 
-    internal void OnForagedFood(int amount, bool storeInInventory)
+    internal void OnForagedFood(int amount)
     {
-        if (storeInInventory)
-        {
-            if (!AddResourceInventory(ResourceType.Food, amount))
-            {
-                Debug.LogError("Could not add foraged food to the villager's inventory.", this);
-            }
-
-            return;
-        }
-
         Hunger = Mathf.Max(0f, Hunger - amount * settings.hungerRestoredPerFoodUnit);
         if (ShouldFinishFoodSeeking())
         {
             FinishFoodSeeking();
+        }
+    }
+
+    internal void OnForagedResource(ResourceType resourceType, int amount)
+    {
+        if (!AddResourceInventory(resourceType, amount))
+        {
+            Debug.LogError(
+                "Could not add foraged " + resourceType + " to the villager's inventory.",
+                this);
         }
     }
 
@@ -553,6 +553,7 @@ public class Villager : Combatant
         if (IsCombatEngaged)
         {
             ClearNoWorkBehavior();
+            UpdateFatigue(Time.deltaTime);
             base.Update();
             return;
         }
@@ -627,18 +628,9 @@ public class Villager : Combatant
             return;
         }
 
-        bool isWorking = HousingState == VillagerHousingState.GatheringHouseResources
-            || HousingState == VillagerHousingState.DeliveringHouseResources
-            || HousingState == VillagerHousingState.BuildingHouseStageOne
-            || HousingState == VillagerHousingState.BuildingHouseStageTwo
-            || (isSeekingFood && foodSeekingStage == FoodSeekingStage.Foraging)
-            || (jobController != null && jobController.IsForagingForJob);
-        if (isWorking && !isRestingFromWork)
-        {
-            Fatigue = Mathf.Min(
-                MaximumFatigue,
-                Fatigue + settings.fatigueIncreasePerSecond * deltaTime);
-        }
+        Fatigue = Mathf.Min(
+            MaximumFatigue,
+            Fatigue + settings.fatigueIncreasePerSecond * deltaTime);
     }
 
     private void ClearNoWorkBehavior()
@@ -1125,7 +1117,7 @@ public class Villager : Combatant
 
     private void FinishFoodSeeking()
     {
-        jobController.ReleaseFoodResource();
+        jobController.ReleaseForagingResource();
         isSeekingFood = false;
         isEmergencyFoodSeeking = false;
         StopMoving();
@@ -1441,7 +1433,8 @@ public class Villager : Combatant
             houseBuildStageOneColors,
             visualWidth,
             selectedHouseDefinition.visualOffset,
-            selectedHouseDefinition.sortingAnchorOffset);
+            selectedHouseDefinition.sortingAnchorOffset,
+            false);
         HousingState = VillagerHousingState.BuildingHouseStageOne;
         constructionTimer = 0f;
         hammeringTimer = 0f;
@@ -1467,7 +1460,8 @@ public class Villager : Combatant
             houseBuildStageTwoColors,
             GetHouseVisualWidth(mapManager),
             selectedHouseDefinition.visualOffset,
-            selectedHouseDefinition.sortingAnchorOffset);
+            selectedHouseDefinition.sortingAnchorOffset,
+            true);
         HousingState = VillagerHousingState.HouseConstructionBreak;
         constructionTimer = 0f;
         hammeringTimer = 0f;
@@ -1738,7 +1732,7 @@ public class Villager : Combatant
         }
 
         ReleaseGatheringResource(mapManager);
-        jobController.ReleaseFoodResource();
+        jobController.ReleaseForagingResource();
         currentBehavior = new VillagerBehaviorStage
         {
             mode = VillagerBehaviorMode.Dying,

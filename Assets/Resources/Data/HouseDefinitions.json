@@ -55,7 +55,7 @@
         {
             "id": "h2",
             "visualScale": 1.5,
-            "visualOffset": { "x": 0, "y": 8 },
+            "visualOffset": { "x": 0, "y": 7 },
             "sortingAnchorOffset": { "x": 0, "y": 0 },
             "yardSprites": ["b2_yard0"],
             "yardColorCodes": ["#795727"],

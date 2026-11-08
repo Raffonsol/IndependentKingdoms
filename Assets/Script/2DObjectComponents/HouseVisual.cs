@@ -6,7 +6,9 @@ public class HouseVisual : MonoBehaviour
 {
     private const int BasePartSortingOrder = 55;
     private const int RoofPartSortingOrder = 105;
+    private const int FirstConstructionStageSortingOrder = 30;
     private const string HouseSortingLayer = "Everything";
+    private const string FirstConstructionStageSortingLayer = "Ground";
     private const string YardSortingLayer = "Ground";
     private const float SpriteDepthOffset = -0.01f;
     private readonly List<GameObject> visualParts = new List<GameObject>();
@@ -18,9 +20,10 @@ public class HouseVisual : MonoBehaviour
         Color[] stageColors,
         float footprintWidth,
         Vector2 visualOffset,
-        Vector2 sortingAnchorOffset)
+        Vector2 sortingAnchorOffset,
+        bool useSortingGroup)
     {
-        ConfigureSortingGroup(sortingAnchorOffset);
+        ConfigureSortingGroup(sortingAnchorOffset, useSortingGroup);
         ClearVisualParts();
         ClearYardVisual();
         LineRenderer plotOutline = GetComponent<LineRenderer>();
@@ -33,7 +36,8 @@ public class HouseVisual : MonoBehaviour
             stageSprites,
             SelectColor(stageColors),
             footprintWidth,
-            BasePartSortingOrder,
+            useSortingGroup ? BasePartSortingOrder : FirstConstructionStageSortingOrder,
+            useSortingGroup ? HouseSortingLayer : FirstConstructionStageSortingLayer,
             visualOffset);
     }
 
@@ -45,7 +49,7 @@ public class HouseVisual : MonoBehaviour
             return;
         }
 
-        ConfigureSortingGroup(definition.sortingAnchorOffset);
+        ConfigureSortingGroup(definition.sortingAnchorOffset, true);
         ClearVisualParts();
         ClearYardVisual();
         CreateYardVisual(
@@ -58,12 +62,14 @@ public class HouseVisual : MonoBehaviour
             SelectColor(definition.baseColors),
             footprintWidth,
             BasePartSortingOrder,
+            HouseSortingLayer,
             definition.visualOffset);
         AddSprite(
             SelectSprite(definition.lowRoofSprites),
             SelectColor(definition.lowRoofColors),
             footprintWidth,
             RoofPartSortingOrder,
+            HouseSortingLayer,
             definition.visualOffset);
 
         Vector3 visualScale = transform.localScale;
@@ -110,7 +116,7 @@ public class HouseVisual : MonoBehaviour
         }
     }
 
-    private void ConfigureSortingGroup(Vector2 sortingAnchorOffset)
+    private void ConfigureSortingGroup(Vector2 sortingAnchorOffset, bool useSortingGroup)
     {
         sortingAnchor = GetComponent<SortingAnchor>();
         if (sortingAnchor == null)
@@ -125,7 +131,7 @@ public class HouseVisual : MonoBehaviour
             return;
         }
 
-        sortingGroup.enabled = true;
+        sortingGroup.enabled = useSortingGroup;
         sortingGroup.sortingLayerName = HouseSortingLayer;
         sortingGroup.sortingOrder = 0;
         sortingGroup.sortAtRoot = true;
@@ -137,6 +143,7 @@ public class HouseVisual : MonoBehaviour
         Color color,
         float footprintWidth,
         int sortingOrder,
+        string sortingLayerName,
         Vector2 visualOffset)
     {
         if (sprites == null || sprites.Length == 0)
@@ -147,7 +154,7 @@ public class HouseVisual : MonoBehaviour
 
         foreach (Sprite sprite in sprites)
         {
-            AddSprite(sprite, color, footprintWidth, sortingOrder, visualOffset);
+            AddSprite(sprite, color, footprintWidth, sortingOrder, sortingLayerName, visualOffset);
         }
     }
 
@@ -156,6 +163,7 @@ public class HouseVisual : MonoBehaviour
         Color color,
         float footprintWidth,
         int sortingOrder,
+        string sortingLayerName,
         Vector2 visualOffset)
     {
         if (sprite == null || sprite.texture == null || sprite.texture.width <= 0)
@@ -185,7 +193,7 @@ public class HouseVisual : MonoBehaviour
         SpriteRenderer renderer = part.AddComponent<SpriteRenderer>();
         renderer.sprite = sprite;
         renderer.color = color;
-        renderer.sortingLayerName = HouseSortingLayer;
+        renderer.sortingLayerName = sortingLayerName;
         renderer.sortingOrder = sortingOrder;
         visualParts.Add(part);
     }

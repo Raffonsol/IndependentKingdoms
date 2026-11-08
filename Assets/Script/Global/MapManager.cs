@@ -1102,6 +1102,102 @@ public class MapManager : MonoBehaviour
             out closestResource);
     }
 
+    public bool TryGetClosestReachableBareHandResourceObject(
+        Villager villager,
+        Vector3 position,
+        ISet<ResourceObject> excludedResources,
+        float arrivalDistance,
+        out ResourceObject closestResource,
+        out ResourceType closestResourceType)
+    {
+        closestResource = null;
+        closestResourceType = default(ResourceType);
+        if (villager == null)
+        {
+            return false;
+        }
+
+        List<KeyValuePair<float, ResourceObject>> reachableCandidates =
+            new List<KeyValuePair<float, ResourceObject>>();
+        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        {
+            if (resourceObject == null
+                || (excludedResources != null && excludedResources.Contains(resourceObject)))
+            {
+                continue;
+            }
+
+            if (resourceReservations.TryGetValue(resourceObject, out Villager reservingVillager))
+            {
+                if (reservingVillager != null && reservingVillager != villager)
+                {
+                    continue;
+                }
+
+                if (reservingVillager == null)
+                {
+                    resourceReservations.Remove(resourceObject);
+                }
+            }
+
+            bool hasBareHandResource = false;
+            foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
+            {
+                if (resourceObject.CanGather(resourceType, false))
+                {
+                    hasBareHandResource = true;
+                    break;
+                }
+            }
+
+            if (hasBareHandResource)
+            {
+                float distanceSquared =
+                    (resourceObject.transform.position - position).sqrMagnitude;
+                reachableCandidates.Add(
+                    new KeyValuePair<float, ResourceObject>(distanceSquared, resourceObject));
+            }
+        }
+
+        reachableCandidates.Sort(
+            (first, second) => first.Key.CompareTo(second.Key));
+        foreach (KeyValuePair<float, ResourceObject> candidate in reachableCandidates)
+        {
+            ResourceObject resourceObject = candidate.Value;
+            foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
+            {
+                if (!resourceObject.CanGather(resourceType, false))
+                {
+                    continue;
+                }
+
+                GetResourceInteractionTarget(
+                    resourceObject,
+                    resourceType,
+                    arrivalDistance,
+                    out Vector3 targetPosition,
+                    out float targetArrivalDistance);
+                if (!TryFindPath(
+                        position,
+                        targetPosition,
+                        targetArrivalDistance,
+                        out List<Vector3> waypoints)
+                    || waypoints == null
+                    || waypoints.Count == 0)
+                {
+                    continue;
+                }
+
+                closestResource = resourceObject;
+                closestResourceType = resourceType;
+                resourceReservations[closestResource] = villager;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool TryGetClosestResourceObject(
         Villager villager,
         ResourceType resourceType,
@@ -1167,13 +1263,12 @@ public class MapManager : MonoBehaviour
             foreach (KeyValuePair<float, ResourceObject> candidate in reachableCandidates)
             {
                 ResourceObject resourceObject = candidate.Value;
-                Vector2Int interactionOffset = resourceObject.GetInteractionOffset(resourceType);
-                Vector3 targetPosition = interactionOffset != Vector2Int.zero
-                    ? GetGridCellBounds(resourceObject.GridCell + interactionOffset).center
-                    : resourceObject.transform.position;
-                float targetArrivalDistance = interactionOffset != Vector2Int.zero
-                    ? 0.1f
-                    : arrivalDistance;
+                GetResourceInteractionTarget(
+                    resourceObject,
+                    resourceType,
+                    arrivalDistance,
+                    out Vector3 targetPosition,
+                    out float targetArrivalDistance);
                 if (!TryFindPath(
                         position,
                         targetPosition,
@@ -1202,6 +1297,22 @@ public class MapManager : MonoBehaviour
 
         resourceReservations[closestResource] = villager;
         return true;
+    }
+
+    private void GetResourceInteractionTarget(
+        ResourceObject resourceObject,
+        ResourceType resourceType,
+        float arrivalDistance,
+        out Vector3 targetPosition,
+        out float targetArrivalDistance)
+    {
+        Vector2Int interactionOffset = resourceObject.GetInteractionOffset(resourceType);
+        targetPosition = interactionOffset != Vector2Int.zero
+            ? GetGridCellBounds(resourceObject.GridCell + interactionOffset).center
+            : resourceObject.transform.position;
+        targetArrivalDistance = interactionOffset != Vector2Int.zero
+            ? 0.1f
+            : arrivalDistance;
     }
 
     public void ReleaseResourceReservation(ResourceObject resourceObject, Villager villager)
