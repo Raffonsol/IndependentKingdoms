@@ -59,6 +59,8 @@ public class VillagerHoverTooltip : HoverTooltip
                 return "Working";
             case VillagerBehaviorMode.Building:
                 return "Building";
+            case VillagerBehaviorMode.LoadingToStorage:
+                return "Taking goods to storage";
             case VillagerBehaviorMode.Eat:
                 return "Eating";
             case VillagerBehaviorMode.Sleeps:

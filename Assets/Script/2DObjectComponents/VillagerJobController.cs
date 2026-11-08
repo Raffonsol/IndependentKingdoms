@@ -25,7 +25,7 @@ public class VillagerJobController : MonoBehaviour
 
     public bool IsForagingForJob
     {
-        get { return isForagingForJob; }
+        get { return isForagingForJob && foodResource != null; }
     }
 
     public void Initialize(
@@ -89,8 +89,7 @@ public class VillagerJobController : MonoBehaviour
                     ResetFoodSearch();
                 }
 
-                UpdateForaging(true);
-                return true;
+                return UpdateForaging(true);
             default:
                 return false;
         }
@@ -116,13 +115,13 @@ public class VillagerJobController : MonoBehaviour
         ReleaseFoodResource(MapManager.Instance);
     }
 
-    private void UpdateForaging(bool storeFood)
+    private bool UpdateForaging(bool storeFood)
     {
         MapManager mapManager = MapManager.Instance;
         if (mapManager == null)
         {
             villager.StopForagingMovement();
-            return;
+            return false;
         }
 
         if (foodPathfindingRevision != mapManager.PathfindingRevision)
@@ -151,7 +150,7 @@ public class VillagerJobController : MonoBehaviour
             if (Time.time < nextFoodResourceSearchTime)
             {
                 villager.StopForagingMovement();
-                return;
+                return false;
             }
 
             if (!mapManager.TryGetClosestReachableResourceObject(
@@ -165,7 +164,7 @@ public class VillagerJobController : MonoBehaviour
             {
                 nextFoodResourceSearchTime = Time.time + settings.foodResourceSearchRetrySeconds;
                 villager.StopForagingMovement();
-                return;
+                return false;
             }
 
             nextFoodResourceSearchTime = 0f;
@@ -179,7 +178,7 @@ public class VillagerJobController : MonoBehaviour
             if (foodReactionTimer > 0f)
             {
                 villager.StopForagingMovement();
-                return;
+                return true;
             }
 
             isWaitingToApproachFood = false;
@@ -196,14 +195,14 @@ public class VillagerJobController : MonoBehaviour
         {
             foodGatheringTimer = 0f;
             villager.MoveToForagingPosition(interactionPosition, interactionDistance);
-            return;
+            return true;
         }
 
         villager.StopForagingMovement();
         foodGatheringTimer -= Time.deltaTime;
         if (foodGatheringTimer > 0f)
         {
-            return;
+            return true;
         }
 
         villager.PlayForagingMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
@@ -228,6 +227,7 @@ public class VillagerJobController : MonoBehaviour
         }
 
         foodGatheringTimer = settings.gatheringPauseDurationSeconds;
+        return true;
     }
 
     private void StopForagingForJob()

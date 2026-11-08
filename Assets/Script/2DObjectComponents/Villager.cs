@@ -11,6 +11,14 @@ public class Villager : Combatant
         Foraging
     }
 
+    private enum StorageTripPurpose
+    {
+        None,
+        Deposit,
+        Food,
+        HouseMaterials
+    }
+
     public const float MaximumHunger = 100f;
     public const float MaximumFatigue = 100f;
 
@@ -44,6 +52,45 @@ public class Villager : Combatant
         get { return HousingState == VillagerHousingState.Housed && housePlot != null; }
     }
 
+    internal bool IsRestingFromWork
+    {
+        get { return isRestingFromWork; }
+    }
+
+    public bool CanChooseCommunityStorageOperation
+    {
+        get
+        {
+            if (settings == null
+                || HousingState != VillagerHousingState.Housed
+                || isSeekingFood
+                || storageTripPurpose != StorageTripPurpose.None
+                || isRestingFromWork
+                || Hunger > settings.boredFoodSeekingHungerThreshold
+                || Fatigue >= settings.homeRestStartFatigueThreshold
+                || Time.time < nextCommunityStorageAttemptTime
+                || resourceInventory.Count == 0)
+            {
+                return false;
+            }
+
+            MapManager mapManager = MapManager.Instance;
+            return mapManager != null
+                && mapManager.HasCommunityStorageDepositCapacity(resourceInventory);
+        }
+    }
+
+    internal int CommunityStorageSurplusAmount
+    {
+        get
+        {
+            MapManager mapManager = MapManager.Instance;
+            return mapManager != null
+                ? mapManager.GetCommunityStorageDepositAmount(resourceInventory)
+                : 0;
+        }
+    }
+
     public VillagerBehaviorStage CurrentBehavior
     {
         get { return currentBehavior; }
@@ -60,6 +107,7 @@ public class Villager : Combatant
     private VillagerBrain brain;
     private VillagerJobController jobController;
     private HouseSettings houseSettings;
+    private CommunityStorageSettings communityStorageSettings;
     private ResourceSettings resourceSettings;
     private HouseDefinition[] houseDefinitions;
     private Sprite[] houseBuildStageOneSprites;
@@ -81,6 +129,7 @@ public class Villager : Combatant
     private float roadReactionTimer;
     private float plotReactionTimer;
     private float resourceReactionTimer;
+    private float nextCommunityStorageAttemptTime;
     private float nextHousingSearchAttemptTime;
     private float behaviorTimerBeforeFoodSeeking;
     private int housingSearchAttempts;
@@ -96,6 +145,10 @@ public class Villager : Combatant
     private bool isSeekingFood;
     private bool isEmergencyFoodSeeking;
     private bool isRestingAtHome;
+    private bool isRestingFromWork;
+    private StorageTripPurpose storageTripPurpose;
+    private ResourceType storageTripResourceType;
+    private int storageTripRequestedAmount;
     private bool isIdlingWithoutHome;
     private bool isStayingHomeWithoutWork;
     private bool isAtHomeWithoutWork;
@@ -160,6 +213,7 @@ public class Villager : Combatant
         brain = GetComponent<VillagerBrain>();
         jobController = GetComponent<VillagerJobController>();
         houseSettings = gameData.houseSettings;
+        communityStorageSettings = gameData.communityStorageSettings;
         resourceSettings = gameData.resourceSettings;
         houseDefinitions = gameData.houseDefinitions;
         houseBuildStageOneSprites = gameData.houseBuildStageOneSprites;
@@ -168,6 +222,7 @@ public class Villager : Combatant
         houseBuildStageTwoColors = gameData.houseBuildStageTwoColors;
         if (settings == null
             || houseSettings == null
+            || communityStorageSettings == null
             || resourceSettings == null
             || houseDefinitions == null
             || houseDefinitions.Length == 0
@@ -333,6 +388,11 @@ public class Villager : Combatant
 
     internal bool TryRunProductiveOperation()
     {
+        if (isRestingFromWork)
+        {
+            return false;
+        }
+
         bool started = jobController != null && jobController.TryStartProductiveOperation();
         if (started)
         {
@@ -342,8 +402,33 @@ public class Villager : Combatant
         return started;
     }
 
+    internal bool TryRunCommunityStorageOperation()
+    {
+        if (!CanChooseCommunityStorageOperation)
+        {
+            return false;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null
+            || !mapManager.TryClaimCommunityStorage(this, communityStorageSettings.dimensions))
+        {
+            nextCommunityStorageAttemptTime =
+                Time.time + settings.communityStorageSearchRetrySeconds;
+            return false;
+        }
+
+        ClearNoWorkBehavior();
+        storageTripPurpose = StorageTripPurpose.Deposit;
+        EnterBehavior(VillagerBehaviorMode.LoadingToStorage, settings.idleBehaviorDuration);
+        return true;
+    }
+
     internal void ApplyNoWorkDecision(bool stayHome)
     {
+        // A work-fatigue rest must persist until the lower recovery threshold; do not reuse
+        // the cached idle-at-home decision to send the villager back to work early.
+        stayHome = stayHome || isRestingFromWork;
         if (stayHome && HasHome)
         {
             isStayingHomeWithoutWork = true;
@@ -375,7 +460,12 @@ public class Villager : Combatant
             StopMoving();
             if (justArrivedHome)
             {
-                isRestingAtHome = Fatigue >= settings.homeRestStartFatigueThreshold;
+                isRestingAtHome = isRestingFromWork
+                    || Fatigue >= settings.homeRestStartFatigueThreshold;
+            }
+            else if (isRestingFromWork)
+            {
+                isRestingAtHome = true;
             }
 
             if (currentBehavior == null || currentBehavior.mode != VillagerBehaviorMode.Idle)
@@ -467,6 +557,14 @@ public class Villager : Combatant
             return;
         }
 
+        if (storageTripPurpose != StorageTripPurpose.None)
+        {
+            UpdateCommunityStorageTrip();
+            UpdateFatigue(Time.deltaTime);
+            base.Update();
+            return;
+        }
+
         if (isSeekingFood)
         {
             if (Hunger > settings.emergencyFoodHungerThreshold)
@@ -496,15 +594,14 @@ public class Villager : Combatant
     {
         if (isRestingAtHome)
         {
-            float restFatigueThreshold = HasPersonality(VillagerPersonalityType.Lazy)
-                ? settings.lazyHomeRestFatigueThreshold
-                : settings.homeRestFatigueThreshold;
+            float restFatigueThreshold = GetHomeRestFatigueThreshold();
             Fatigue = Mathf.Max(
                 restFatigueThreshold,
                 Fatigue - settings.fatigueRecoveryPerSecond * deltaTime);
             if (Fatigue <= restFatigueThreshold)
             {
                 isRestingAtHome = false;
+                isRestingFromWork = false;
             }
             return;
         }
@@ -522,6 +619,11 @@ public class Villager : Combatant
             Fatigue = Mathf.Max(
                 0f,
                 Fatigue - settings.homelessIdleFatigueRecoveryPerSecond * deltaTime);
+            if (isRestingFromWork && Fatigue <= GetHomeRestFatigueThreshold())
+            {
+                isRestingFromWork = false;
+            }
+
             return;
         }
 
@@ -531,7 +633,7 @@ public class Villager : Combatant
             || HousingState == VillagerHousingState.BuildingHouseStageTwo
             || (isSeekingFood && foodSeekingStage == FoodSeekingStage.Foraging)
             || (jobController != null && jobController.IsForagingForJob);
-        if (isWorking)
+        if (isWorking && !isRestingFromWork)
         {
             Fatigue = Mathf.Min(
                 MaximumFatigue,
@@ -550,6 +652,26 @@ public class Villager : Combatant
         isIdlingWithoutHome = false;
         isStayingHomeWithoutWork = false;
         isAtHomeWithoutWork = false;
+    }
+
+    internal void BeginWorkFatigueRest()
+    {
+        if (isRestingFromWork)
+        {
+            return;
+        }
+
+        // Work fatigue uses hysteresis: the villager starts resting at the productive
+        // threshold and cannot work again until below the lower home-rest threshold.
+        isRestingFromWork = true;
+        isRestingAtHome = false;
+    }
+
+    private float GetHomeRestFatigueThreshold()
+    {
+        return HasPersonality(VillagerPersonalityType.Lazy)
+            ? settings.lazyHomeRestFatigueThreshold
+            : settings.homeRestFatigueThreshold;
     }
 
     private void RefreshHousingRoadRevision()
@@ -752,6 +874,11 @@ public class Villager : Combatant
             case FoodSeekingStage.CheckCommunityStorage:
                 if (TryConsumeFoodFromCommunityStorage())
                 {
+                    if (storageTripPurpose == StorageTripPurpose.Food)
+                    {
+                        return;
+                    }
+
                     if (ShouldFinishFoodSeeking())
                     {
                         FinishFoodSeeking();
@@ -786,7 +913,180 @@ public class Villager : Combatant
 
     private bool TryConsumeFoodFromCommunityStorage()
     {
-        return false;
+        if (storageTripPurpose != StorageTripPurpose.None)
+        {
+            return true;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || mapManager.GetCommunityStorageAmount(ResourceType.Food) <= 0)
+        {
+            return false;
+        }
+
+        float targetHunger = isEmergencyFoodSeeking
+            ? settings.resumeTaskHungerThreshold
+            : settings.boredFoodSeekingHungerThreshold;
+        int requestedAmount = Mathf.Max(
+            1,
+            Mathf.CeilToInt((Hunger - targetHunger) / settings.hungerRestoredPerFoodUnit));
+        return BeginCommunityStorageWithdrawal(
+            ResourceType.Food,
+            requestedAmount,
+            StorageTripPurpose.Food);
+    }
+
+    private bool BeginCommunityStorageWithdrawal(
+        ResourceType resourceType,
+        int requestedAmount,
+        StorageTripPurpose purpose)
+    {
+        if (requestedAmount <= 0
+            || purpose == StorageTripPurpose.None
+            || Time.time < nextCommunityStorageAttemptTime)
+        {
+            return false;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null
+            || mapManager.GetCommunityStorageAmount(resourceType) <= 0
+            || !mapManager.TryGetCommunityStorageEntrancePosition(out _))
+        {
+            return false;
+        }
+
+        storageTripPurpose = purpose;
+        storageTripResourceType = resourceType;
+        storageTripRequestedAmount = requestedAmount;
+        EnterBehavior(VillagerBehaviorMode.LoadingToStorage, settings.idleBehaviorDuration);
+        return true;
+    }
+
+    private void UpdateCommunityStorageTrip()
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null
+            || !mapManager.TryGetCommunityStorageEntrancePosition(out Vector3 entrancePosition))
+        {
+            FinishCommunityStorageTrip(false);
+            return;
+        }
+
+        if (HasFailedPathRequestForAction
+            && Vector2.Distance(transform.position, entrancePosition) > 0.1f)
+        {
+            FinishCommunityStorageTrip(false);
+            return;
+        }
+
+        if (Vector2.Distance(transform.position, entrancePosition) > 0.1f)
+        {
+            MoveTo(entrancePosition, 0.1f);
+            return;
+        }
+
+        StopMoving();
+        StorageTripPurpose completedPurpose = storageTripPurpose;
+        if (completedPurpose == StorageTripPurpose.Deposit)
+        {
+            for (int index = resourceInventory.Count - 1; index >= 0; index--)
+            {
+                VillagerResourceEntry entry = resourceInventory[index];
+                if (entry != null
+                    && mapManager.TryDepositCommunityStorage(
+                        entry.resourceType,
+                        entry.amount,
+                        out int depositedAmount))
+                {
+                    if (!TryRemoveResourceInventory(entry.resourceType, depositedAmount))
+                    {
+                        Debug.LogError(
+                            "Could not remove deposited resources from the villager's inventory.",
+                            this);
+                        mapManager.TryWithdrawCommunityStorage(
+                            entry.resourceType,
+                            depositedAmount,
+                            out _);
+                    }
+                }
+            }
+
+            FinishCommunityStorageTrip(true);
+            return;
+        }
+
+        if (mapManager.TryWithdrawCommunityStorage(
+                storageTripResourceType,
+                storageTripRequestedAmount,
+                out int withdrawnAmount))
+        {
+            if (!AddResourceInventory(storageTripResourceType, withdrawnAmount))
+            {
+                Debug.LogError(
+                    "Could not add withdrawn resources to the villager's inventory.",
+                    this);
+                mapManager.TryDepositCommunityStorage(
+                    storageTripResourceType,
+                    withdrawnAmount,
+                    out _);
+                FinishCommunityStorageTrip(false);
+                return;
+            }
+
+            if (completedPurpose == StorageTripPurpose.Food)
+            {
+                foodSeekingStage = FoodSeekingStage.CheckInventory;
+                SetFoodSeekingBehavior(VillagerBehaviorMode.LookingForFood);
+            }
+            else if (completedPurpose == StorageTripPurpose.HouseMaterials)
+            {
+                EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+            }
+
+            FinishCommunityStorageTrip(true);
+            return;
+        }
+
+        FinishCommunityStorageTrip(false);
+    }
+
+    private void FinishCommunityStorageTrip(bool succeeded)
+    {
+        StorageTripPurpose completedPurpose = storageTripPurpose;
+        storageTripPurpose = StorageTripPurpose.None;
+        storageTripRequestedAmount = 0;
+        if (!succeeded)
+        {
+            nextCommunityStorageAttemptTime =
+                Time.time + settings.communityStorageSearchRetrySeconds;
+        }
+
+        if (completedPurpose == StorageTripPurpose.Food)
+        {
+            if (!succeeded)
+            {
+                foodSeekingStage = FoodSeekingStage.Foraging;
+                SetFoodSeekingBehavior(VillagerBehaviorMode.Foraging);
+            }
+
+            return;
+        }
+
+        if (completedPurpose == StorageTripPurpose.HouseMaterials)
+        {
+            if (!succeeded)
+            {
+                EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+            }
+
+            return;
+        }
+
+        if (completedPurpose == StorageTripPurpose.Deposit)
+        {
+            EnterBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+        }
     }
 
     private bool ShouldFinishFoodSeeking()
@@ -1012,6 +1312,16 @@ public class Villager : Combatant
         if (missingCost == null)
         {
             StopMoving();
+            return;
+        }
+
+        int missingAmount =
+            missingCost.amount - GetResourceInventoryAmount(missingCost.resourceType);
+        if (BeginCommunityStorageWithdrawal(
+            missingCost.resourceType,
+            missingAmount,
+            StorageTripPurpose.HouseMaterials))
+        {
             return;
         }
 

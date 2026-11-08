@@ -25,6 +25,7 @@ public class ResourceObject : MonoBehaviour
     private readonly List<ResourceType> availableResourceTypes = new List<ResourceType>();
     private ResourceType resourceType;
     private bool isConfigured;
+    private bool canBeRemovedByConstruction;
     private Vector3 startingLocalPosition;
     private float shakeTimer;
     private float activeShakeDuration;
@@ -65,6 +66,11 @@ public class ResourceObject : MonoBehaviour
 
             return false;
         }
+    }
+
+    public bool CanBeRemovedByConstruction
+    {
+        get { return canBeRemovedByConstruction; }
     }
 
     public Vector2Int InteractionOffset { get; private set; }
@@ -121,6 +127,7 @@ public class ResourceObject : MonoBehaviour
         DefinitionId = definition.id;
         resourceType = definition.outputs[0].type;
         InteractionOffset = definition.outputs[0].interactionOffset;
+        canBeRemovedByConstruction = true;
         foreach (ResourceOutputDefinition output in definition.outputs)
         {
             if (output == null
@@ -133,6 +140,11 @@ public class ResourceObject : MonoBehaviour
                 resourceStocks.Clear();
                 availableResourceTypes.Clear();
                 return false;
+            }
+
+            if (output.bareHandAmount != output.fullCutAmount)
+            {
+                canBeRemovedByConstruction = false;
             }
 
             AddResourceStock(output);

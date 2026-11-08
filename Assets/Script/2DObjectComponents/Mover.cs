@@ -339,7 +339,7 @@ public class Mover : MonoBehaviour
         float currentMovementSpeed = movementSpeed;
         if (mapManager != null
             && mapManager.GridCellSize > 0f
-            && mapManager.IsRoadCell(WorldPositionToGridCell(transform.position, mapManager.GridCellSize)))
+            && mapManager.IsWithinRoadMovementRange(transform.position))
         {
             currentMovementSpeed *= mapManager.RoadMovementSpeedMultiplier;
         }

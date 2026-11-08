@@ -7,9 +7,11 @@ public class HouseVisual : MonoBehaviour
     private const int BasePartSortingOrder = 55;
     private const int RoofPartSortingOrder = 105;
     private const string HouseSortingLayer = "Everything";
+    private const string YardSortingLayer = "Ground";
     private const float SpriteDepthOffset = -0.01f;
     private readonly List<GameObject> visualParts = new List<GameObject>();
     private SortingAnchor sortingAnchor;
+    private GameObject yardVisual;
 
     public void ShowConstructionStage(
         Sprite[] stageSprites,
@@ -20,6 +22,7 @@ public class HouseVisual : MonoBehaviour
     {
         ConfigureSortingGroup(sortingAnchorOffset);
         ClearVisualParts();
+        ClearYardVisual();
         LineRenderer plotOutline = GetComponent<LineRenderer>();
         if (plotOutline != null)
         {
@@ -44,6 +47,12 @@ public class HouseVisual : MonoBehaviour
 
         ConfigureSortingGroup(definition.sortingAnchorOffset);
         ClearVisualParts();
+        ClearYardVisual();
+        CreateYardVisual(
+            SelectSprite(definition.yardSprites),
+            SelectColor(definition.yardColors),
+            footprintWidth,
+            definition.visualOffset);
         AddSprite(
             SelectSprite(definition.baseSprites),
             SelectColor(definition.baseColors),
@@ -60,6 +69,45 @@ public class HouseVisual : MonoBehaviour
         Vector3 visualScale = transform.localScale;
         visualScale.x = Mathf.Abs(visualScale.x) * (Random.value < 0.5f ? -1f : 1f);
         transform.localScale = visualScale;
+    }
+
+    private void CreateYardVisual(
+        Sprite sprite,
+        Color color,
+        float footprintWidth,
+        Vector2 visualOffset)
+    {
+        if (sprite == null || sprite.texture == null || sprite.texture.width <= 0)
+        {
+            Debug.LogError("Cannot display a missing or invalid house yard sprite.", this);
+            return;
+        }
+
+        float pixelsToWorld = footprintWidth / sprite.texture.width;
+        Vector2 pixelPosition = sprite.rect.position + sprite.pivot;
+        pixelPosition -= new Vector2(sprite.texture.width, sprite.texture.height) * 0.5f;
+
+        yardVisual = new GameObject(sprite.name);
+        yardVisual.transform.SetParent(transform, false);
+        yardVisual.transform.localPosition = new Vector3(
+            pixelPosition.x * pixelsToWorld + visualOffset.x,
+            pixelPosition.y * pixelsToWorld + visualOffset.y,
+            SpriteDepthOffset);
+        yardVisual.transform.localScale = Vector3.one * pixelsToWorld * sprite.pixelsPerUnit;
+
+        SpriteRenderer renderer = yardVisual.AddComponent<SpriteRenderer>();
+        renderer.sprite = sprite;
+        renderer.color = color;
+        renderer.sortingLayerName = YardSortingLayer;
+    }
+
+    private void ClearYardVisual()
+    {
+        if (yardVisual != null)
+        {
+            Destroy(yardVisual);
+            yardVisual = null;
+        }
     }
 
     private void ConfigureSortingGroup(Vector2 sortingAnchorOffset)

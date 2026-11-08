@@ -140,6 +140,9 @@
         {"type": "FullName","value": "Marcel",
             "worksForMen": true,"worksForWomen": false
         },
+        {"type": "LastPart","value": "cel",
+            "worksForMen": true,"worksForWomen": false
+        },
         {"type": "LastPart","value": "bill",
             "worksForMen": true,"worksForWomen": false
         },
@@ -164,7 +167,13 @@
         {"type": "LastPart","value": "urik",
             "worksForMen": true,"worksForWomen": false
         },
+        {"type": "FirstPart","value": "Ead",
+            "worksForMen": false,"worksForWomen": true
+        },
         {"type": "FullName","value": "Eadwin",
+            "worksForMen": false,"worksForWomen": true
+        },
+         {"type": "LastPart","value": "win",
             "worksForMen": false,"worksForWomen": true
         },
         {"type": "LastPart","value": "s",
@@ -180,6 +189,12 @@
             "worksForMen": false,"worksForWomen": true
         },
         {"type": "LastPart","value": "anna",
+            "worksForMen": false,"worksForWomen": true
+        },
+         {"type": "LastPart","value": "enne",
+            "worksForMen": false,"worksForWomen": true
+        },
+         {"type": "LastPart","value": "enna",
             "worksForMen": false,"worksForWomen": true
         },
         {"type": "FirstPart","value": "Brit",
@@ -287,6 +302,9 @@
         {"type": "FirstPart","value": "Cint",
             "worksForMen": false,"worksForWomen": true
         },
+        {"type": "LastPart","value": "ten",
+            "worksForMen": false,"worksForWomen": true
+        },
         {"type": "FirstPart","value": "Femre",
             "worksForMen": false,"worksForWomen": true
         },
@@ -309,6 +327,9 @@
             "worksForMen": true,"worksForWomen": false
         },
         {"type": "FirstPart","value": "Ang",
+            "worksForMen": true,"worksForWomen": false
+        },
+        {"type": "FirstPart","value": "Fang",
             "worksForMen": true,"worksForWomen": false
         },
         {"type": "FirstPart","value": "Ur",

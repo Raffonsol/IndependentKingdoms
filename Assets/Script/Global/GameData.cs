@@ -27,6 +27,7 @@ public class GameData
     public MapSettings mapSettings;
     public PlayerSettings playerSettings;
     public HouseSettings houseSettings;
+    public CommunityStorageSettings communityStorageSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
@@ -74,6 +75,7 @@ public class GameData
             mapSettings = gameSettings.mapSettings,
             playerSettings = gameSettings.playerSettings,
             houseSettings = gameSettings.houseSettings,
+            communityStorageSettings = gameSettings.communityStorageSettings,
             villagerSettings = gameSettings.villagerSettings,
             resourceSettings = gameSettings.resourceSettings,
             combatSettings = gameSettings.combatSettings,
@@ -291,6 +293,8 @@ public class GameData
                 visualScale = record.visualScale,
                 visualOffset = record.visualOffset,
                 sortingAnchorOffset = record.sortingAnchorOffset,
+                yardSprites = LoadHouseSprites(record.yardSprites, record.id, "yardSprites", true),
+                yardColors = LoadHouseColors(record.yardColorCodes, record.id, "yardColorCodes"),
                 baseSprites = LoadHouseSprites(record.baseSprites, record.id, "baseSprites", true),
                 baseColors = LoadHouseColors(record.baseColorCodes, record.id, "baseColorCodes"),
                 lowRoofSprites = LoadHouseSprites(record.lowRoofSprites, record.id, "lowRoofSprites", true),
@@ -324,6 +328,8 @@ public class GameData
             }
 
             if (definition.baseSprites == null
+                || definition.yardSprites == null
+                || definition.yardColors == null
                 || definition.baseColors == null
                 || definition.lowRoofSprites == null
                 || definition.lowRoofColors == null
@@ -1079,11 +1085,12 @@ public class GameData
                 || jsonSettings.mapSettings == null
                 || jsonSettings.playerSettings == null
                 || jsonSettings.houseSettings == null
+                || jsonSettings.communityStorageSettings == null
                 || jsonSettings.villagerSettings == null
                 || jsonSettings.resourceSettings == null
                 || jsonSettings.combatSettings == null)
             {
-                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, villagerSettings, resourceSettings, and combatSettings.");
+                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, communityStorageSettings, villagerSettings, resourceSettings, and combatSettings.");
                 return new GameSettingsCollection();
             }
 
@@ -1154,6 +1161,19 @@ public class GameData
             }
 
             HouseSettingsJson jsonHouseSettings = jsonSettings.houseSettings;
+            CommunityStorageSettingsJson jsonCommunityStorageSettings =
+                jsonSettings.communityStorageSettings;
+            if (jsonCommunityStorageSettings.dimensions.x <= 0
+                || jsonCommunityStorageSettings.dimensions.y <= 0
+                || jsonCommunityStorageSettings.maximumAmount <= 0
+                || jsonCommunityStorageSettings.unitsPerAdditionalIcon <= 0)
+            {
+                Debug.LogError(
+                    "Community storage settings must define positive dimensions, a positive total capacity, "
+                    + "and a positive unitsPerAdditionalIcon.");
+                return new GameSettingsCollection();
+            }
+
             GameSettingsCollection settings = new GameSettingsCollection
             {
                 uiSettings = jsonSettings.uiSettings,
@@ -1175,6 +1195,12 @@ public class GameData
                     hammerMotionDurationSeconds = jsonHouseSettings.hammerMotionDurationSeconds,
                     hammerPauseDurationSeconds = jsonHouseSettings.hammerPauseDurationSeconds,
                     hammerHitPositions = jsonHouseSettings.hammerHitPositions
+                },
+                communityStorageSettings = new CommunityStorageSettings
+                {
+                    dimensions = jsonCommunityStorageSettings.dimensions,
+                    maximumAmount = jsonCommunityStorageSettings.maximumAmount,
+                    unitsPerAdditionalIcon = jsonCommunityStorageSettings.unitsPerAdditionalIcon
                 },
                 villagerSettings = jsonSettings.villagerSettings,
                 resourceSettings = jsonSettings.resourceSettings,
@@ -1201,11 +1227,15 @@ public class GameData
                 return new GameSettingsCollection();
             }
 
-            if (settings.mapSettings.roadMovementSpeedMultiplier < 1f)
+            if (settings.mapSettings.roadMovementSpeedMultiplier < 1f
+                || settings.mapSettings.roadTileSpacing <= 0f
+                || !IsFiniteNonNegative(settings.mapSettings.roadMovementBonusRange)
+                || settings.mapSettings.manaCostPerKeyPoint < 0)
             {
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
-                    + ".json must define a roadMovementSpeedMultiplier of at least 1.");
+                    + ".json must define a roadMovementSpeedMultiplier of at least 1, a positive roadTileSpacing, "
+                    + "a finite non-negative roadMovementBonusRange, and a non-negative manaCostPerKeyPoint.");
                 return new GameSettingsCollection();
             }
 
@@ -1278,6 +1308,11 @@ public class GameData
                     > villagerSettings.homeRestFatigueThreshold
                 || villagerSettings.productiveFatigueThreshold < 0f
                 || villagerSettings.productiveFatigueThreshold > 100f
+                // Work must restart below its fatigue trigger to prevent rest/work oscillation.
+                || villagerSettings.productiveFatigueThreshold
+                    <= villagerSettings.homeRestFatigueThreshold
+                || villagerSettings.productiveFatigueThreshold
+                    <= villagerSettings.lazyHomeRestFatigueThreshold
                 || villagerSettings.idleHomeStayProbability < 0f
                 || villagerSettings.idleHomeStayProbability > 1f
                 || villagerSettings.lazyIdleHomeStayProbability
@@ -1290,6 +1325,9 @@ public class GameData
                 || villagerSettings.boredFoodSeekingHungerThreshold < 0f
                 || villagerSettings.boredFoodSeekingHungerThreshold > 100f
                 || villagerSettings.hungerRestoredPerFoodUnit <= 0f
+                || villagerSettings.communityStorageOperationPriority < 0f
+                || villagerSettings.communityStoragePriorityPerItem <= 0f
+                || villagerSettings.communityStorageSearchRetrySeconds <= 0f
                 || villagerSettings.housingOperationPriority < 0f
                 || villagerSettings.lazyHousingPriorityPenalty < 0f
                 || villagerSettings.foodOperationPriority < 0f

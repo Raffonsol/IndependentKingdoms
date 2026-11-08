@@ -236,6 +236,7 @@ public class MapSettings
 {
     public float gridCellSize = 2f;
     public float roadMovementSpeedMultiplier = 1.2f;
+    public float roadMovementBonusRange = 1f;
     public float keyPointSelectionRadius = 9f;
     public float roadEndpointKeyPointTolerance = 2.5f;
     public float clickDragThresholdPixels = 5f;
@@ -244,6 +245,7 @@ public class MapSettings
     public float roadTileSpacing = 1f;
     public float maxRoadKeyPointDistance = 10f;
     public float roadEndpointKeyPointClearance = 9f;
+    public int manaCostPerKeyPoint = 1;
 }
 
 [Serializable]
@@ -317,9 +319,26 @@ public class GameSettingsJsonCollection
     public MapSettings mapSettings;
     public PlayerSettingsJson playerSettings;
     public HouseSettingsJson houseSettings;
+    public CommunityStorageSettingsJson communityStorageSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
+}
+
+[Serializable]
+public class CommunityStorageSettingsJson
+{
+    public Vector2Int dimensions = new Vector2Int(7, 7);
+    public int maximumAmount = 100;
+    public int unitsPerAdditionalIcon = 10;
+}
+
+[Serializable]
+public class CommunityStorageSettings
+{
+    public Vector2Int dimensions = new Vector2Int(7, 7);
+    public int maximumAmount = 100;
+    public int unitsPerAdditionalIcon = 10;
 }
 
 [Serializable]
@@ -349,6 +368,9 @@ public class VillagerScaleSettings
 public class VillagerSettings
 {
     public VillagerScaleSettings villagerScaleSettings = new VillagerScaleSettings();
+    public float communityStorageOperationPriority = 20f;
+    public float communityStoragePriorityPerItem = 1f;
+    public float communityStorageSearchRetrySeconds = 5f;
     public float idleBehaviorDuration = 30f;
     public float roadDetectionDistance = 2f;
     public float roadSearchDistance = 35f;
@@ -421,6 +443,7 @@ public class GameSettingsCollection
     public MapSettings mapSettings = new MapSettings();
     public PlayerSettings playerSettings = new PlayerSettings();
     public HouseSettings houseSettings = new HouseSettings();
+    public CommunityStorageSettings communityStorageSettings = new CommunityStorageSettings();
     public VillagerSettings villagerSettings = new VillagerSettings();
     public ResourceSettings resourceSettings = new ResourceSettings();
     public CombatSettings combatSettings = new CombatSettings();
@@ -481,12 +504,22 @@ public class HousePlotRecord
 }
 
 [Serializable]
+public class CommunityStorageRecord
+{
+    public Vector2Int originCell;
+    public Vector2Int dimensions;
+    public Vector2Int entranceCell;
+}
+
+[Serializable]
 public class HouseDefinitionRecord
 {
     public string id;
     public float visualScale = 1f;
     public Vector2 visualOffset;
     public Vector2 sortingAnchorOffset;
+    public string[] yardSprites;
+    public string[] yardColorCodes;
     public string[] baseSprites;
     public string[] baseColorCodes;
     public string[] lowRoofSprites;
@@ -522,6 +555,8 @@ public class HouseDefinition
     public float visualScale;
     public Vector2 visualOffset;
     public Vector2 sortingAnchorOffset;
+    public Sprite[] yardSprites;
+    public Color[] yardColors;
     public Sprite[] baseSprites;
     public Color[] baseColors;
     public Sprite[] lowRoofSprites;
@@ -602,7 +637,8 @@ public enum VillagerBehaviorMode
     Dying,
     Building,
     LookingForFood,
-    Foraging
+    Foraging,
+    LoadingToStorage
 }
 
 [Serializable]

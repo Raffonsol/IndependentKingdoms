@@ -6,7 +6,8 @@ public class VillagerBrain : MonoBehaviour
     {
         Housing,
         Food,
-        Productive
+        Productive,
+        CommunityStorage
     }
 
     private Villager villager;
@@ -45,11 +46,18 @@ public class VillagerBrain : MonoBehaviour
             observedJobAssignment = villager.JobAssignment;
         }
 
+        if (villager.JobAssignment != JobType.None
+            && villager.Fatigue >= settings.productiveFatigueThreshold)
+        {
+            villager.BeginWorkFatigueRest();
+        }
+
         bool housingAvailable = villager.HousingState != VillagerHousingState.Housed;
         bool emergencyFoodAvailable = villager.Hunger > settings.emergencyFoodHungerThreshold;
         bool foodAvailable = emergencyFoodAvailable
             || (villager.HousingState == VillagerHousingState.Housed
                 && villager.Hunger > settings.boredFoodSeekingHungerThreshold);
+        bool communityStorageAvailable = villager.CanChooseCommunityStorageOperation;
 
         float housingPriority = housingAvailable
             ? settings.housingOperationPriority
@@ -63,9 +71,19 @@ public class VillagerBrain : MonoBehaviour
                 + (emergencyFoodAvailable ? settings.emergencyFoodPriorityBonus : 0f)
             : float.NegativeInfinity;
         float productivePriority = villager.JobAssignment != JobType.None
+            && !villager.IsRestingFromWork
             && villager.Fatigue < settings.productiveFatigueThreshold
             ? settings.productiveOperationPriority
             : float.NegativeInfinity;
+        float communityStoragePriority = float.NegativeInfinity;
+        if (communityStorageAvailable)
+        {
+            // Storage priority scales from its configured base; with little surplus,
+            // productive work can still win, while larger loads make storage more urgent.
+            communityStoragePriority = settings.communityStorageOperationPriority
+                + villager.CommunityStorageSurplusAmount
+                    * settings.communityStoragePriorityPerItem;
+        }
 
         Operation firstOperation = Operation.Housing;
         float firstPriority = housingPriority;
@@ -73,13 +91,19 @@ public class VillagerBrain : MonoBehaviour
         float secondPriority = foodPriority;
         Operation thirdOperation = Operation.Productive;
         float thirdPriority = productivePriority;
+        Operation fourthOperation = Operation.CommunityStorage;
+        float fourthPriority = communityStoragePriority;
         OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
+        OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
+        OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
+        OrderByPriority(ref thirdOperation, ref thirdPriority, ref fourthOperation, ref fourthPriority);
         OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
         OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
 
         if (TryRunOperation(firstOperation, housingAvailable, foodAvailable)
             || TryRunOperation(secondOperation, housingAvailable, foodAvailable)
-            || TryRunOperation(thirdOperation, housingAvailable, foodAvailable))
+            || TryRunOperation(thirdOperation, housingAvailable, foodAvailable)
+            || TryRunOperation(fourthOperation, housingAvailable, foodAvailable))
         {
             ResetNoWorkDecision();
             return;
@@ -121,6 +145,8 @@ public class VillagerBrain : MonoBehaviour
                     villager.Hunger > settings.emergencyFoodHungerThreshold);
             case Operation.Productive:
                 return villager.TryRunProductiveOperation();
+            case Operation.CommunityStorage:
+                return villager.TryRunCommunityStorageOperation();
             default:
                 Debug.LogError("VillagerBrain received an unsupported operation.", this);
                 return false;
