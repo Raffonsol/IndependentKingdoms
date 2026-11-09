@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -65,6 +66,55 @@ public class ResourceHoverTooltip : HoverTooltip
                 amountLines.Append(" remaining");
             }
 
+            amountText.text = amountLines.ToString();
+            ResizeForAmountText();
+        }
+    }
+
+    public void SetCommunityStorage(CommunityStorage storage)
+    {
+        if (storage == null)
+        {
+            Debug.LogError("Cannot display a tooltip for a null community storage.", this);
+            return;
+        }
+
+        if (nameText != null)
+        {
+            nameText.text = "Community Storage";
+        }
+
+        if (amountText != null)
+        {
+            StringBuilder amountLines = new StringBuilder();
+            foreach (ResourceType resourceType in Enum.GetValues(typeof(ResourceType)))
+            {
+                int amount = storage.GetAmount(resourceType);
+                if (amount <= 0)
+                {
+                    continue;
+                }
+
+                if (amountLines.Length > 0)
+                {
+                    amountLines.AppendLine();
+                }
+
+                amountLines.Append(resourceType);
+                amountLines.Append(": ");
+                amountLines.Append(amount);
+            }
+
+            if (amountLines.Length == 0)
+            {
+                amountLines.Append("Empty");
+            }
+
+            amountLines.AppendLine();
+            amountLines.Append("Capacity: ");
+            amountLines.Append(storage.GetTotalAmount());
+            amountLines.Append(" / ");
+            amountLines.Append(storage.Capacity);
             amountText.text = amountLines.ToString();
             ResizeForAmountText();
         }

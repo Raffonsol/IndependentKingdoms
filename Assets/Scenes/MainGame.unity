@@ -192,6 +192,8 @@ MonoBehaviour:
   villagerOffscreenIndicatorSprite: {fileID: 4803081123936338435, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   villagerHoverTooltipPrefab: {fileID: 5239101218344244992, guid: 5475a189b8c1c514984ab5b3a9637ea4, type: 3}
   resourceHoverTooltipPrefab: {fileID: 5239101218344244992, guid: c5f8e0065b2341c99e2a04cab65eb7d5, type: 3}
+  communityStorageHoverTooltipPrefab: {fileID: 5239101218344244992, guid: f6ac0a4aa277432b8298cc75839ca48a, type: 3}
+  houseHoverTooltipPrefab: {fileID: 5239101218344244992, guid: b4424285e6514fd29224b95ea490e229, type: 3}
   showDebugGrid: 0
   debugGridColor: {r: 0.1, g: 0.85, b: 1, a: 0.55}
   debugOccupiedCellFillColor: {r: 1, g: 0.2, b: 0.1, a: 0.3}
@@ -789,13 +791,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 697f43c8cf3f1844babdd04e9ec113eb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
-  movementSpeed: 12
-  movementAcceleration: 45
-  movementDeceleration: 12
+  movementSpeed: 30
+  movementAcceleration: 20
+  movementDeceleration: 26
   edgeSize: 20
   minZoom: 2
-  maxZoom: 50
-  zoomSpeed: 5
+  maxZoom: 75
+  zoomSpeed: 10.04
   zoomSmoothTime: 0.15
 --- !u!1 &619394800
 GameObject:

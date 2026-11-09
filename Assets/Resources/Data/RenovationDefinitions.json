@@ -1,0 +1,5 @@
+{
+    "annexRenovationCosts": [
+        { "resourceType": "Wood", "amount": 5 }
+    ]
+}

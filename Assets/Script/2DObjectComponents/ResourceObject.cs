@@ -19,6 +19,10 @@ public class ResourceObject : MonoBehaviour
 
     public bool HasGridCell { get; private set; }
     public string DefinitionId { get; private set; }
+    internal Transform VisualRoot
+    {
+        get { return visualRoot; }
+    }
 
     private readonly Dictionary<ResourceType, ResourceStock> resourceStocks =
         new Dictionary<ResourceType, ResourceStock>();
@@ -26,6 +30,8 @@ public class ResourceObject : MonoBehaviour
     private ResourceType resourceType;
     private bool isConfigured;
     private bool canBeRemovedByConstruction;
+    private Transform visualRoot;
+    private GroundShadow groundShadow;
     private Vector3 startingLocalPosition;
     private float shakeTimer;
     private float activeShakeDuration;
@@ -77,7 +83,18 @@ public class ResourceObject : MonoBehaviour
 
     private void Awake()
     {
-        startingLocalPosition = transform.localPosition;
+        Transform sortingAnchorTransform = transform.Find("SortingAnchor");
+        visualRoot = sortingAnchorTransform != null
+            ? sortingAnchorTransform.Find("Visuals")
+            : null;
+        groundShadow = GetComponentInChildren<GroundShadow>(true);
+        if (visualRoot == null)
+        {
+            Debug.LogError("Resource object prefab is missing SortingAnchor/Visuals.", this);
+            return;
+        }
+
+        startingLocalPosition = visualRoot.localPosition;
     }
 
     private void Update()
@@ -94,7 +111,7 @@ public class ResourceObject : MonoBehaviour
             shakeTimer = Mathf.Max(0f, shakeTimer - Time.deltaTime);
             if (shakeTimer <= 0f)
             {
-                transform.localPosition = startingLocalPosition;
+                visualRoot.localPosition = startingLocalPosition;
                 return;
             }
 
@@ -105,7 +122,7 @@ public class ResourceObject : MonoBehaviour
                 Mathf.Sin(phase) * activeShakeMagnitude * envelope,
                 Mathf.Sin(phase * 0.73f) * activeShakeMagnitude * 0.5f * envelope,
                 0f);
-            transform.localPosition = startingLocalPosition + offset;
+            visualRoot.localPosition = startingLocalPosition + offset;
         }
     }
 
@@ -118,6 +135,36 @@ public class ResourceObject : MonoBehaviour
             || !Enum.IsDefined(typeof(ResourceType), definition.outputs[0].type))
         {
             Debug.LogError("Cannot initialize a resource object without a valid definition.", this);
+            return false;
+        }
+
+        if (visualRoot == null)
+        {
+            Transform sortingAnchorTransform = transform.Find("SortingAnchor");
+            visualRoot = sortingAnchorTransform != null
+                ? sortingAnchorTransform.Find("Visuals")
+                : null;
+        }
+
+        if (visualRoot == null)
+        {
+            Debug.LogError("Resource object prefab is missing SortingAnchor/Visuals.", this);
+            return false;
+        }
+
+        if (groundShadow == null)
+        {
+            groundShadow = GetComponentInChildren<GroundShadow>(true);
+        }
+
+        if (groundShadow == null)
+        {
+            Debug.LogError("Resource object prefab is missing a valid GroundShadow child.", this);
+            return false;
+        }
+
+        if (!groundShadow.Configure(definition.shadowSize, definition.shadowOffset))
+        {
             return false;
         }
 
@@ -150,7 +197,7 @@ public class ResourceObject : MonoBehaviour
             AddResourceStock(output);
         }
 
-        startingLocalPosition = transform.localPosition;
+        startingLocalPosition = visualRoot.localPosition;
         isConfigured = true;
         return true;
     }

@@ -10,12 +10,20 @@ public class SortingAnchor : MonoBehaviour
 
     public Transform VisualRoot
     {
-        get { return visualRoot; }
+        get
+        {
+            Initialize();
+            return visualRoot;
+        }
     }
 
     public SortingGroup Group
     {
-        get { return sortingGroup; }
+        get
+        {
+            Initialize();
+            return sortingGroup;
+        }
     }
 
     private void Awake()
@@ -57,7 +65,7 @@ public class SortingAnchor : MonoBehaviour
         List<Transform> existingChildren = new List<Transform>();
         foreach (Transform child in transform)
         {
-            if (child != anchorTransform)
+            if (child != anchorTransform && child.GetComponent<GroundShadow>() == null)
             {
                 existingChildren.Add(child);
             }

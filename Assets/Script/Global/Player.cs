@@ -440,7 +440,7 @@ public class Player : MonoBehaviour
 
         GameObject npcContainer = GameObject.Find("NPC");
         bodyTransform.SetParent(npcContainer != null ? npcContainer.transform : transform, true);
-        ApplyGeneratedScale(bodyTransform, body.isMale);
+        Vector2 generatedScale = ApplyGeneratedScale(bodyTransform, body.isMale);
         if (rightLeg != null)
         {
             rightLeg.transform.localPosition = new Vector3(body.rightLegXOffset, body.rightLegYOffset, 0f);
@@ -451,7 +451,7 @@ public class Player : MonoBehaviour
         {
             CreateLegDefinition(leftLeg, body),
             CreateLegDefinition(rightLeg, body)
-        });
+        }, generatedScale);
         if (rightArm != null)
         {
             villager.ConfigureGatheringAnimation(rightArm.transform);
@@ -492,15 +492,19 @@ public class Player : MonoBehaviour
         return new VillagerRecord(person, villager);
     }
 
-    private void ApplyGeneratedScale(Transform villagerTransform, bool isMale)
+    private Vector2 ApplyGeneratedScale(Transform villagerTransform, bool isMale)
     {
         ScaleModifierRange scaleRange = isMale
             ? villagerSettings.villagerScaleSettings.male
             : villagerSettings.villagerScaleSettings.female;
+        Vector2 generatedScale = new Vector2(
+            UnityEngine.Random.Range(scaleRange.minimum.x, scaleRange.maximum.x),
+            UnityEngine.Random.Range(scaleRange.minimum.y, scaleRange.maximum.y));
         Vector3 scale = villagerTransform.localScale;
-        scale.x *= UnityEngine.Random.Range(scaleRange.minimum.x, scaleRange.maximum.x);
-        scale.y *= UnityEngine.Random.Range(scaleRange.minimum.y, scaleRange.maximum.y);
+        scale.x *= generatedScale.x;
+        scale.y *= generatedScale.y;
         villagerTransform.localScale = scale;
+        return generatedScale;
     }
 
     private static LegDefinitions CreateLegDefinition(GameObject leg, Body body)

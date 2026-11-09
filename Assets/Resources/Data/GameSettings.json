@@ -39,6 +39,7 @@
         ]
     },
     "houseSettings": {
+        "storageCapacity": 50,
         "defaultHouseDimensions": { "x": 10, "y": 10 },
         "baseHouseCosts": [
             { "resourceType": "Wood", "amount": 8 }
@@ -55,7 +56,7 @@
     },
     "communityStorageSettings": {
         "dimensions": { "x": 7, "y": 7 },
-        "maximumAmount": 100,
+        "maximumAmountPerStorage": 100,
         "unitsPerAdditionalIcon": 10
     },
     "villagerSettings": {
@@ -97,6 +98,7 @@
         "hungerFoodPriorityMultiplier": 2,
         "emergencyFoodPriorityBonus": 1000,
         "productiveOperationPriority": 65,
+        "helpfulConstructionOperationPriority": 150,
         "foodResourceSearchRetrySeconds": 1,
         "housingSearchAttemptsBeforePause": 3,
         "housingSearchRetrySeconds": 3,

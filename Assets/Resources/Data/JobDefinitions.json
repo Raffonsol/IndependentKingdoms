@@ -1,0 +1,32 @@
+{
+    "jobs": [
+        {
+            "jobType": "Forager",
+            "workType": "FieldGathering",
+            "needsAnnex": false,
+            "gatherAnyAvailableResource": true,
+            "resourceTypes": [],
+            "harvestAmount": 1,
+            "gatheringDistance": 1.2,
+            "gatheringPauseDurationSeconds": 1.65,
+            "resourceSearchRetrySeconds": 1,
+            "handMotionDurationSeconds": 0.35,
+            "handHitPositions": [
+                { "x": 0.15, "y": 0.2, "z": 0 },
+                { "x": 0.3, "y": 0.05, "z": 0 }
+            ]
+        },
+        {
+            "jobType": "Blacksmith",
+            "workType": "Production",
+            "needsAnnex": true,
+            "inputCosts": [
+                { "resourceType": "Wood", "amount": 1 },
+                { "resourceType": "Stone", "amount": 1 }
+            ],
+            "outputItemType": "Axe",
+            "outputAmount": 1,
+            "productionDurationSeconds": 300
+        }
+    ]
+}

@@ -31,6 +31,7 @@ public class Mover : MonoBehaviour
     private Vector3[] legPivotLocalOffsets;
     private Vector3 torsoStartingLocalPosition;
     private SortingAnchor sortingAnchor;
+    private GroundShadow groundShadow;
 
     protected Vector2 MovementDurationRange
     {
@@ -81,6 +82,7 @@ public class Mover : MonoBehaviour
             sortingAnchor = gameObject.AddComponent<SortingAnchor>();
         }
 
+        groundShadow = GetComponentInChildren<GroundShadow>(true);
         CombatSettings combatSettings = GameData.Instance.combatSettings;
         if (combatSettings == null)
         {
@@ -109,7 +111,11 @@ public class Mover : MonoBehaviour
         }
     }
 
-    public void Configure(Body bodyData, GameObject bodyTorso, LegDefinitions[] bodyLegs)
+    public void Configure(
+        Body bodyData,
+        GameObject bodyTorso,
+        LegDefinitions[] bodyLegs,
+        Vector2 bodyScaleMultiplier)
     {
         if (bodyData == null)
         {
@@ -126,8 +132,31 @@ public class Mover : MonoBehaviour
         torso = bodyTorso;
         legs = bodyLegs;
         sortingAnchor.Configure(bodyData.sortingAnchorOffset);
+        ConfigureShadow(
+            new Vector2(
+                bodyData.shadowSize.x,
+                bodyData.shadowSize.y),
+            new Vector2(
+                bodyData.shadowOffset.x * bodyScaleMultiplier.x,
+                bodyData.shadowOffset.y * bodyScaleMultiplier.y));
 
         InitializeRuntimeState();
+    }
+
+    protected bool ConfigureShadow(Vector2 worldSize, Vector2 worldOffset)
+    {
+        if (groundShadow == null)
+        {
+            groundShadow = GetComponentInChildren<GroundShadow>(true);
+        }
+
+        if (groundShadow == null)
+        {
+            Debug.LogError("Mover prefab is missing its GroundShadow child.", this);
+            return false;
+        }
+
+        return groundShadow.Configure(worldSize, worldOffset);
     }
 
     protected void ConfigureMovement(

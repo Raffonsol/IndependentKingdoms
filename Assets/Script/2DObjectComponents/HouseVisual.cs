@@ -6,14 +6,27 @@ public class HouseVisual : MonoBehaviour
 {
     private const int BasePartSortingOrder = 55;
     private const int RoofPartSortingOrder = 105;
+    private const int RenovationProgressSortingOrder = 200;
     private const int FirstConstructionStageSortingOrder = 30;
     private const string HouseSortingLayer = "Everything";
     private const string FirstConstructionStageSortingLayer = "Ground";
     private const string YardSortingLayer = "Ground";
     private const float SpriteDepthOffset = -0.01f;
     private readonly List<GameObject> visualParts = new List<GameObject>();
+    private readonly List<GameObject> progressParts = new List<GameObject>();
     private SortingAnchor sortingAnchor;
     private GameObject yardVisual;
+    private HouseDefinition houseDefinition;
+    private float houseFootprintWidth;
+    private Color wallColor;
+    private Color roofColor;
+    private bool hasHouseColors;
+
+    public bool HasAnnex { get; private set; }
+    public HouseDefinition Definition
+    {
+        get { return houseDefinition; }
+    }
 
     public void ShowConstructionStage(
         Sprite[] stageSprites,
@@ -25,6 +38,7 @@ public class HouseVisual : MonoBehaviour
     {
         ConfigureSortingGroup(sortingAnchorOffset, useSortingGroup);
         ClearVisualParts();
+        ClearProgressParts();
         ClearYardVisual();
         LineRenderer plotOutline = GetComponent<LineRenderer>();
         if (plotOutline != null)
@@ -38,6 +52,7 @@ public class HouseVisual : MonoBehaviour
             footprintWidth,
             useSortingGroup ? BasePartSortingOrder : FirstConstructionStageSortingOrder,
             useSortingGroup ? HouseSortingLayer : FirstConstructionStageSortingLayer,
+            visualParts,
             visualOffset);
     }
 
@@ -51,7 +66,17 @@ public class HouseVisual : MonoBehaviour
 
         ConfigureSortingGroup(definition.sortingAnchorOffset, true);
         ClearVisualParts();
+        ClearProgressParts();
         ClearYardVisual();
+        if (houseDefinition != definition || !hasHouseColors)
+        {
+            houseDefinition = definition;
+            houseFootprintWidth = footprintWidth;
+            wallColor = SelectColor(definition.wallColors);
+            roofColor = SelectColor(definition.roofColors);
+            hasHouseColors = true;
+        }
+
         CreateYardVisual(
             SelectSprite(definition.yardSprites),
             SelectColor(definition.yardColors),
@@ -59,22 +84,78 @@ public class HouseVisual : MonoBehaviour
             definition.visualOffset);
         AddSprite(
             SelectSprite(definition.baseSprites),
-            SelectColor(definition.baseColors),
+            wallColor,
             footprintWidth,
             BasePartSortingOrder,
             HouseSortingLayer,
+            visualParts,
             definition.visualOffset);
         AddSprite(
             SelectSprite(definition.lowRoofSprites),
-            SelectColor(definition.lowRoofColors),
+            roofColor,
             footprintWidth,
             RoofPartSortingOrder,
             HouseSortingLayer,
+            visualParts,
             definition.visualOffset);
+        HasAnnex = false;
 
         Vector3 visualScale = transform.localScale;
-        visualScale.x = Mathf.Abs(visualScale.x) * (Random.value < 0.5f ? -1f : 1f);
+        visualScale.x = Mathf.Abs(visualScale.x)
+            * (UnityEngine.Random.value < 0.5f ? -1f : 1f);
         transform.localScale = visualScale;
+    }
+
+    public void ShowRenovationProgress(
+        Sprite[] stageSprites,
+        Color[] stageColors,
+        float footprintWidth,
+        Vector2 visualOffset,
+        Vector2 sortingAnchorOffset)
+    {
+        ConfigureSortingGroup(sortingAnchorOffset, true);
+        ClearProgressParts();
+        AddSpriteGroup(
+            stageSprites,
+            SelectColor(stageColors),
+            footprintWidth,
+            RenovationProgressSortingOrder,
+            HouseSortingLayer,
+            progressParts,
+            visualOffset);
+    }
+
+    public void CompleteAnnexRenovation()
+    {
+        ClearProgressParts();
+        if (HasAnnex)
+        {
+            return;
+        }
+
+        if (houseDefinition == null || !hasHouseColors)
+        {
+            Debug.LogError("Cannot complete an annex renovation without a finished house.", this);
+            return;
+        }
+
+        AddSprite(
+            SelectSprite(houseDefinition.annexSprites),
+            wallColor,
+            houseFootprintWidth,
+            BasePartSortingOrder,
+            HouseSortingLayer,
+            visualParts,
+            houseDefinition.visualOffset);
+        AddSprite(
+            SelectSprite(houseDefinition.annexRoofSprites),
+            roofColor,
+            houseFootprintWidth,
+            RoofPartSortingOrder,
+            HouseSortingLayer,
+            visualParts,
+            houseDefinition.visualOffset);
+        HasAnnex = true;
     }
 
     private void CreateYardVisual(
@@ -144,6 +225,7 @@ public class HouseVisual : MonoBehaviour
         float footprintWidth,
         int sortingOrder,
         string sortingLayerName,
+        List<GameObject> destination,
         Vector2 visualOffset)
     {
         if (sprites == null || sprites.Length == 0)
@@ -154,7 +236,14 @@ public class HouseVisual : MonoBehaviour
 
         foreach (Sprite sprite in sprites)
         {
-            AddSprite(sprite, color, footprintWidth, sortingOrder, sortingLayerName, visualOffset);
+            AddSprite(
+                sprite,
+                color,
+                footprintWidth,
+                sortingOrder,
+                sortingLayerName,
+                destination,
+                visualOffset);
         }
     }
 
@@ -164,6 +253,7 @@ public class HouseVisual : MonoBehaviour
         float footprintWidth,
         int sortingOrder,
         string sortingLayerName,
+        List<GameObject> destination,
         Vector2 visualOffset)
     {
         if (sprite == null || sprite.texture == null || sprite.texture.width <= 0)
@@ -195,7 +285,7 @@ public class HouseVisual : MonoBehaviour
         renderer.color = color;
         renderer.sortingLayerName = sortingLayerName;
         renderer.sortingOrder = sortingOrder;
-        visualParts.Add(part);
+        destination.Add(part);
     }
 
     private void ClearVisualParts()
@@ -211,6 +301,19 @@ public class HouseVisual : MonoBehaviour
         visualParts.Clear();
     }
 
+    private void ClearProgressParts()
+    {
+        foreach (GameObject part in progressParts)
+        {
+            if (part != null)
+            {
+                Destroy(part);
+            }
+        }
+
+        progressParts.Clear();
+    }
+
     private static Sprite SelectSprite(Sprite[] variants)
     {
         if (variants == null || variants.Length == 0)
@@ -218,7 +321,7 @@ public class HouseVisual : MonoBehaviour
             return null;
         }
 
-        return variants[Random.Range(0, variants.Length)];
+        return variants[UnityEngine.Random.Range(0, variants.Length)];
     }
 
     private static Color SelectColor(Color[] colors)
@@ -228,6 +331,6 @@ public class HouseVisual : MonoBehaviour
             return Color.white;
         }
 
-        return colors[Random.Range(0, colors.Length)];
+        return colors[UnityEngine.Random.Range(0, colors.Length)];
     }
 }

@@ -12,6 +12,8 @@ public class GameData
     private const string ResourceObjectDataResourcePath = "Data/ResourceObjects";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
+    private const string JobDefinitionsResourcePath = "Data/JobDefinitions";
+    private const string RenovationDefinitionsResourcePath = "Data/RenovationDefinitions";
     private const string VillagerPersonalityValuesResourcePath = "Data/VillagerPersonalityValues";
 
     private static readonly GameData instance = Load();
@@ -37,6 +39,8 @@ public class GameData
     public ResourceObjectDefinition[] resourceObjectDefinitions;
     public NamePart[] nameParts;
     public VillagerPersonalityValue[] villagerPersonalityValues;
+    public JobDefinition[] jobDefinitions;
+    public ResourceCost[] annexRenovationCosts;
     public HouseDefinition[] houseDefinitions;
     public Sprite[] houseBuildStageOneSprites;
     public Sprite[] houseBuildStageTwoSprites;
@@ -59,6 +63,38 @@ public class GameData
 
         definition = null;
         return false;
+    }
+
+    public bool TryGetJobDefinition(JobType jobType, out JobDefinition definition)
+    {
+        if (jobDefinitions != null)
+        {
+            foreach (JobDefinition candidate in jobDefinitions)
+            {
+                if (candidate != null && candidate.jobType == jobType)
+                {
+                    definition = candidate;
+                    return true;
+                }
+            }
+        }
+
+        definition = null;
+        return false;
+    }
+
+    public bool CanAssignJob(JobType jobType, out JobDefinition definition)
+    {
+        if (!TryGetJobDefinition(jobType, out definition))
+        {
+            return false;
+        }
+
+        return !definition.needsAnnex
+            || (annexRenovationCosts != null
+                && annexRenovationCosts.Length > 0
+                && houseDefinitions != null
+                && houseDefinitions.Length > 0);
     }
 
     private static GameData Load()
@@ -85,6 +121,8 @@ public class GameData
             resourceObjectDefinitions = resourceObjectData.resourceObjects,
             nameParts = LoadNameParts(),
             villagerPersonalityValues = LoadVillagerPersonalityValues(),
+            jobDefinitions = LoadJobDefinitions(),
+            annexRenovationCosts = LoadAnnexRenovationCosts(),
             houseDefinitions = LoadHouseDefinitions(houseDefinitionCollection),
             houseBuildStageOneSprites = LoadHouseBuildStageSprites(
                 houseDefinitionCollection.buildStage1SpriteSheet),
@@ -99,6 +137,242 @@ public class GameData
                 "construction",
                 "buildStage2ColorCodes")
         };
+    }
+
+    private static JobDefinition[] LoadJobDefinitions()
+    {
+        TextAsset definitionsJson = Resources.Load<TextAsset>(JobDefinitionsResourcePath);
+        if (definitionsJson == null)
+        {
+            Debug.LogError(
+                "Could not load job definitions at Resources/" + JobDefinitionsResourcePath + ".json.");
+            return new JobDefinition[0];
+        }
+
+        try
+        {
+            JobDefinitionJsonCollection collection =
+                JsonUtility.FromJson<JobDefinitionJsonCollection>(definitionsJson.text);
+            if (collection == null || collection.jobs == null || collection.jobs.Length == 0)
+            {
+                Debug.LogError(
+                    "Job definitions at Resources/" + JobDefinitionsResourcePath
+                    + ".json must contain at least one job.");
+                return new JobDefinition[0];
+            }
+
+            JobDefinition[] definitions = new JobDefinition[collection.jobs.Length];
+            bool[] foundJobTypes = new bool[Enum.GetValues(typeof(JobType)).Length];
+            for (int index = 0; index < collection.jobs.Length; index++)
+            {
+                JobDefinitionJson record = collection.jobs[index];
+                if (record == null
+                    || !TryParseEnumName(record.jobType, out JobType jobType)
+                    || jobType == JobType.None
+                    || !TryParseEnumName(record.workType, out JobWorkType workType))
+                {
+                    Debug.LogError("Job definitions contain an invalid job or work type at index " + index + ".");
+                    return new JobDefinition[0];
+                }
+
+                int jobIndex = Convert.ToInt32(jobType);
+                if (jobIndex < 0 || jobIndex >= foundJobTypes.Length || foundJobTypes[jobIndex])
+                {
+                    Debug.LogError("Job definitions must define each JobType at most once.");
+                    return new JobDefinition[0];
+                }
+
+                foundJobTypes[jobIndex] = true;
+                JobDefinition definition = new JobDefinition
+                {
+                    jobType = jobType,
+                    workType = workType,
+                    needsAnnex = record.needsAnnex
+                };
+                if (workType == JobWorkType.FieldGathering)
+                {
+                    if (record.harvestAmount <= 0
+                        || !IsFinitePositive(record.gatheringDistance)
+                        || !IsFiniteNonNegative(record.gatheringPauseDurationSeconds)
+                        || !IsFinitePositive(record.resourceSearchRetrySeconds)
+                        || !IsFinitePositive(record.handMotionDurationSeconds)
+                        || !AreValidArmMotionPoints(record.handHitPositions)
+                        || record.resourceTypes == null)
+                    {
+                        Debug.LogError("Field-gathering job '" + jobType + "' has invalid settings.");
+                        return new JobDefinition[0];
+                    }
+
+                    ResourceType[] resourceTypes = new ResourceType[record.resourceTypes.Length];
+                    bool[] foundResourceTypes = new bool[Enum.GetValues(typeof(ResourceType)).Length];
+                    for (int resourceIndex = 0; resourceIndex < record.resourceTypes.Length; resourceIndex++)
+                    {
+                        if (!TryParseEnumName(record.resourceTypes[resourceIndex], out ResourceType resourceType))
+                        {
+                            Debug.LogError(
+                                "Field-gathering job '" + jobType
+                                + "' contains an invalid ResourceType at index " + resourceIndex + ".");
+                            return new JobDefinition[0];
+                        }
+
+                        int resourceTypeIndex = Convert.ToInt32(resourceType);
+                        if (resourceTypeIndex < 0
+                            || resourceTypeIndex >= foundResourceTypes.Length
+                            || foundResourceTypes[resourceTypeIndex])
+                        {
+                            Debug.LogError(
+                                "Field-gathering job '" + jobType + "' contains duplicate resource types.");
+                            return new JobDefinition[0];
+                        }
+
+                        foundResourceTypes[resourceTypeIndex] = true;
+                        resourceTypes[resourceIndex] = resourceType;
+                    }
+
+                    if (!record.gatherAnyAvailableResource && resourceTypes.Length == 0)
+                    {
+                        Debug.LogError(
+                            "Field-gathering job '" + jobType
+                            + "' must define target resource types or enable gatherAnyAvailableResource.");
+                        return new JobDefinition[0];
+                    }
+
+                    definition.gatherAnyAvailableResource = record.gatherAnyAvailableResource;
+                    definition.resourceTypes = resourceTypes;
+                    definition.harvestAmount = record.harvestAmount;
+                    definition.gatheringDistance = record.gatheringDistance;
+                    definition.gatheringPauseDurationSeconds = record.gatheringPauseDurationSeconds;
+                    definition.resourceSearchRetrySeconds = record.resourceSearchRetrySeconds;
+                    definition.handMotionDurationSeconds = record.handMotionDurationSeconds;
+                    definition.handHitPositions = record.handHitPositions;
+                }
+                else if (workType == JobWorkType.Production)
+                {
+                    if (record.inputCosts == null
+                        || record.inputCosts.Length == 0
+                        || !TryParseEnumName(record.outputItemType, out VillagerItemType outputItemType)
+                        || record.outputAmount <= 0
+                        || !IsFinitePositive(record.productionDurationSeconds))
+                    {
+                        Debug.LogError("Production job '" + jobType + "' has invalid input/output settings.");
+                        return new JobDefinition[0];
+                    }
+
+                    ResourceCost[] inputCosts = new ResourceCost[record.inputCosts.Length];
+                    bool[] foundResourceTypes = new bool[Enum.GetValues(typeof(ResourceType)).Length];
+                    for (int costIndex = 0; costIndex < record.inputCosts.Length; costIndex++)
+                    {
+                        ResourceCostJson cost = record.inputCosts[costIndex];
+                        if (cost == null
+                            || !TryParseEnumName(cost.resourceType, out ResourceType resourceType)
+                            || cost.amount <= 0)
+                        {
+                            Debug.LogError(
+                                "Production job '" + jobType + "' contains an invalid input cost.");
+                            return new JobDefinition[0];
+                        }
+
+                        int resourceTypeIndex = Convert.ToInt32(resourceType);
+                        if (foundResourceTypes[resourceTypeIndex])
+                        {
+                            Debug.LogError(
+                                "Production job '" + jobType + "' contains duplicate input resource types.");
+                            return new JobDefinition[0];
+                        }
+
+                        foundResourceTypes[resourceTypeIndex] = true;
+                        inputCosts[costIndex] = new ResourceCost
+                        {
+                            resourceType = resourceType,
+                            amount = cost.amount
+                        };
+                    }
+
+                    definition.inputCosts = inputCosts;
+                    definition.outputItemType = outputItemType;
+                    definition.outputAmount = record.outputAmount;
+                    definition.productionDurationSeconds = record.productionDurationSeconds;
+                }
+                else if (workType == JobWorkType.Combat)
+                {
+                    definition.inputCosts = new ResourceCost[0];
+                }
+
+                definitions[index] = definition;
+            }
+
+            return definitions;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse job definitions at Resources/" + JobDefinitionsResourcePath
+                + ".json: " + exception.Message);
+            return new JobDefinition[0];
+        }
+    }
+
+    private static ResourceCost[] LoadAnnexRenovationCosts()
+    {
+        TextAsset definitionsJson = Resources.Load<TextAsset>(RenovationDefinitionsResourcePath);
+        if (definitionsJson == null)
+        {
+            Debug.LogError(
+                "Could not load renovation definitions at Resources/"
+                + RenovationDefinitionsResourcePath + ".json.");
+            return new ResourceCost[0];
+        }
+
+        try
+        {
+            RenovationDefinitionJsonCollection collection =
+                JsonUtility.FromJson<RenovationDefinitionJsonCollection>(definitionsJson.text);
+            if (collection == null
+                || collection.annexRenovationCosts == null
+                || collection.annexRenovationCosts.Length == 0)
+            {
+                Debug.LogError(
+                    "Renovation definitions must define at least one annexRenovationCost.");
+                return new ResourceCost[0];
+            }
+
+            ResourceCost[] costs = new ResourceCost[collection.annexRenovationCosts.Length];
+            bool[] foundResourceTypes = new bool[Enum.GetValues(typeof(ResourceType)).Length];
+            for (int index = 0; index < collection.annexRenovationCosts.Length; index++)
+            {
+                ResourceCostJson record = collection.annexRenovationCosts[index];
+                if (record == null
+                    || !TryParseEnumName(record.resourceType, out ResourceType resourceType)
+                    || record.amount <= 0)
+                {
+                    Debug.LogError("Annex renovation costs contain an invalid resource entry.");
+                    return new ResourceCost[0];
+                }
+
+                int resourceIndex = Convert.ToInt32(resourceType);
+                if (foundResourceTypes[resourceIndex])
+                {
+                    Debug.LogError("Annex renovation costs cannot repeat a resource type.");
+                    return new ResourceCost[0];
+                }
+
+                foundResourceTypes[resourceIndex] = true;
+                costs[index] = new ResourceCost
+                {
+                    resourceType = resourceType,
+                    amount = record.amount
+                };
+            }
+
+            return costs;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse renovation definitions at Resources/"
+                + RenovationDefinitionsResourcePath + ".json: " + exception.Message);
+            return new ResourceCost[0];
+        }
     }
 
     private static VillagerPersonalityValue[] LoadVillagerPersonalityValues()
@@ -296,26 +570,17 @@ public class GameData
                 yardSprites = LoadHouseSprites(record.yardSprites, record.id, "yardSprites", true),
                 yardColors = LoadHouseColors(record.yardColorCodes, record.id, "yardColorCodes"),
                 baseSprites = LoadHouseSprites(record.baseSprites, record.id, "baseSprites", true),
-                baseColors = LoadHouseColors(record.baseColorCodes, record.id, "baseColorCodes"),
                 lowRoofSprites = LoadHouseSprites(record.lowRoofSprites, record.id, "lowRoofSprites", true),
-                lowRoofColors = LoadHouseColors(record.lowRoofColorCodes, record.id, "lowRoofColorCodes"),
                 highRoofSprites = LoadHouseSprites(record.highRoofSprites, record.id, "highRoofSprites", false),
-                highRoofColors = LoadHouseColors(record.highRoofColorCodes, record.id, "highRoofColorCodes"),
                 secondLevelSprites = LoadHouseSprites(record.secondLevelSprites, record.id, "secondLevelSprites", false),
-                secondLevelColors = LoadHouseColors(
-                    record.secondLevelColorCodes, record.id, "secondLevelColorCodes"),
                 secondLevelExtensionSprites = LoadHouseSprites(
                     record.secondLevelExtensionSprites, record.id, "secondLevelExtensionSprites", false),
-                secondLevelExtensionColors = LoadHouseColors(
-                    record.secondLevelExtensionColorCodes, record.id, "secondLevelExtensionColorCodes"),
                 extensionRoofSprites = LoadHouseSprites(
                     record.extensionRoofSprites, record.id, "extensionRoofSprites", false),
-                extensionRoofColors = LoadHouseColors(
-                    record.extensionRoofColorCodes, record.id, "extensionRoofColorCodes"),
-                annexSprites = LoadHouseSprites(record.annexSprites, record.id, "annexSprites", false),
-                annexColors = LoadHouseColors(record.annexColorCodes, record.id, "annexColorCodes"),
-                annexRoofSprites = LoadHouseSprites(record.annexRoofSprites, record.id, "annexRoofSprites", false),
-                annexRoofColors = LoadHouseColors(record.annexRoofColorCodes, record.id, "annexRoofColorCodes")
+                annexSprites = LoadHouseSprites(record.annexSprites, record.id, "annexSprites", true),
+                annexRoofSprites = LoadHouseSprites(record.annexRoofSprites, record.id, "annexRoofSprites", true),
+                wallColors = LoadHouseColors(record.wallColorCodes, record.id, "wallColorCodes"),
+                roofColors = LoadHouseColors(record.roofColorCodes, record.id, "roofColorCodes")
             };
             if (definition.visualScale <= 0f
                 || !IsFinite(definition.sortingAnchorOffset.x)
@@ -330,21 +595,15 @@ public class GameData
             if (definition.baseSprites == null
                 || definition.yardSprites == null
                 || definition.yardColors == null
-                || definition.baseColors == null
                 || definition.lowRoofSprites == null
-                || definition.lowRoofColors == null
                 || definition.highRoofSprites == null
-                || definition.highRoofColors == null
                 || definition.secondLevelSprites == null
-                || definition.secondLevelColors == null
                 || definition.secondLevelExtensionSprites == null
-                || definition.secondLevelExtensionColors == null
                 || definition.extensionRoofSprites == null
-                || definition.extensionRoofColors == null
                 || definition.annexSprites == null
-                || definition.annexColors == null
                 || definition.annexRoofSprites == null
-                || definition.annexRoofColors == null)
+                || definition.wallColors == null
+                || definition.roofColors == null)
             {
                 return new HouseDefinition[0];
             }
@@ -479,10 +738,15 @@ public class GameData
             }
 
             if (!IsFinite(record.sortingAnchorOffset.x)
-                || !IsFinite(record.sortingAnchorOffset.y))
+                || !IsFinite(record.sortingAnchorOffset.y)
+                || !IsFinitePositive(record.shadowSize.x)
+                || !IsFinitePositive(record.shadowSize.y)
+                || !IsFinite(record.shadowOffset.x)
+                || !IsFinite(record.shadowOffset.y))
             {
                 Debug.LogError(
-                    "Body '" + record.name + "' must define a finite sortingAnchorOffset.");
+                    "Body '" + record.name
+                    + "' must define finite offsets and a positive shadowSize.");
                 return new Body[0];
             }
 
@@ -506,6 +770,8 @@ public class GameData
                 rightLegXOffset = record.rightLegXOffset,
                 rightLegYOffset = record.rightLegYOffset,
                 sortingAnchorOffset = record.sortingAnchorOffset,
+                shadowSize = record.shadowSize,
+                shadowOffset = record.shadowOffset,
                 movementSpeed = record.movementSpeed,
                 movementDurationRangeX = record.movementDurationRangeX,
                 movementDurationRangeY = record.movementDurationRangeY,
@@ -573,6 +839,10 @@ public class GameData
                     || !IsFiniteNonNegative(record.spawnWeight)
                     || record.maximumAmount < 0
                     || !IsFinitePositive(record.movementSpeed)
+                    || !IsFinitePositive(record.shadowSize.x)
+                    || !IsFinitePositive(record.shadowSize.y)
+                    || !IsFinite(record.shadowOffset.x)
+                    || !IsFinite(record.shadowOffset.y)
                     || !IsValidDurationRange(record.movementDurationRange)
                     || !IsValidDurationRange(record.idleDurationRange)
                     || !IsValidMonsterLegDefinitions(record.legDefinitions)
@@ -620,6 +890,8 @@ public class GameData
                     legDefinitions = record.legDefinitions,
                     rightFrontLegOffset = record.rightFrontLegOffset,
                     rightBackLegOffset = record.rightBackLegOffset,
+                    shadowSize = record.shadowSize,
+                    shadowOffset = record.shadowOffset,
                     combatSettings = record.combatSettings
                 };
                 if (!AreLoadedSpritesValid(definition.faceSprites)
@@ -971,6 +1243,10 @@ public class GameData
                     || record.spawnSettings == null
                     || record.outputs == null
                     || record.outputs.Length == 0
+                    || !IsFinitePositive(record.shadowSize.x)
+                    || !IsFinitePositive(record.shadowSize.y)
+                    || !IsFinite(record.shadowOffset.x)
+                    || !IsFinite(record.shadowOffset.y)
                     || !IsValidResourceObjectSpawnSettings(record.spawnSettings))
                 {
                     Debug.LogError("Resource object data contains an invalid definition at index " + index + ".");
@@ -1036,6 +1312,8 @@ public class GameData
                 {
                     id = record.id,
                     spawnSettings = record.spawnSettings,
+                    shadowSize = record.shadowSize,
+                    shadowOffset = record.shadowOffset,
                     outputs = outputs
                 };
             }
@@ -1165,11 +1443,11 @@ public class GameData
                 jsonSettings.communityStorageSettings;
             if (jsonCommunityStorageSettings.dimensions.x <= 0
                 || jsonCommunityStorageSettings.dimensions.y <= 0
-                || jsonCommunityStorageSettings.maximumAmount <= 0
+                || jsonCommunityStorageSettings.maximumAmountPerStorage <= 0
                 || jsonCommunityStorageSettings.unitsPerAdditionalIcon <= 0)
             {
                 Debug.LogError(
-                    "Community storage settings must define positive dimensions, a positive total capacity, "
+                    "Community storage settings must define positive dimensions, a positive per-storage capacity, "
                     + "and a positive unitsPerAdditionalIcon.");
                 return new GameSettingsCollection();
             }
@@ -1187,6 +1465,7 @@ public class GameData
                 },
                 houseSettings = new HouseSettings
                 {
+                    storageCapacity = jsonHouseSettings.storageCapacity,
                     defaultHouseDimensions = jsonHouseSettings.defaultHouseDimensions,
                     baseHouseCosts = houseCosts,
                     firstConstructionDurationSeconds = jsonHouseSettings.firstConstructionDurationSeconds,
@@ -1199,7 +1478,7 @@ public class GameData
                 communityStorageSettings = new CommunityStorageSettings
                 {
                     dimensions = jsonCommunityStorageSettings.dimensions,
-                    maximumAmount = jsonCommunityStorageSettings.maximumAmount,
+                    maximumAmountPerStorage = jsonCommunityStorageSettings.maximumAmountPerStorage,
                     unitsPerAdditionalIcon = jsonCommunityStorageSettings.unitsPerAdditionalIcon
                 },
                 villagerSettings = jsonSettings.villagerSettings,
@@ -1249,6 +1528,7 @@ public class GameData
 
             if (settings.houseSettings.defaultHouseDimensions.x <= 0
                 || settings.houseSettings.defaultHouseDimensions.y <= 0
+                || settings.houseSettings.storageCapacity <= 0
                 || settings.houseSettings.firstConstructionDurationSeconds <= 0f
                 || settings.houseSettings.constructionBreakDurationSeconds <= 0f
                 || settings.houseSettings.secondConstructionDurationSeconds <= 0f
@@ -1259,7 +1539,8 @@ public class GameData
                 || settings.houseSettings.baseHouseCosts.Length == 0)
             {
                 Debug.LogError(
-                    "House settings must define positive dimensions and construction times, non-negative break/hammer pauses, "
+                    "House settings must define positive storage capacity, dimensions and construction times, "
+                    + "non-negative break/hammer pauses, "
                     + "hammer positions, and at least one resource cost.");
                 return new GameSettingsCollection();
             }
@@ -1334,6 +1615,7 @@ public class GameData
                 || villagerSettings.hungerFoodPriorityMultiplier < 0f
                 || villagerSettings.emergencyFoodPriorityBonus < 0f
                 || villagerSettings.productiveOperationPriority < 0f
+                || villagerSettings.helpfulConstructionOperationPriority <= 0f
                 || villagerSettings.foodResourceSearchRetrySeconds <= 0f
                 || villagerSettings.housingSearchAttemptsBeforePause <= 0
                 || villagerSettings.housingSearchRetrySeconds <= 0f

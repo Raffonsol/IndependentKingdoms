@@ -32,6 +32,11 @@ public class Monster : Combatant
         }
 
         DefinitionId = definition.id;
+        if (!ConfigureShadow(definition.shadowSize, definition.shadowOffset))
+        {
+            return false;
+        }
+
         ConfigureMovement(
             definition.movementSpeed,
             definition.combatSettings.runningSpeed,

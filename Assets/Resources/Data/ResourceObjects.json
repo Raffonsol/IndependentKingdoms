@@ -12,6 +12,8 @@
                 "scaleRange": { "x": 0.9, "y": 1.1 },
                 "randomSeed": 0
             },
+            "shadowSize": { "x": 1.5, "y": 0.62 },
+            "shadowOffset": { "x": 0, "y": 0 },
             "outputs": [
                 {
                     "type": "Wood",
@@ -43,6 +45,8 @@
                 "scaleRange": { "x": 1, "y": 1 },
                 "randomSeed": 0
             },
+            "shadowSize": { "x": 1.05, "y": 0.48 },
+            "shadowOffset": { "x": 0, "y": 0 },
             "outputs": [
                 {
                     "type": "Stone",

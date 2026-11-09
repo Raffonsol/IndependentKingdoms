@@ -5,24 +5,35 @@ public class HoverTooltipController : MonoBehaviour
 {
     private VillagerHoverTooltip villagerTooltipPrefab;
     private ResourceHoverTooltip resourceTooltipPrefab;
+    private ResourceHoverTooltip communityStorageTooltipPrefab;
+    private HouseHoverTooltip houseTooltipPrefab;
     private Canvas tooltipCanvas;
     private Vector2 worldOffset;
     private VillagerHoverTooltip activeVillagerTooltip;
     private ResourceHoverTooltip activeResourceTooltip;
+    private ResourceHoverTooltip activeCommunityStorageTooltip;
+    private HouseHoverTooltip activeHouseTooltip;
     private bool loggedMissingCamera;
 
     public void Initialize(
         VillagerHoverTooltip villagerPrefab,
         ResourceHoverTooltip resourcePrefab,
+        ResourceHoverTooltip communityStoragePrefab,
+        HouseHoverTooltip housePrefab,
         Canvas canvas,
         Vector2 worldSpaceOffset)
     {
         villagerTooltipPrefab = villagerPrefab;
         resourceTooltipPrefab = resourcePrefab;
+        communityStorageTooltipPrefab = communityStoragePrefab;
+        houseTooltipPrefab = housePrefab;
         tooltipCanvas = canvas;
         worldOffset = worldSpaceOffset;
 
-        if (villagerTooltipPrefab == null && resourceTooltipPrefab == null)
+        if (villagerTooltipPrefab == null
+            && resourceTooltipPrefab == null
+            && communityStorageTooltipPrefab == null
+            && houseTooltipPrefab == null)
         {
             Debug.LogError("At least one hover tooltip prefab must be assigned.", this);
         }
@@ -95,12 +106,46 @@ public class HoverTooltipController : MonoBehaviour
             return;
         }
 
+        CommunityStorage storage = null;
+        if (MapManager.Instance != null)
+        {
+            MapManager.Instance.TryGetCommunityStorageAtWorldPosition(
+                worldPosition,
+                out storage);
+        }
+
+        if (storage != null && storage.isActiveAndEnabled)
+        {
+            ShowCommunityStorageTooltip(storage, mainCamera);
+            return;
+        }
+
+        HouseVisual houseVisual = collider != null
+            ? collider.GetComponentInParent<HouseVisual>()
+            : null;
+        GameObject houseObject = houseVisual != null ? houseVisual.gameObject : null;
+        if (houseObject == null && MapManager.Instance != null)
+        {
+            MapManager.Instance.TryGetHouseAtWorldPosition(worldPosition, out houseObject);
+        }
+
+        HouseWorkplace house = houseObject != null
+            ? houseObject.GetComponent<HouseWorkplace>()
+            : null;
+        if (house != null && house.isActiveAndEnabled)
+        {
+            ShowHouseTooltip(house, mainCamera);
+            return;
+        }
+
         HideTooltips();
     }
 
     private void ShowVillagerTooltip(Villager villager, UnityEngine.Camera mainCamera)
     {
         HideResourceTooltip();
+        HideCommunityStorageTooltip();
+        HideHouseTooltip();
         if (villagerTooltipPrefab == null || !EnsureTooltip(ref activeVillagerTooltip, villagerTooltipPrefab))
         {
             HideVillagerTooltip();
@@ -121,6 +166,8 @@ public class HoverTooltipController : MonoBehaviour
     private void ShowResourceTooltip(ResourceObject resourceObject, UnityEngine.Camera mainCamera)
     {
         HideVillagerTooltip();
+        HideCommunityStorageTooltip();
+        HideHouseTooltip();
         if (resourceTooltipPrefab == null || !EnsureTooltip(ref activeResourceTooltip, resourceTooltipPrefab))
         {
             HideResourceTooltip();
@@ -136,6 +183,56 @@ public class HoverTooltipController : MonoBehaviour
         }
 
         activeResourceTooltip.gameObject.SetActive(true);
+    }
+
+    private void ShowCommunityStorageTooltip(
+        CommunityStorage storage,
+        UnityEngine.Camera mainCamera)
+    {
+        HideVillagerTooltip();
+        HideResourceTooltip();
+        HideHouseTooltip();
+        if (communityStorageTooltipPrefab == null
+            || !EnsureTooltip(
+                ref activeCommunityStorageTooltip,
+                communityStorageTooltipPrefab))
+        {
+            HideCommunityStorageTooltip();
+            return;
+        }
+
+        activeCommunityStorageTooltip.SetCommunityStorage(storage);
+        Vector3 anchorPosition = GetAnchorScreenPosition(mainCamera, storage.transform.position);
+        if (!TryPositionTooltip(activeCommunityStorageTooltip, anchorPosition, mainCamera))
+        {
+            HideCommunityStorageTooltip();
+            return;
+        }
+
+        activeCommunityStorageTooltip.gameObject.SetActive(true);
+    }
+
+    private void ShowHouseTooltip(HouseWorkplace house, UnityEngine.Camera mainCamera)
+    {
+        HideVillagerTooltip();
+        HideResourceTooltip();
+        HideCommunityStorageTooltip();
+        if (houseTooltipPrefab == null
+            || !EnsureTooltip(ref activeHouseTooltip, houseTooltipPrefab))
+        {
+            HideHouseTooltip();
+            return;
+        }
+
+        activeHouseTooltip.SetHouse(house);
+        Vector3 anchorPosition = GetAnchorScreenPosition(mainCamera, house.transform.position);
+        if (!TryPositionTooltip(activeHouseTooltip, anchorPosition, mainCamera))
+        {
+            HideHouseTooltip();
+            return;
+        }
+
+        activeHouseTooltip.gameObject.SetActive(true);
     }
 
     private bool EnsureTooltip<T>(ref T activeTooltip, T tooltipPrefab)
@@ -214,6 +311,8 @@ public class HoverTooltipController : MonoBehaviour
     {
         HideVillagerTooltip();
         HideResourceTooltip();
+        HideCommunityStorageTooltip();
+        HideHouseTooltip();
     }
 
     private void HideVillagerTooltip()
@@ -229,6 +328,23 @@ public class HoverTooltipController : MonoBehaviour
         if (activeResourceTooltip != null && activeResourceTooltip.gameObject.activeSelf)
         {
             activeResourceTooltip.gameObject.SetActive(false);
+        }
+    }
+
+    private void HideCommunityStorageTooltip()
+    {
+        if (activeCommunityStorageTooltip != null
+            && activeCommunityStorageTooltip.gameObject.activeSelf)
+        {
+            activeCommunityStorageTooltip.gameObject.SetActive(false);
+        }
+    }
+
+    private void HideHouseTooltip()
+    {
+        if (activeHouseTooltip != null && activeHouseTooltip.gameObject.activeSelf)
+        {
+            activeHouseTooltip.gameObject.SetActive(false);
         }
     }
 

@@ -28,6 +28,8 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Sprite villagerOffscreenIndicatorSprite;
     [SerializeField] private VillagerHoverTooltip villagerHoverTooltipPrefab;
     [SerializeField] private ResourceHoverTooltip resourceHoverTooltipPrefab;
+    [SerializeField] private ResourceHoverTooltip communityStorageHoverTooltipPrefab;
+    [SerializeField] private HouseHoverTooltip houseHoverTooltipPrefab;
     [SerializeField] private bool showDebugGrid;
     [SerializeField] private Color debugGridColor = new Color(0.1f, 0.85f, 1f, 0.55f);
     [SerializeField] private Color debugOccupiedCellFillColor = new Color(1f, 0.2f, 0.1f, 0.3f);
@@ -118,7 +120,10 @@ public class UIManager : MonoBehaviour
 
         SetRoadBuildingCursor(false);
 
-        if (villagerHoverTooltipPrefab != null || resourceHoverTooltipPrefab != null)
+        if (villagerHoverTooltipPrefab != null
+            || resourceHoverTooltipPrefab != null
+            || communityStorageHoverTooltipPrefab != null
+            || houseHoverTooltipPrefab != null)
         {
             Transform canvasTransform = transform.Find("Canvas");
             Canvas hoverTooltipCanvas = canvasTransform != null
@@ -134,6 +139,8 @@ public class UIManager : MonoBehaviour
             tooltipController.Initialize(
                 villagerHoverTooltipPrefab,
                 resourceHoverTooltipPrefab,
+                communityStorageHoverTooltipPrefab,
+                houseHoverTooltipPrefab,
                 hoverTooltipCanvas,
                 settings.hoverTooltipWorldOffset);
         }

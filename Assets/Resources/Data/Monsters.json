@@ -13,6 +13,8 @@
             "movementSpeed": 2,
             "movementDurationRange": { "x": 1, "y": 3 },
             "idleDurationRange": { "x": 1, "y": 3 },
+            "shadowSize": { "x": 1.4, "y": 0.62 },
+            "shadowOffset": { "x": 0, "y": 0 },
             "faceSprites": ["boar_face"],
             "torsoSprites": ["boar_torso"],
             "frontLegSprites": ["boar_frontLeg"],

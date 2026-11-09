@@ -64,6 +64,8 @@ public class Body
     public float rightLegXOffset;
     public float rightLegYOffset;
     public Vector2 sortingAnchorOffset;
+    public Vector2 shadowSize = new Vector2(1f, 0.35f);
+    public Vector2 shadowOffset;
 
    public float movementSpeed = 2f;
    public float movementDurationRangeX = 1f;
@@ -119,6 +121,8 @@ public class BodyRecord
     public float rightLegXOffset;
     public float rightLegYOffset;
     public Vector2 sortingAnchorOffset;
+    public Vector2 shadowSize = new Vector2(1f, 0.35f);
+    public Vector2 shadowOffset;
     public float movementSpeed = 2f;
     public float movementDurationRangeX = 1f;
     public float movementDurationRangeY = 3f;
@@ -174,6 +178,8 @@ public class MonsterDefinitionRecord
     public MonsterLegDefinition[] legDefinitions;
     public Vector2 rightFrontLegOffset;
     public Vector2 rightBackLegOffset;
+    public Vector2 shadowSize = new Vector2(1.4f, 0.6f);
+    public Vector2 shadowOffset;
     public CombatSettings combatSettings = new CombatSettings();
 }
 
@@ -194,6 +200,8 @@ public class MonsterDefinition
     public MonsterLegDefinition[] legDefinitions;
     public Vector2 rightFrontLegOffset;
     public Vector2 rightBackLegOffset;
+    public Vector2 shadowSize = new Vector2(1.4f, 0.6f);
+    public Vector2 shadowOffset;
     public CombatSettings combatSettings;
 }
 
@@ -275,6 +283,7 @@ public class ArmMotionPoint
 [Serializable]
 public class HouseSettings
 {
+    public int storageCapacity = 50;
     public Vector2Int defaultHouseDimensions = new Vector2Int(3, 3);
     public ResourceCost[] baseHouseCosts =
     {
@@ -295,6 +304,7 @@ public class HouseSettings
 [Serializable]
 public class HouseSettingsJson
 {
+    public int storageCapacity;
     public Vector2Int defaultHouseDimensions;
     public ResourceCostJson[] baseHouseCosts;
     public float firstConstructionDurationSeconds;
@@ -329,7 +339,7 @@ public class GameSettingsJsonCollection
 public class CommunityStorageSettingsJson
 {
     public Vector2Int dimensions = new Vector2Int(7, 7);
-    public int maximumAmount = 100;
+    public int maximumAmountPerStorage = 100;
     public int unitsPerAdditionalIcon = 10;
 }
 
@@ -337,7 +347,7 @@ public class CommunityStorageSettingsJson
 public class CommunityStorageSettings
 {
     public Vector2Int dimensions = new Vector2Int(7, 7);
-    public int maximumAmount = 100;
+    public int maximumAmountPerStorage = 100;
     public int unitsPerAdditionalIcon = 10;
 }
 
@@ -396,6 +406,7 @@ public class VillagerSettings
     public float hungerFoodPriorityMultiplier = 2f;
     public float emergencyFoodPriorityBonus = 1000f;
     public float productiveOperationPriority = 80f;
+    public float helpfulConstructionOperationPriority = 150f;
     public float foodResourceSearchRetrySeconds = 1f;
     public int housingSearchAttemptsBeforePause = 3;
     public float housingSearchRetrySeconds = 3f;
@@ -521,21 +532,15 @@ public class HouseDefinitionRecord
     public string[] yardSprites;
     public string[] yardColorCodes;
     public string[] baseSprites;
-    public string[] baseColorCodes;
     public string[] lowRoofSprites;
-    public string[] lowRoofColorCodes;
     public string[] highRoofSprites;
-    public string[] highRoofColorCodes;
     public string[] secondLevelSprites;
-    public string[] secondLevelColorCodes;
     public string[] secondLevelExtensionSprites;
-    public string[] secondLevelExtensionColorCodes;
     public string[] extensionRoofSprites;
-    public string[] extensionRoofColorCodes;
     public string[] annexSprites;
-    public string[] annexColorCodes;
     public string[] annexRoofSprites;
-    public string[] annexRoofColorCodes;
+    public string[] wallColorCodes;
+    public string[] roofColorCodes;
 }
 
 [Serializable]
@@ -558,21 +563,15 @@ public class HouseDefinition
     public Sprite[] yardSprites;
     public Color[] yardColors;
     public Sprite[] baseSprites;
-    public Color[] baseColors;
     public Sprite[] lowRoofSprites;
-    public Color[] lowRoofColors;
     public Sprite[] highRoofSprites;
-    public Color[] highRoofColors;
     public Sprite[] secondLevelSprites;
-    public Color[] secondLevelColors;
     public Sprite[] secondLevelExtensionSprites;
-    public Color[] secondLevelExtensionColors;
     public Sprite[] extensionRoofSprites;
-    public Color[] extensionRoofColors;
     public Sprite[] annexSprites;
-    public Color[] annexColors;
     public Sprite[] annexRoofSprites;
-    public Color[] annexRoofColors;
+    public Color[] wallColors;
+    public Color[] roofColors;
 }
 
 // AI
@@ -620,6 +619,65 @@ public enum JobType
     Alchemist,
     Soldier,
     Mage
+}
+
+public enum JobWorkType
+{
+    FieldGathering,
+    Production,
+    Combat
+}
+
+[Serializable]
+public class JobDefinitionJsonCollection
+{
+    public JobDefinitionJson[] jobs;
+}
+
+[Serializable]
+public class JobDefinitionJson
+{
+    public string jobType;
+    public string workType;
+    public bool needsAnnex;
+    public bool gatherAnyAvailableResource;
+    public string[] resourceTypes;
+    public int harvestAmount;
+    public float gatheringDistance;
+    public float gatheringPauseDurationSeconds;
+    public float resourceSearchRetrySeconds;
+    public float handMotionDurationSeconds;
+    public ArmMotionPoint[] handHitPositions;
+    public ResourceCostJson[] inputCosts;
+    public string outputItemType;
+    public int outputAmount;
+    public float productionDurationSeconds;
+}
+
+[Serializable]
+public class JobDefinition
+{
+    public JobType jobType;
+    public JobWorkType workType;
+    public bool needsAnnex;
+    public bool gatherAnyAvailableResource;
+    public ResourceType[] resourceTypes;
+    public int harvestAmount;
+    public float gatheringDistance;
+    public float gatheringPauseDurationSeconds;
+    public float resourceSearchRetrySeconds;
+    public float handMotionDurationSeconds;
+    public ArmMotionPoint[] handHitPositions;
+    public ResourceCost[] inputCosts;
+    public VillagerItemType outputItemType;
+    public int outputAmount;
+    public float productionDurationSeconds;
+}
+
+[Serializable]
+public class RenovationDefinitionJsonCollection
+{
+    public ResourceCostJson[] annexRenovationCosts;
 }
 
 
@@ -842,6 +900,8 @@ public class ResourceObjectDefinitionRecord
 {
     public string id;
     public ResourceObjectSpawnSettings spawnSettings;
+    public Vector2 shadowSize = new Vector2(1f, 0.5f);
+    public Vector2 shadowOffset;
     public ResourceOutputRecord[] outputs;
 }
 
@@ -850,6 +910,8 @@ public class ResourceObjectDefinition
 {
     public string id;
     public ResourceObjectSpawnSettings spawnSettings;
+    public Vector2 shadowSize = new Vector2(1f, 0.5f);
+    public Vector2 shadowOffset;
     public ResourceOutputDefinition[] outputs;
 }
 

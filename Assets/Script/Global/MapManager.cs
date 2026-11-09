@@ -36,21 +36,30 @@ public class MapManager : MonoBehaviour
     private readonly List<Villager> housePlotQueue = new List<Villager>();
     private readonly Dictionary<Villager, HousePlotRecord> claimedHousePlots =
         new Dictionary<Villager, HousePlotRecord>();
+    private readonly Dictionary<Villager, HousePlotRecord> claimedWorkplacePlots =
+        new Dictionary<Villager, HousePlotRecord>();
+    private readonly Dictionary<Villager, GameObject> workplacePlotObjects =
+        new Dictionary<Villager, GameObject>();
+    private readonly HashSet<Villager> startedWorkplacePlots = new HashSet<Villager>();
+    private readonly Dictionary<Villager, AvailableHouseRecord> claimedWorkplaceHouses =
+        new Dictionary<Villager, AvailableHouseRecord>();
     private readonly Dictionary<Villager, GameObject> completedHouseObjects =
         new Dictionary<Villager, GameObject>();
     private readonly List<AvailableHouseRecord> availableHouses =
         new List<AvailableHouseRecord>();
-    private readonly int[] communityStorageAmounts =
-        new int[Enum.GetValues(typeof(ResourceType)).Length];
-    private readonly Dictionary<ResourceType, List<GameObject>> communityStorageIconInstances =
-        new Dictionary<ResourceType, List<GameObject>>();
+    private readonly List<CommunityStorage> communityStorages = new List<CommunityStorage>();
+    private readonly List<HouseConstructionSite> activeConstructionSites =
+        new List<HouseConstructionSite>();
+    private readonly Dictionary<CommunityStorage, Dictionary<ResourceType, List<GameObject>>>
+        communityStorageIconInstances =
+            new Dictionary<CommunityStorage, Dictionary<ResourceType, List<GameObject>>>();
 
     [SerializeField] private Vector2 mapSize = new Vector2(100f, 100f);
     [SerializeField] private ResourceObjectPrefabReference[] resourceObjectPrefabs;
 
     private MapSettings settings;
+    private int houseStorageCapacity;
     private CommunityStorageSettings communityStorageSettings;
-    private CommunityStorageRecord communityStorage;
     private UnityEngine.Camera mapCamera;
     private GameObject startMarkerInstance;
     private LineRenderer roadPreviewInstance;
@@ -118,6 +127,11 @@ public class MapManager : MonoBehaviour
         get { return claimedHouseCells; }
     }
 
+    public IReadOnlyList<CommunityStorage> CommunityStorages
+    {
+        get { return communityStorages; }
+    }
+
     public bool HasCommunityStorageDepositCapacity(
         IReadOnlyList<VillagerResourceEntry> inventory)
     {
@@ -138,22 +152,369 @@ public class MapManager : MonoBehaviour
             villagerAmount += entry != null ? Mathf.Max(0, entry.amount) : 0;
         }
 
-        int availableCapacity =
-            communityStorageSettings.maximumAmount - GetCommunityStorageTotalAmount();
+        int availableCapacity = communityStorageSettings.maximumAmountPerStorage;
+        foreach (CommunityStorage storage in communityStorages)
+        {
+            if (storage != null)
+            {
+                availableCapacity += storage.RemainingCapacity;
+            }
+        }
+
         return Mathf.Min(villagerAmount, Mathf.Max(0, availableCapacity));
     }
 
-    public bool TryGetCommunityStorageEntrancePosition(out Vector3 position)
+    public bool TryGetCommunityStorageEntrancePosition(
+        CommunityStorage storage,
+        out Vector3 position)
     {
         position = Vector3.zero;
-        if (communityStorage == null || settings == null || settings.gridCellSize <= 0f)
+        if (storage == null
+            || !storage.IsInitialized
+            || settings == null
+            || settings.gridCellSize <= 0f)
         {
             return false;
         }
 
-        position = GridCellToWorldPosition(communityStorage.entranceCell, settings.gridCellSize);
+        position = GridCellToWorldPosition(storage.EntranceCell, settings.gridCellSize);
         position.z = transform.position.z;
         return true;
+    }
+
+    public bool HasActiveConstructionSiteFor(Villager helper)
+    {
+        if (helper == null)
+        {
+            return false;
+        }
+
+        foreach (HouseConstructionSite site in activeConstructionSites)
+        {
+            if (site != null && site.CanAcceptHelper(helper))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryGetNearestActiveConstructionSite(
+        Villager helper,
+        out HouseConstructionSite nearestSite)
+    {
+        nearestSite = null;
+        if (helper == null)
+        {
+            return false;
+        }
+
+        float nearestDistanceSquared = float.PositiveInfinity;
+        for (int index = activeConstructionSites.Count - 1; index >= 0; index--)
+        {
+            HouseConstructionSite candidate = activeConstructionSites[index];
+            if (candidate == null || !candidate.IsActive)
+            {
+                activeConstructionSites.RemoveAt(index);
+                continue;
+            }
+
+            if (!candidate.CanAcceptHelper(helper))
+            {
+                continue;
+            }
+
+            float distanceSquared =
+                (candidate.WorkPosition - helper.transform.position).sqrMagnitude;
+            if (distanceSquared < nearestDistanceSquared)
+            {
+                nearestDistanceSquared = distanceSquared;
+                nearestSite = candidate;
+            }
+        }
+
+        return nearestSite != null;
+    }
+
+    public void RegisterActiveConstructionSite(HouseConstructionSite site)
+    {
+        if (site != null && site.IsActive && !activeConstructionSites.Contains(site))
+        {
+            activeConstructionSites.Add(site);
+        }
+    }
+
+    public void UnregisterActiveConstructionSite(HouseConstructionSite site)
+    {
+        if (site != null)
+        {
+            activeConstructionSites.Remove(site);
+        }
+    }
+
+    public bool TryClaimAvailableWorkplaceHouse(
+        Villager villager,
+        out HousePlotRecord housePlot,
+        out GameObject houseObject)
+    {
+        housePlot = null;
+        houseObject = null;
+        if (villager == null || claimedWorkplaceHouses.ContainsKey(villager))
+        {
+            return false;
+        }
+
+        for (int annexedHousePass = 0; annexedHousePass < 2; annexedHousePass++)
+        {
+            for (int index = availableHouses.Count - 1; index >= 0; index--)
+            {
+                AvailableHouseRecord availableHouse = availableHouses[index];
+                if (availableHouse.housePlot == null || availableHouse.houseObject == null)
+                {
+                    availableHouses.RemoveAt(index);
+                    continue;
+                }
+
+                HouseWorkplace workplace = GetOrCreateHouseWorkplace(availableHouse.houseObject);
+                if (workplace == null || workplace.HasAnnex != (annexedHousePass == 0))
+                {
+                    continue;
+                }
+
+                if (!workplace.TryReserve(villager))
+                {
+                    continue;
+                }
+
+                housePlot = availableHouse.housePlot;
+                houseObject = availableHouse.houseObject;
+                availableHouses.RemoveAt(index);
+                claimedWorkplaceHouses.Add(villager, availableHouse);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryClaimWorkplaceHousePlot(
+        Villager villager,
+        Vector2Int dimensions,
+        out HousePlotRecord housePlot)
+    {
+        housePlot = null;
+        if (villager == null
+            || dimensions.x <= 0
+            || dimensions.y <= 0
+            || GridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        if (claimedWorkplacePlots.TryGetValue(villager, out housePlot))
+        {
+            return true;
+        }
+
+        housePlotQueue.RemoveAll(queuedVillager => queuedVillager == null);
+        if (!housePlotQueue.Contains(villager))
+        {
+            housePlotQueue.Add(villager);
+        }
+
+        if (housePlotQueue.Count == 0 || housePlotQueue[0] != villager)
+        {
+            return false;
+        }
+
+        if (!TryFindAvailableHousePlot(dimensions, out housePlot))
+        {
+            return false;
+        }
+
+        housePlotQueue.RemoveAt(0);
+        for (int x = 0; x < dimensions.x; x++)
+        {
+            for (int y = 0; y < dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(
+                    housePlot.originCell.x + x,
+                    housePlot.originCell.y + y));
+            }
+        }
+
+        claimedWorkplacePlots.Add(villager, housePlot);
+        return true;
+    }
+
+    public void SetWorkplaceHouseObject(Villager villager, GameObject houseObject)
+    {
+        if (villager == null
+            || houseObject == null
+            || !claimedWorkplacePlots.ContainsKey(villager))
+        {
+            Debug.LogError("Cannot set a workplace house object without a claimed workplace plot.", this);
+            return;
+        }
+
+        workplacePlotObjects[villager] = houseObject;
+    }
+
+    public void NotifyWorkplaceConstructionStarted(Villager villager)
+    {
+        if (villager != null
+            && claimedWorkplacePlots.TryGetValue(villager, out HousePlotRecord housePlot)
+            && housePlot != null)
+        {
+            startedWorkplacePlots.Add(villager);
+            RemoveBuildableOverResourceObjectsInPlot(housePlot);
+            PathfindingRevision++;
+        }
+    }
+
+    public bool RegisterCompletedWorkplaceHouse(
+        Villager villager,
+        HousePlotRecord housePlot,
+        GameObject houseObject)
+    {
+        if (villager == null
+            || housePlot == null
+            || houseObject == null
+            || !claimedWorkplacePlots.TryGetValue(villager, out HousePlotRecord claimedPlot)
+            || claimedPlot != housePlot)
+        {
+            Debug.LogError(
+                "Cannot register a completed workplace without its villager, plot, and house.",
+                this);
+            return false;
+        }
+
+        claimedWorkplacePlots.Remove(villager);
+        workplacePlotObjects.Remove(villager);
+        startedWorkplacePlots.Remove(villager);
+        claimedWorkplaceHouses[villager] = new AvailableHouseRecord
+        {
+            housePlot = housePlot,
+            houseObject = houseObject
+        };
+        GetOrCreateHouseWorkplace(houseObject);
+        CreateHouseRoadConnection(housePlot);
+        return true;
+    }
+
+    public void ReleaseWorkplaceHouse(Villager villager)
+    {
+        if (villager == null)
+        {
+            return;
+        }
+
+        housePlotQueue.Remove(villager);
+        if (claimedWorkplacePlots.TryGetValue(villager, out HousePlotRecord activePlot))
+        {
+            bool constructionStarted = startedWorkplacePlots.Contains(villager);
+            if (activePlot != null)
+            {
+                RemoveHousePlotCells(activePlot);
+            }
+
+            if (workplacePlotObjects.TryGetValue(villager, out GameObject unfinishedHouse)
+                && unfinishedHouse != null)
+            {
+                Destroy(unfinishedHouse);
+            }
+
+            claimedWorkplacePlots.Remove(villager);
+            workplacePlotObjects.Remove(villager);
+            startedWorkplacePlots.Remove(villager);
+            if (constructionStarted)
+            {
+                PathfindingRevision++;
+            }
+        }
+
+        if (claimedWorkplaceHouses.TryGetValue(villager, out AvailableHouseRecord house))
+        {
+            claimedWorkplaceHouses.Remove(villager);
+            if (house.housePlot != null && house.houseObject != null)
+            {
+                GetOrCreateHouseWorkplace(house.houseObject).Release(villager);
+                availableHouses.Add(house);
+            }
+        }
+    }
+
+    public bool TryReserveWorkplaceAnnex(GameObject houseObject, Villager villager)
+    {
+        HouseVisual houseVisual = houseObject != null
+            ? houseObject.GetComponent<HouseVisual>()
+            : null;
+        if (houseVisual == null)
+        {
+            Debug.LogError("A workplace requires a house with a HouseVisual component.", this);
+            return false;
+        }
+
+        HouseWorkplace workplace = GetOrCreateHouseWorkplace(houseObject);
+        return workplace != null && workplace.TryReserve(villager);
+    }
+
+    public void ReleaseWorkplaceAnnex(GameObject houseObject, Villager villager)
+    {
+        if (houseObject == null || villager == null)
+        {
+            return;
+        }
+
+        HouseWorkplace workplace = houseObject.GetComponent<HouseWorkplace>();
+        if (workplace != null)
+        {
+            workplace.Release(villager);
+        }
+    }
+
+    public HouseWorkplace GetOrCreateHouseWorkplace(GameObject houseObject)
+    {
+        if (houseObject == null)
+        {
+            return null;
+        }
+
+        if (houseStorageCapacity <= 0)
+        {
+            Debug.LogError("House storage capacity could not be loaded from GameData.", this);
+            return null;
+        }
+
+        HouseWorkplace workplace = houseObject.GetComponent<HouseWorkplace>();
+        if (workplace == null)
+        {
+            workplace = houseObject.AddComponent<HouseWorkplace>();
+        }
+
+        if (!workplace.IsInitialized && !workplace.Initialize(houseStorageCapacity))
+        {
+            return null;
+        }
+
+        return workplace;
+    }
+
+    public HouseConstructionSite GetOrCreateHouseConstructionSite(GameObject houseObject)
+    {
+        if (houseObject == null)
+        {
+            return null;
+        }
+
+        HouseConstructionSite site = houseObject.GetComponent<HouseConstructionSite>();
+        if (site == null)
+        {
+            site = houseObject.AddComponent<HouseConstructionSite>();
+        }
+
+        return site;
     }
 
     private void RemoveBuildableOverResourceObjectsOnRoadPath(
@@ -198,8 +559,12 @@ public class MapManager : MonoBehaviour
         }
     }
 
-    public bool TryClaimCommunityStorage(Villager villager, Vector2Int dimensions)
+    public bool TryCreateCommunityStorage(
+        Villager villager,
+        Vector2Int dimensions,
+        out CommunityStorage storage)
     {
+        storage = null;
         if (villager == null
             || dimensions.x <= 0
             || dimensions.y <= 0
@@ -207,11 +572,6 @@ public class MapManager : MonoBehaviour
             || settings.gridCellSize <= 0f)
         {
             return false;
-        }
-
-        if (communityStorage != null)
-        {
-            return true;
         }
 
         GameOverlord gameOverlord = GameOverlord.Instance;
@@ -241,25 +601,54 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
-        CommunityStorageRecord storage = new CommunityStorageRecord
+        CommunityStorageRecord storageRecord = new CommunityStorageRecord
         {
             originCell = availablePlot.originCell,
             dimensions = availablePlot.dimensions,
             entranceCell = availablePlot.entranceCell
         };
-        communityStorage = storage;
+        Vector3 firstCellPosition = GridCellToWorldPosition(
+            storageRecord.originCell,
+            settings.gridCellSize);
+        Vector3 lastCellPosition = GridCellToWorldPosition(
+            storageRecord.originCell + storageRecord.dimensions - Vector2Int.one,
+            settings.gridCellSize);
+        Vector3 storageCenter = (firstCellPosition + lastCellPosition) * 0.5f;
+        storageCenter.z = transform.position.z;
+        GameObject storageObject = new GameObject("Community Storage");
+        storageObject.transform.SetParent(transform, false);
+        storageObject.transform.position = storageCenter;
+        storage = storageObject.AddComponent<CommunityStorage>();
+        if (!storage.Initialize(
+                storageRecord,
+                communityStorageSettings.maximumAmountPerStorage))
+        {
+            Destroy(storageObject);
+            storage = null;
+            return false;
+        }
+
+        BoxCollider2D storageCollider = storageObject.AddComponent<BoxCollider2D>();
+        storageCollider.isTrigger = true;
+        storageCollider.size = new Vector2(
+            dimensions.x * settings.gridCellSize,
+            dimensions.y * settings.gridCellSize);
+
+        RemoveBuildableOverResourceObjectsInPlot(availablePlot);
         for (int x = 0; x < dimensions.x; x++)
         {
             for (int y = 0; y < dimensions.y; y++)
             {
                 Vector2Int cell = new Vector2Int(
-                    storage.originCell.x + x,
-                    storage.originCell.y + y);
+                    storageRecord.originCell.x + x,
+                    storageRecord.originCell.y + y);
                 communityStorageCells.Add(cell);
             }
         }
 
-        Vector3 bottomLeft = GridCellToWorldPosition(storage.originCell, settings.gridCellSize);
+        Vector3 bottomLeft = GridCellToWorldPosition(
+            storageRecord.originCell,
+            settings.gridCellSize);
         bottomLeft.x -= settings.gridCellSize * 0.5f;
         bottomLeft.y -= settings.gridCellSize * 0.5f;
         int tileCountX = Mathf.Max(
@@ -281,84 +670,162 @@ public class MapManager : MonoBehaviour
                     gameOverlord.RoadTilePrefab,
                     tilePosition,
                     Quaternion.Euler(0f, 0f, UnityEngine.Random.Range(0f, 360f)),
-                    transform);
+                    storageObject.transform);
             }
         }
 
+        communityStorages.Add(storage);
+        communityStorageIconInstances.Add(
+            storage,
+            new Dictionary<ResourceType, List<GameObject>>());
         PathfindingRevision++;
         return true;
     }
 
+    public bool TryGetCommunityStorageAtWorldPosition(
+        Vector3 worldPosition,
+        out CommunityStorage storage)
+    {
+        storage = null;
+        if (settings == null || settings.gridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        Vector2Int cell = WorldPositionToGridCell(worldPosition, settings.gridCellSize);
+        foreach (CommunityStorage candidate in communityStorages)
+        {
+            if (candidate != null && candidate.ContainsCell(cell))
+            {
+                storage = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool TryGetHouseAtWorldPosition(
+        Vector3 worldPosition,
+        out GameObject houseObject)
+    {
+        houseObject = null;
+        if (settings == null || settings.gridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        Vector2Int cell = WorldPositionToGridCell(worldPosition, settings.gridCellSize);
+        foreach (AvailableHouseRecord availableHouse in availableHouses)
+        {
+            if (TryGetFinishedHouseAtCell(
+                    availableHouse.housePlot,
+                    availableHouse.houseObject,
+                    cell,
+                    out houseObject))
+            {
+                return true;
+            }
+        }
+
+        foreach (KeyValuePair<Villager, GameObject> residentHouse in completedHouseObjects)
+        {
+            if (claimedHousePlots.TryGetValue(residentHouse.Key, out HousePlotRecord housePlot)
+                && TryGetFinishedHouseAtCell(
+                    housePlot,
+                    residentHouse.Value,
+                    cell,
+                    out houseObject))
+            {
+                return true;
+            }
+        }
+
+        foreach (KeyValuePair<Villager, AvailableHouseRecord> workplace in claimedWorkplaceHouses)
+        {
+            if (workplace.Value != null
+                && TryGetFinishedHouseAtCell(
+                    workplace.Value.housePlot,
+                    workplace.Value.houseObject,
+                    cell,
+                    out houseObject))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public int GetCommunityStorageAmount(ResourceType resourceType)
     {
-        if (communityStorage == null || !Enum.IsDefined(typeof(ResourceType), resourceType))
+        if (!Enum.IsDefined(typeof(ResourceType), resourceType))
         {
             return 0;
         }
 
-        int resourceIndex = Convert.ToInt32(resourceType);
-        return resourceIndex >= 0 && resourceIndex < communityStorageAmounts.Length
-            ? communityStorageAmounts[resourceIndex]
-            : 0;
+        int total = 0;
+        foreach (CommunityStorage storage in communityStorages)
+        {
+            if (storage != null)
+            {
+                total += storage.GetAmount(resourceType);
+            }
+        }
+
+        return total;
     }
 
     public int GetCommunityStorageTotalAmount()
     {
         int totalAmount = 0;
-        foreach (int amount in communityStorageAmounts)
+        foreach (CommunityStorage storage in communityStorages)
         {
-            totalAmount += amount;
+            if (storage != null)
+            {
+                totalAmount += storage.GetTotalAmount();
+            }
         }
 
         return totalAmount;
     }
 
     public bool TryDepositCommunityStorage(
+        CommunityStorage storage,
         ResourceType resourceType,
         int requestedAmount,
         out int depositedAmount)
     {
         depositedAmount = 0;
-        if (communityStorage == null
+        if (storage == null
+            || !communityStorages.Contains(storage)
             || requestedAmount <= 0
-            || !TryGetCommunityStorageResourceIndex(resourceType, out int resourceIndex))
+            || !storage.TryDeposit(resourceType, requestedAmount, out depositedAmount))
         {
             return false;
         }
 
-        int availableCapacity =
-            communityStorageSettings.maximumAmount - GetCommunityStorageTotalAmount();
-        depositedAmount = Mathf.Min(requestedAmount, Mathf.Max(0, availableCapacity));
-        communityStorageAmounts[resourceIndex] += depositedAmount;
-        if (depositedAmount > 0)
-        {
-            RefreshCommunityStorageIcons(resourceType);
-        }
-
-        return depositedAmount > 0;
+        RefreshCommunityStorageIcons(storage, resourceType);
+        return true;
     }
 
     public bool TryWithdrawCommunityStorage(
+        CommunityStorage storage,
         ResourceType resourceType,
         int requestedAmount,
         out int withdrawnAmount)
     {
         withdrawnAmount = 0;
-        if (communityStorage == null
+        if (storage == null
+            || !communityStorages.Contains(storage)
             || requestedAmount <= 0
-            || !TryGetCommunityStorageResourceIndex(resourceType, out int resourceIndex))
+            || !storage.TryWithdraw(resourceType, requestedAmount, out withdrawnAmount))
         {
             return false;
         }
 
-        withdrawnAmount = Mathf.Min(requestedAmount, communityStorageAmounts[resourceIndex]);
-        communityStorageAmounts[resourceIndex] -= withdrawnAmount;
-        if (withdrawnAmount > 0)
-        {
-            RefreshCommunityStorageIcons(resourceType);
-        }
-
-        return withdrawnAmount > 0;
+        RefreshCommunityStorageIcons(storage, resourceType);
+        return true;
     }
 
     public Bounds GetGridCellBounds(Vector2Int cell)
@@ -736,25 +1203,22 @@ public class MapManager : MonoBehaviour
             || IsOccupiedByStartedHouse(cell);
     }
 
-    private bool TryGetCommunityStorageResourceIndex(
-        ResourceType resourceType,
-        out int resourceIndex)
+    private void RefreshCommunityStorageIcons(
+        CommunityStorage storage,
+        ResourceType resourceType)
     {
-        resourceIndex = Convert.ToInt32(resourceType);
-        return communityStorageSettings != null
-            && Enum.IsDefined(typeof(ResourceType), resourceType)
-            && resourceIndex >= 0
-            && resourceIndex < communityStorageAmounts.Length;
-    }
+        if (storage == null
+            || !communityStorageIconInstances.TryGetValue(
+                storage,
+                out Dictionary<ResourceType, List<GameObject>> iconsByType))
+        {
+            return;
+        }
 
-    private void RefreshCommunityStorageIcons(ResourceType resourceType)
-    {
-        if (!communityStorageIconInstances.TryGetValue(
-                resourceType,
-                out List<GameObject> instances))
+        if (!iconsByType.TryGetValue(resourceType, out List<GameObject> instances))
         {
             instances = new List<GameObject>();
-            communityStorageIconInstances.Add(resourceType, instances);
+            iconsByType.Add(resourceType, instances);
         }
 
         foreach (GameObject iconInstance in instances)
@@ -766,11 +1230,8 @@ public class MapManager : MonoBehaviour
         }
 
         instances.Clear();
-        int resourceIndex = Convert.ToInt32(resourceType);
-        if (communityStorage == null
-            || resourceIndex < 0
-            || resourceIndex >= communityStorageAmounts.Length
-            || communityStorageAmounts[resourceIndex] <= 0)
+        int resourceAmount = storage.GetAmount(resourceType);
+        if (resourceAmount <= 0)
         {
             return;
         }
@@ -798,21 +1259,21 @@ public class MapManager : MonoBehaviour
             return;
         }
 
-        int iconCount = 1 + communityStorageAmounts[resourceIndex]
+        int iconCount = 1 + resourceAmount
             / communityStorageSettings.unitsPerAdditionalIcon;
         float iconWidth = settings.gridCellSize * 0.35f;
         float spriteWidth = iconSprite.bounds.size.x;
         float iconScale = spriteWidth > 0f ? iconWidth / spriteWidth : 1f;
         float iconRadius = iconWidth * 0.5f;
         Vector3 bottomLeft = GridCellToWorldPosition(
-            communityStorage.originCell,
+            storage.OriginCell,
             settings.gridCellSize);
         bottomLeft.x -= settings.gridCellSize * 0.5f;
         bottomLeft.y -= settings.gridCellSize * 0.5f;
-        float width = communityStorage.dimensions.x * settings.gridCellSize;
-        float height = communityStorage.dimensions.y * settings.gridCellSize;
+        float width = storage.Dimensions.x * settings.gridCellSize;
+        float height = storage.Dimensions.y * settings.gridCellSize;
         List<Vector2> occupiedPositions = new List<Vector2>();
-        foreach (KeyValuePair<ResourceType, List<GameObject>> entry in communityStorageIconInstances)
+        foreach (KeyValuePair<ResourceType, List<GameObject>> entry in iconsByType)
         {
             if (entry.Key == resourceType)
             {
@@ -866,8 +1327,11 @@ public class MapManager : MonoBehaviour
             }
 
             GameObject iconObject = new GameObject("Community Storage " + resourceType + " Icon");
-            iconObject.transform.SetParent(transform, true);
-            iconObject.transform.position = new Vector3(position.x, position.y, transform.position.z);
+            iconObject.transform.SetParent(storage.transform, true);
+            iconObject.transform.position = new Vector3(
+                position.x,
+                position.y,
+                storage.transform.position.z);
             iconObject.transform.localScale = Vector3.one * iconScale;
             SpriteRenderer spriteRenderer = iconObject.AddComponent<SpriteRenderer>();
             spriteRenderer.sprite = iconSprite;
@@ -1106,6 +1570,7 @@ public class MapManager : MonoBehaviour
         Villager villager,
         Vector3 position,
         ISet<ResourceObject> excludedResources,
+        ISet<ResourceType> allowedResourceTypes,
         float arrivalDistance,
         out ResourceObject closestResource,
         out ResourceType closestResourceType)
@@ -1143,7 +1608,8 @@ public class MapManager : MonoBehaviour
             bool hasBareHandResource = false;
             foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
             {
-                if (resourceObject.CanGather(resourceType, false))
+                if ((allowedResourceTypes == null || allowedResourceTypes.Contains(resourceType))
+                    && resourceObject.CanGather(resourceType, false))
                 {
                     hasBareHandResource = true;
                     break;
@@ -1166,7 +1632,8 @@ public class MapManager : MonoBehaviour
             ResourceObject resourceObject = candidate.Value;
             foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
             {
-                if (!resourceObject.CanGather(resourceType, false))
+                if ((allowedResourceTypes != null && !allowedResourceTypes.Contains(resourceType))
+                    || !resourceObject.CanGather(resourceType, false))
                 {
                     continue;
                 }
@@ -1476,6 +1943,15 @@ public class MapManager : MonoBehaviour
                 continue;
             }
 
+            HouseWorkplace workplace = GetOrCreateHouseWorkplace(availableHouse.houseObject);
+            if (workplace == null || !workplace.TrySetResident(villager))
+            {
+                Debug.LogError(
+                    "Could not register the villager as a house resident.",
+                    availableHouse.houseObject);
+                continue;
+            }
+
             housePlot = availableHouse.housePlot;
             houseObject = availableHouse.houseObject;
             availableHouses.RemoveAt(index);
@@ -1500,6 +1976,12 @@ public class MapManager : MonoBehaviour
         }
 
         completedHouseObjects[villager] = houseObject;
+        HouseWorkplace workplace = GetOrCreateHouseWorkplace(houseObject);
+        if (workplace == null || !workplace.TrySetResident(villager))
+        {
+            Debug.LogError("Could not register the villager as a house resident.", houseObject);
+        }
+
         CreateHouseRoadConnection(housePlot);
     }
 
@@ -1538,6 +2020,12 @@ public class MapManager : MonoBehaviour
 
         claimedHousePlots.Remove(villager);
         completedHouseObjects.Remove(villager);
+        HouseWorkplace workplace = houseObject.GetComponent<HouseWorkplace>();
+        if (workplace != null)
+        {
+            workplace.ReleaseResident(villager);
+        }
+
         availableHouses.Add(new AvailableHouseRecord
         {
             housePlot = housePlot,
@@ -1558,6 +2046,19 @@ public class MapManager : MonoBehaviour
             return;
         }
 
+        RemoveHousePlotCells(housePlot);
+
+        claimedHousePlots.Remove(villager);
+        completedHouseObjects.Remove(villager);
+    }
+
+    private void RemoveHousePlotCells(HousePlotRecord housePlot)
+    {
+        if (housePlot == null)
+        {
+            return;
+        }
+
         for (int x = 0; x < housePlot.dimensions.x; x++)
         {
             for (int y = 0; y < housePlot.dimensions.y; y++)
@@ -1567,14 +2068,12 @@ public class MapManager : MonoBehaviour
                     housePlot.originCell.y + y));
             }
         }
-
-        claimedHousePlots.Remove(villager);
-        completedHouseObjects.Remove(villager);
     }
 
     private void CancelUnstartedHousePlotsIntersecting(HashSet<Vector2Int> roadCellsToAdd)
     {
         List<Villager> villagersToCancel = new List<Villager>();
+        List<Villager> workplacePlotsToCancel = new List<Villager>();
         foreach (KeyValuePair<Villager, HousePlotRecord> claimedPlot in claimedHousePlots)
         {
             Villager villager = claimedPlot.Key;
@@ -1611,6 +2110,22 @@ public class MapManager : MonoBehaviour
         {
             villager.CancelHousePlotForRoad();
         }
+
+        foreach (KeyValuePair<Villager, HousePlotRecord> workplacePlot in claimedWorkplacePlots)
+        {
+            Villager villager = workplacePlot.Key;
+            if (villager != null
+                && !startedWorkplacePlots.Contains(villager)
+                && IntersectsRoad(workplacePlot.Value, roadCellsToAdd))
+            {
+                workplacePlotsToCancel.Add(villager);
+            }
+        }
+
+        foreach (Villager villager in workplacePlotsToCancel)
+        {
+            villager.CancelWorkplacePlotForRoad();
+        }
     }
 
     private bool IsOccupiedByStartedHouse(Vector2Int cell)
@@ -1640,6 +2155,46 @@ public class MapManager : MonoBehaviour
             }
         }
 
+        foreach (KeyValuePair<Villager, AvailableHouseRecord> workplace in claimedWorkplaceHouses)
+        {
+            if (ContainsHouseCell(workplace.Value.housePlot, cell))
+            {
+                return true;
+            }
+        }
+
+        foreach (KeyValuePair<Villager, HousePlotRecord> workplacePlot in claimedWorkplacePlots)
+        {
+            if (startedWorkplacePlots.Contains(workplacePlot.Key)
+                && ContainsHouseCell(workplacePlot.Value, cell))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IntersectsRoad(HousePlotRecord housePlot, HashSet<Vector2Int> roadCellsToAdd)
+    {
+        if (housePlot == null)
+        {
+            return false;
+        }
+
+        for (int x = 0; x < housePlot.dimensions.x; x++)
+        {
+            for (int y = 0; y < housePlot.dimensions.y; y++)
+            {
+                if (roadCellsToAdd.Contains(new Vector2Int(
+                        housePlot.originCell.x + x,
+                        housePlot.originCell.y + y)))
+                {
+                    return true;
+                }
+            }
+        }
+
         return false;
     }
 
@@ -1650,6 +2205,28 @@ public class MapManager : MonoBehaviour
             && cell.x < housePlot.originCell.x + housePlot.dimensions.x
             && cell.y >= housePlot.originCell.y
             && cell.y < housePlot.originCell.y + housePlot.dimensions.y;
+    }
+
+    private static bool TryGetFinishedHouseAtCell(
+        HousePlotRecord housePlot,
+        GameObject candidate,
+        Vector2Int cell,
+        out GameObject houseObject)
+    {
+        houseObject = null;
+        if (candidate == null || !ContainsHouseCell(housePlot, cell))
+        {
+            return false;
+        }
+
+        HouseVisual houseVisual = candidate.GetComponent<HouseVisual>();
+        if (houseVisual == null || houseVisual.Definition == null)
+        {
+            return false;
+        }
+
+        houseObject = candidate;
+        return true;
     }
 
     private static bool IsHouseConstructionStarted(VillagerHousingState housingState)
@@ -2099,15 +2676,24 @@ public class MapManager : MonoBehaviour
         roadCells.Clear();
         claimedHouseCells.Clear();
         communityStorageCells.Clear();
-        communityStorage = null;
+        communityStorages.Clear();
+        activeConstructionSites.Clear();
+        communityStorageIconInstances.Clear();
         loggedMissingCommunityStoragePrefab = false;
         housePlotQueue.Clear();
         claimedHousePlots.Clear();
+        claimedWorkplacePlots.Clear();
+        workplacePlotObjects.Clear();
+        startedWorkplacePlots.Clear();
+        claimedWorkplaceHouses.Clear();
         completedHouseObjects.Clear();
         availableHouses.Clear();
 
         GameData gameData = GameData.Instance;
         settings = gameData.mapSettings;
+        houseStorageCapacity = gameData.houseSettings != null
+            ? gameData.houseSettings.storageCapacity
+            : 0;
         communityStorageSettings = gameData.communityStorageSettings;
         if (settings == null)
         {
@@ -2117,18 +2703,23 @@ public class MapManager : MonoBehaviour
         }
 
         if (communityStorageSettings == null
-            || communityStorageSettings.maximumAmount <= 0
+            || communityStorageSettings.maximumAmountPerStorage <= 0
             || communityStorageSettings.unitsPerAdditionalIcon <= 0)
         {
             Debug.LogError(
-                "Community storage settings must define a positive total capacity and icon threshold.",
+                "Community storage settings must define a positive per-storage capacity and icon threshold.",
                 this);
             enabled = false;
             return;
         }
 
-        Array.Clear(communityStorageAmounts, 0, communityStorageAmounts.Length);
-        communityStorageIconInstances.Clear();
+        if (houseStorageCapacity <= 0)
+        {
+            Debug.LogError("House settings must define a positive storage capacity.", this);
+            enabled = false;
+            return;
+        }
+
         loggedMissingCommunityStorageIconManager = false;
         mapCamera = UnityEngine.Camera.main;
     }
@@ -2336,10 +2927,23 @@ public class MapManager : MonoBehaviour
                 cellPosition,
                 Quaternion.Euler(0f, 0f, rotation),
                 transform);
-            resourceObjectInstance.transform.localScale *= scale;
-            ApplyResourceObjectVisualOffset(resourceObjectInstance.transform, spawnSettings.visualOffset);
-
             ResourceObject resourceObject = resourceObjectInstance.GetComponent<ResourceObject>();
+            if (resourceObject == null)
+            {
+                Debug.LogError(
+                    "Resource object prefab '" + definition.id + "' is missing ResourceObject.",
+                    resourceObjectInstance);
+                Destroy(resourceObjectInstance);
+                continue;
+            }
+
+            resourceObjectInstance.transform.localScale *= scale;
+            if (!ApplyResourceObjectVisualOffset(resourceObject, spawnSettings.visualOffset))
+            {
+                Destroy(resourceObjectInstance);
+                continue;
+            }
+
             if (!resourceObject.Initialize(definition))
             {
                 Destroy(resourceObjectInstance);
@@ -2393,22 +2997,24 @@ public class MapManager : MonoBehaviour
         return matchedPrefab;
     }
 
-    private static void ApplyResourceObjectVisualOffset(Transform resourceObjectTransform, Vector2 visualOffset)
+    private static bool ApplyResourceObjectVisualOffset(
+        ResourceObject resourceObject,
+        Vector2 visualOffset)
     {
         if (visualOffset == Vector2.zero)
         {
-            return;
+            return true;
+        }
+
+        if (resourceObject == null || resourceObject.VisualRoot == null)
+        {
+            Debug.LogError("Resource object prefab requires a SortingAnchor/Visuals hierarchy.", resourceObject);
+            return false;
         }
 
         Vector3 worldOffset = new Vector3(visualOffset.x, visualOffset.y, 0f);
-        for (int childIndex = 0; childIndex < resourceObjectTransform.childCount; childIndex++)
-        {
-            Transform visualChild = resourceObjectTransform.GetChild(childIndex);
-            if (visualChild.GetComponentInChildren<SpriteRenderer>(true) != null)
-            {
-                visualChild.position += worldOffset;
-            }
-        }
+        resourceObject.VisualRoot.position += worldOffset;
+        return true;
     }
 
     private static float RandomRange(System.Random random, float minimum, float maximum)

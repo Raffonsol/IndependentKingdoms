@@ -68,21 +68,27 @@ public class VillagerJobAssignmentPanel : MonoBehaviour
         titleText.text = "Assign Job";
 
         Array jobTypes = Enum.GetValues(typeof(JobType));
+        GameData gameData = GameData.Instance;
         int rowIndex = 0;
         foreach (JobType jobType in jobTypes)
         {
             float rowY = FirstJobRowY - rowIndex * JobRowSpacing;
+            bool hasDefinition = gameData.CanAssignJob(jobType, out JobDefinition definition);
+            bool isSupportedWorkType = hasDefinition
+                && (definition.workType == JobWorkType.FieldGathering
+                    || definition.workType == JobWorkType.Production);
+            bool isAssignable = jobType == JobType.None || isSupportedWorkType;
             Button jobButton = CreateButton(
                 transform,
                 jobType.ToString(),
                 new Vector2(0f, rowY),
                 new Vector2(300f, 30f),
-                jobType == JobType.Forager || jobType == JobType.None);
+                isAssignable);
 
             TMP_Text label = jobButton.GetComponentInChildren<TMP_Text>();
             label.text = jobType == JobType.None
                 ? "No Job"
-                : (jobType == JobType.Forager ? "Forager" : jobType + " (Coming Soon)");
+                : (isAssignable ? jobType.ToString() : jobType + " (Coming Soon)");
 
             JobType selectedJob = jobType;
             jobButton.onClick.AddListener(() => SelectJob(selectedJob));

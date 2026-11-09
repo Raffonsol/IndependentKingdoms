@@ -3,21 +3,52 @@ using UnityEngine;
 
 public class VillagerJobController : MonoBehaviour
 {
+    private enum WorkplaceStage
+    {
+        None,
+        GatheringMaterials,
+        BuildingHouseStageOne,
+        HouseConstructionBreak,
+        BuildingHouseStageTwo,
+        RenovatingAnnex,
+        Ready
+    }
+
     private Villager villager;
     private VillagerSettings settings;
     private ResourceSettings resourceSettings;
+    private HouseSettings houseSettings;
     private JobType jobAssignment;
+    private JobDefinition jobDefinition;
+    private ResourceCost[] annexRenovationCosts;
+    private HouseDefinition[] houseDefinitions;
+    private Sprite[] houseBuildStageOneSprites;
+    private Sprite[] houseBuildStageTwoSprites;
+    private Color[] houseBuildStageOneColors;
+    private Color[] houseBuildStageTwoColors;
+    private HousePlotRecord workplacePlot;
+    private GameObject workplaceHouse;
+    private HouseDefinition workplaceHouseDefinition;
+    private ResourceCost[] workplaceProjectCosts;
     private ResourceObject foragingResource;
     private ResourceType foragingResourceType;
     private readonly HashSet<ResourceObject> unreachableResources =
         new HashSet<ResourceObject>();
+    private readonly Dictionary<ResourceType, int> jobInputStock =
+        new Dictionary<ResourceType, int>();
     private float foragingReactionTimer;
     private float foragingGatheringTimer;
     private float nextResourceSearchTime;
+    private float workplaceConstructionTimer;
+    private float workplaceHammeringTimer;
+    private float productionTimer;
     private int pathfindingRevision = -1;
     private int availabilityRevision = -1;
     private bool isWaitingToApproachResource;
     private bool isForagingForJob;
+    private bool isSeparateWorkplace;
+    private bool isBuildingNewWorkplaceHouse;
+    private WorkplaceStage workplaceStage;
 
     public JobType JobAssignment
     {
@@ -27,6 +58,16 @@ public class VillagerJobController : MonoBehaviour
     public bool IsForagingForJob
     {
         get { return isForagingForJob && foragingResource != null; }
+    }
+
+    public bool IsPreparingWorkplace
+    {
+        get
+        {
+            return jobDefinition != null
+                && jobDefinition.needsAnnex
+                && workplaceStage != WorkplaceStage.Ready;
+        }
     }
 
     public void Initialize(
@@ -45,13 +86,25 @@ public class VillagerJobController : MonoBehaviour
         villager = owner;
         settings = villagerSettings;
         resourceSettings = resourcesSettings;
+        GameData gameData = GameData.Instance;
+        houseSettings = gameData.houseSettings;
+        annexRenovationCosts = gameData.annexRenovationCosts;
+        houseDefinitions = gameData.houseDefinitions;
+        houseBuildStageOneSprites = gameData.houseBuildStageOneSprites;
+        houseBuildStageTwoSprites = gameData.houseBuildStageTwoSprites;
+        houseBuildStageOneColors = gameData.houseBuildStageOneColors;
+        houseBuildStageTwoColors = gameData.houseBuildStageTwoColors;
         jobAssignment = JobType.None;
+        jobDefinition = null;
     }
 
     public bool AssignJob(JobType job)
     {
-        if (!System.Enum.IsDefined(typeof(JobType), job)
-            || (job != JobType.None && job != JobType.Forager))
+        JobDefinition assignedDefinition = null;
+        if (job != JobType.None
+            && (!GameData.Instance.CanAssignJob(job, out assignedDefinition)
+                || (assignedDefinition.workType != JobWorkType.FieldGathering
+                    && assignedDefinition.workType != JobWorkType.Production)))
         {
             return false;
         }
@@ -62,28 +115,55 @@ public class VillagerJobController : MonoBehaviour
         }
 
         StopForagingForJob();
+        if (jobDefinition == null
+            || assignedDefinition == null
+            || !jobDefinition.needsAnnex
+            || !assignedDefinition.needsAnnex)
+        {
+            ReleaseWorkplace();
+        }
+
         jobAssignment = job;
+        jobDefinition = assignedDefinition;
         return true;
     }
 
     public bool TryStartProductiveOperation()
     {
-        if (villager == null || settings == null)
+        if (villager == null || settings == null || jobDefinition == null)
         {
             return false;
         }
 
-        switch (jobAssignment)
+        if (villager.Fatigue >= settings.productiveFatigueThreshold)
         {
-            case JobType.None:
-                return false;
-            case JobType.Forager:
-                if (villager.Fatigue >= settings.productiveFatigueThreshold)
-                {
-                    StopForagingForJob();
-                    return false;
-                }
+            StopForagingForJob();
+            return false;
+        }
 
+        HouseWorkplace storage = GetProductiveHouseStorage();
+        if (storage != null
+            && (storage.IsFull
+                || (jobDefinition.workType == JobWorkType.Production
+                    && storage.RemainingCapacity < jobDefinition.outputAmount)))
+        {
+            productionTimer = 0f;
+            StopForagingForJob();
+            return false;
+        }
+
+        if (jobDefinition.needsAnnex)
+        {
+            UpdateWorkplacePreparation();
+            if (workplaceStage != WorkplaceStage.Ready)
+            {
+                return true;
+            }
+        }
+
+        switch (jobDefinition.workType)
+        {
+            case JobWorkType.FieldGathering:
                 if (!isForagingForJob)
                 {
                     isForagingForJob = true;
@@ -91,9 +171,621 @@ public class VillagerJobController : MonoBehaviour
                 }
 
                 return UpdateForaging(true);
+            case JobWorkType.Production:
+                return UpdateProduction();
             default:
                 return false;
         }
+    }
+
+    private HouseWorkplace GetProductiveHouseStorage()
+    {
+        GameObject houseObject = workplaceHouse != null
+            ? workplaceHouse
+            : villager.HomeHouseObject;
+        MapManager mapManager = MapManager.Instance;
+        if (houseObject == null || mapManager == null)
+        {
+            return null;
+        }
+
+        return mapManager.GetOrCreateHouseWorkplace(houseObject);
+    }
+
+    private bool UpdateProduction()
+    {
+        if (!jobDefinition.needsAnnex && workplaceHouse == null)
+        {
+            workplaceHouse = villager.HomeHouseObject;
+            workplacePlot = villager.HomeHousePlot;
+            if (workplaceHouse == null || workplacePlot == null)
+            {
+                return false;
+            }
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || workplacePlot == null || workplaceHouse == null)
+        {
+            return false;
+        }
+
+        HouseWorkplace workplace = mapManager.GetOrCreateHouseWorkplace(workplaceHouse);
+        if (workplace == null)
+        {
+            return false;
+        }
+
+        if (!villager.MoveToHouseWorkPosition(mapManager, workplacePlot))
+        {
+            return true;
+        }
+
+        foreach (ResourceCost input in jobDefinition.inputCosts)
+        {
+            int missingAmount =
+                input.amount - GetJobInputStockAmount(input.resourceType);
+            if (missingAmount <= 0)
+            {
+                continue;
+            }
+
+            productionTimer = 0f;
+            if (villager.TryBeginJobInputWithdrawal(input.resourceType, missingAmount))
+            {
+                return true;
+            }
+
+            villager.StopForagingMovement();
+            return true;
+        }
+
+        productionTimer += Time.deltaTime;
+        if (productionTimer < jobDefinition.productionDurationSeconds)
+        {
+            return true;
+        }
+
+        if (!workplace.CanStoreItem(
+                jobDefinition.outputItemType,
+                jobDefinition.outputAmount))
+        {
+            productionTimer = 0f;
+            return false;
+        }
+
+        if (!villager.TryRemoveResourceCostsForJob(jobDefinition.inputCosts))
+        {
+            Debug.LogError("Blacksmith could not consume the configured production inputs.", villager);
+            productionTimer = 0f;
+            return true;
+        }
+
+        foreach (ResourceCost input in jobDefinition.inputCosts)
+        {
+            jobInputStock[input.resourceType] -= input.amount;
+        }
+
+        if (!workplace.TryStoreItem(jobDefinition.outputItemType, jobDefinition.outputAmount))
+        {
+            Debug.LogError("Could not store the produced item at the workplace.", workplaceHouse);
+            productionTimer = 0f;
+            return true;
+        }
+
+        productionTimer = 0f;
+        return true;
+    }
+
+    internal void OnJobInputsWithdrawn(ResourceType resourceType, int amount)
+    {
+        if (amount <= 0)
+        {
+            return;
+        }
+
+        if (jobInputStock.TryGetValue(resourceType, out int currentAmount))
+        {
+            jobInputStock[resourceType] = currentAmount + amount;
+        }
+        else
+        {
+            jobInputStock.Add(resourceType, amount);
+        }
+    }
+
+    private int GetJobInputStockAmount(ResourceType resourceType)
+    {
+        return jobInputStock.TryGetValue(resourceType, out int amount) ? amount : 0;
+    }
+
+    private void UpdateWorkplacePreparation()
+    {
+        if (workplaceStage == WorkplaceStage.None && !TrySelectWorkplace())
+        {
+            villager.StopForagingMovement();
+            return;
+        }
+
+        switch (workplaceStage)
+        {
+            case WorkplaceStage.GatheringMaterials:
+                UpdateWorkplaceMaterialGathering();
+                break;
+            case WorkplaceStage.BuildingHouseStageOne:
+                if (UpdateWorkplaceConstructionStage(houseSettings.firstConstructionDurationSeconds))
+                {
+                    ShowWorkplaceConstructionStageTwo();
+                }
+                break;
+            case WorkplaceStage.HouseConstructionBreak:
+                villager.StopForagingMovement();
+                workplaceConstructionTimer += Time.deltaTime;
+                if (workplaceConstructionTimer >= houseSettings.constructionBreakDurationSeconds)
+                {
+                    workplaceStage = WorkplaceStage.BuildingHouseStageTwo;
+                    workplaceConstructionTimer = 0f;
+                    workplaceHammeringTimer = 0f;
+                    BeginConstructionWorkStep();
+                    villager.SetJobBehavior(
+                        VillagerBehaviorMode.Building,
+                        houseSettings.secondConstructionDurationSeconds);
+                }
+                break;
+            case WorkplaceStage.BuildingHouseStageTwo:
+                if (UpdateWorkplaceConstructionStage(houseSettings.secondConstructionDurationSeconds))
+                {
+                    FinishWorkplaceHouseConstruction();
+                }
+                break;
+            case WorkplaceStage.RenovatingAnnex:
+                if (UpdateWorkplaceConstructionStage(houseSettings.secondConstructionDurationSeconds))
+                {
+                    FinishWorkplaceAnnexRenovation();
+                }
+                break;
+        }
+    }
+
+    private bool TrySelectWorkplace()
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
+        {
+            return false;
+        }
+
+        GameObject homeHouse = villager.HomeHouseObject;
+        if (homeHouse != null
+            && villager.HomeHousePlot != null
+            && mapManager.TryReserveWorkplaceAnnex(homeHouse, villager))
+        {
+            SetWorkplaceHouse(homeHouse, villager.HomeHousePlot, false);
+            if (HasWorkplaceAnnex())
+            {
+                workplaceStage = WorkplaceStage.Ready;
+            }
+            else
+            {
+                BeginAnnexRenovation();
+            }
+
+            return true;
+        }
+
+        if (mapManager.TryClaimAvailableWorkplaceHouse(
+                villager,
+                out HousePlotRecord availablePlot,
+                out GameObject availableHouse))
+        {
+            SetWorkplaceHouse(availableHouse, availablePlot, true);
+            if (HasWorkplaceAnnex())
+            {
+                workplaceStage = WorkplaceStage.Ready;
+            }
+            else
+            {
+                BeginAnnexRenovation();
+            }
+
+            return true;
+        }
+
+        isSeparateWorkplace = true;
+        if (!mapManager.TryClaimWorkplaceHousePlot(
+                villager,
+                houseSettings.defaultHouseDimensions,
+                out HousePlotRecord newPlot))
+        {
+            return false;
+        }
+
+        Player player = Player.Instance;
+        if (player == null)
+        {
+            Debug.LogError("Cannot build a workplace house without an active Player.", villager);
+            mapManager.ReleaseWorkplaceHouse(villager);
+            isSeparateWorkplace = false;
+            return false;
+        }
+
+        GameObject newHouse = player.PlaceClaimedSpace(newPlot);
+        if (newHouse == null)
+        {
+            mapManager.ReleaseWorkplaceHouse(villager);
+            isSeparateWorkplace = false;
+            return false;
+        }
+
+        HouseVisual houseVisual = newHouse.GetComponent<HouseVisual>();
+        if (houseVisual == null)
+        {
+            houseVisual = newHouse.AddComponent<HouseVisual>();
+        }
+
+        SetWorkplaceHouse(newHouse, newPlot, true);
+        mapManager.SetWorkplaceHouseObject(villager, newHouse);
+        if (!mapManager.TryReserveWorkplaceAnnex(newHouse, villager))
+        {
+            mapManager.ReleaseWorkplaceHouse(villager);
+            workplaceHouse = null;
+            workplacePlot = null;
+            workplaceStage = WorkplaceStage.None;
+            return false;
+        }
+
+        workplaceHouseDefinition =
+            houseDefinitions[UnityEngine.Random.Range(0, houseDefinitions.Length)];
+        workplaceProjectCosts = CombineResourceCosts(
+            houseSettings.baseHouseCosts,
+            annexRenovationCosts);
+        isBuildingNewWorkplaceHouse = true;
+        workplaceStage = WorkplaceStage.GatheringMaterials;
+        return true;
+    }
+
+    private void SetWorkplaceHouse(
+        GameObject houseObject,
+        HousePlotRecord housePlot,
+        bool isSeparate)
+    {
+        workplaceHouse = houseObject;
+        workplacePlot = housePlot;
+        isSeparateWorkplace = isSeparate;
+        workplaceHouseDefinition = houseObject.GetComponent<HouseVisual>() != null
+            ? houseObject.GetComponent<HouseVisual>().Definition
+            : null;
+    }
+
+    private bool HasWorkplaceAnnex()
+    {
+        HouseVisual houseVisual = workplaceHouse != null
+            ? workplaceHouse.GetComponent<HouseVisual>()
+            : null;
+        return houseVisual != null && houseVisual.HasAnnex;
+    }
+
+    private void BeginAnnexRenovation()
+    {
+        workplaceProjectCosts = annexRenovationCosts;
+        isBuildingNewWorkplaceHouse = false;
+        workplaceStage = WorkplaceStage.GatheringMaterials;
+    }
+
+    private void UpdateWorkplaceMaterialGathering()
+    {
+        ResourceCost missingCost = FindMissingCost(workplaceProjectCosts);
+        if (missingCost != null)
+        {
+            int missingAmount = missingCost.amount
+                - villager.GetResourceInventoryAmountForJob(missingCost.resourceType);
+            if (!villager.TryBeginWorkplaceMaterialsWithdrawal(
+                    missingCost.resourceType,
+                    missingAmount))
+            {
+                villager.TryGatherWorkplaceResource(missingCost.resourceType, missingAmount);
+            }
+
+            return;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (!villager.MoveToHouseWorkPosition(mapManager, workplacePlot))
+        {
+            return;
+        }
+
+        if (!villager.TryRemoveResourceCostsForJob(workplaceProjectCosts))
+        {
+            Debug.LogError("Villager reached a workplace without its required materials.", villager);
+            return;
+        }
+
+        workplacePlot.storedMaterials = CopyCosts(workplaceProjectCosts);
+        if (isBuildingNewWorkplaceHouse)
+        {
+            StartWorkplaceHouseConstruction();
+        }
+        else
+        {
+            StartWorkplaceAnnexRenovation();
+        }
+    }
+
+    private void StartWorkplaceHouseConstruction()
+    {
+        MapManager mapManager = MapManager.Instance;
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        float visualWidth = villager.GetHouseVisualWidth(
+            mapManager,
+            workplacePlot,
+            workplaceHouseDefinition);
+        houseVisual.ShowConstructionStage(
+            houseBuildStageOneSprites,
+            houseBuildStageOneColors,
+            visualWidth,
+            workplaceHouseDefinition.visualOffset,
+            workplaceHouseDefinition.sortingAnchorOffset,
+            false);
+        mapManager.NotifyWorkplaceConstructionStarted(villager);
+        BeginConstructionWorkStep();
+        workplaceStage = WorkplaceStage.BuildingHouseStageOne;
+        workplaceConstructionTimer = 0f;
+        workplaceHammeringTimer = 0f;
+        villager.SetJobBehavior(
+            VillagerBehaviorMode.Building,
+            houseSettings.firstConstructionDurationSeconds);
+    }
+
+    private void ShowWorkplaceConstructionStageTwo()
+    {
+        HouseConstructionSite constructionSite = GetConstructionSite();
+        if (constructionSite != null)
+        {
+            constructionSite.EndWorkStep();
+        }
+
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        houseVisual.ShowConstructionStage(
+            houseBuildStageTwoSprites,
+            houseBuildStageTwoColors,
+            villager.GetHouseVisualWidth(
+                MapManager.Instance,
+                workplacePlot,
+                workplaceHouseDefinition),
+            workplaceHouseDefinition.visualOffset,
+            workplaceHouseDefinition.sortingAnchorOffset,
+            true);
+        workplaceStage = WorkplaceStage.HouseConstructionBreak;
+        workplaceConstructionTimer = 0f;
+        workplaceHammeringTimer = 0f;
+        villager.SetJobBehavior(
+            VillagerBehaviorMode.Idle,
+            houseSettings.constructionBreakDurationSeconds);
+    }
+
+    private void FinishWorkplaceHouseConstruction()
+    {
+        HouseConstructionSite constructionSite = GetConstructionSite();
+        if (constructionSite != null)
+        {
+            constructionSite.EndWorkStep();
+        }
+
+        float visualWidth = villager.GetHouseVisualWidth(
+            MapManager.Instance,
+            workplacePlot,
+            workplaceHouseDefinition);
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        houseVisual.ShowFinishedHouse(workplaceHouseDefinition, visualWidth);
+        if (!MapManager.Instance.RegisterCompletedWorkplaceHouse(
+                villager,
+                workplacePlot,
+                workplaceHouse))
+        {
+            return;
+        }
+
+        isBuildingNewWorkplaceHouse = false;
+        StartWorkplaceAnnexRenovation();
+    }
+
+    private void StartWorkplaceAnnexRenovation()
+    {
+        BeginConstructionWorkStep();
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        houseVisual.ShowRenovationProgress(
+            houseBuildStageTwoSprites,
+            houseBuildStageTwoColors,
+            villager.GetHouseVisualWidth(
+                MapManager.Instance,
+                workplacePlot,
+                workplaceHouseDefinition),
+            workplaceHouseDefinition.visualOffset,
+            workplaceHouseDefinition.sortingAnchorOffset);
+        workplaceStage = WorkplaceStage.RenovatingAnnex;
+        workplaceConstructionTimer = 0f;
+        workplaceHammeringTimer = 0f;
+        villager.SetJobBehavior(
+            VillagerBehaviorMode.Building,
+            houseSettings.secondConstructionDurationSeconds);
+    }
+
+    private void FinishWorkplaceAnnexRenovation()
+    {
+        HouseConstructionSite constructionSite = GetConstructionSite();
+        if (constructionSite != null)
+        {
+            constructionSite.Complete();
+        }
+
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        houseVisual.CompleteAnnexRenovation();
+        workplaceStage = WorkplaceStage.Ready;
+        workplaceConstructionTimer = 0f;
+        workplaceHammeringTimer = 0f;
+        villager.SetJobBehavior(VillagerBehaviorMode.Idle, settings.idleBehaviorDuration);
+    }
+
+    private bool UpdateWorkplaceConstructionStage(float duration)
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (!villager.MoveToHouseWorkPosition(mapManager, workplacePlot))
+        {
+            return false;
+        }
+
+        HouseConstructionSite constructionSite = GetConstructionSite();
+        workplaceConstructionTimer += Time.deltaTime
+            * (constructionSite != null ? constructionSite.WorkerCount : 1);
+        workplaceHammeringTimer -= Time.deltaTime;
+        if (workplaceHammeringTimer <= 0f)
+        {
+            villager.PlayHouseHammerMotion();
+            workplaceHammeringTimer = houseSettings.hammerPauseDurationSeconds;
+        }
+
+        return workplaceConstructionTimer >= duration;
+    }
+
+    private ResourceCost FindMissingCost(ResourceCost[] costs)
+    {
+        if (costs == null)
+        {
+            return null;
+        }
+
+        foreach (ResourceCost cost in costs)
+        {
+            if (cost != null
+                && villager.GetResourceInventoryAmountForJob(cost.resourceType) < cost.amount)
+            {
+                return cost;
+            }
+        }
+
+        return null;
+    }
+
+    private static ResourceCost[] CopyCosts(ResourceCost[] costs)
+    {
+        ResourceCost[] copy = new ResourceCost[costs.Length];
+        for (int index = 0; index < costs.Length; index++)
+        {
+            copy[index] = new ResourceCost
+            {
+                resourceType = costs[index].resourceType,
+                amount = costs[index].amount
+            };
+        }
+
+        return copy;
+    }
+
+    private static ResourceCost[] CombineResourceCosts(
+        ResourceCost[] firstCosts,
+        ResourceCost[] secondCosts)
+    {
+        List<ResourceCost> combinedCosts = new List<ResourceCost>();
+        AddResourceCosts(combinedCosts, firstCosts);
+        AddResourceCosts(combinedCosts, secondCosts);
+        return combinedCosts.ToArray();
+    }
+
+    private static void AddResourceCosts(List<ResourceCost> combinedCosts, ResourceCost[] costs)
+    {
+        if (costs == null)
+        {
+            return;
+        }
+
+        foreach (ResourceCost cost in costs)
+        {
+            if (cost == null || cost.amount <= 0)
+            {
+                continue;
+            }
+
+            ResourceCost combinedCost = combinedCosts.Find(
+                existing => existing.resourceType == cost.resourceType);
+            if (combinedCost == null)
+            {
+                combinedCosts.Add(new ResourceCost
+                {
+                    resourceType = cost.resourceType,
+                    amount = cost.amount
+                });
+            }
+            else
+            {
+                combinedCost.amount += cost.amount;
+            }
+        }
+    }
+
+    internal void ReleaseWorkplace()
+    {
+        MapManager mapManager = MapManager.Instance;
+        HouseConstructionSite constructionSite = GetConstructionSite();
+        if (constructionSite != null)
+        {
+            constructionSite.Complete();
+        }
+
+        if (mapManager != null)
+        {
+            if (workplaceHouse != null)
+            {
+                mapManager.ReleaseWorkplaceAnnex(workplaceHouse, villager);
+            }
+
+            if (isSeparateWorkplace)
+            {
+                mapManager.ReleaseWorkplaceHouse(villager);
+            }
+        }
+
+        workplaceHouse = null;
+        workplacePlot = null;
+        workplaceHouseDefinition = null;
+        workplaceProjectCosts = null;
+        workplaceStage = WorkplaceStage.None;
+        isSeparateWorkplace = false;
+        isBuildingNewWorkplaceHouse = false;
+        productionTimer = 0f;
+    }
+
+    private HouseConstructionSite GetConstructionSite()
+    {
+        return workplaceHouse != null
+            ? workplaceHouse.GetComponent<HouseConstructionSite>()
+            : null;
+    }
+
+    private void BeginConstructionWorkStep()
+    {
+        MapManager mapManager = MapManager.Instance;
+        HouseConstructionSite constructionSite = mapManager != null && workplaceHouse != null
+            ? mapManager.GetOrCreateHouseConstructionSite(workplaceHouse)
+            : null;
+        if (mapManager == null || constructionSite == null)
+        {
+            Debug.LogError("Cannot begin workplace construction without an active construction site.", this);
+            return;
+        }
+
+        if (!constructionSite.BeginWorkStep(
+                villager,
+                mapManager.GetHouseEntrancePosition(workplacePlot)))
+        {
+            Debug.LogError("Could not begin the workplace construction work step.", this);
+        }
+    }
+
+    public void CancelWorkplacePlotForRoad()
+    {
+        ReleaseWorkplace();
+        villager.StopForagingMovement();
     }
 
     public void PauseJobForEmergencyFood()
@@ -160,7 +852,8 @@ public class VillagerJobController : MonoBehaviour
                     villager,
                     villager.transform.position,
                     unreachableResources,
-                    settings.gatheringDistance,
+                    GetAllowedResourceTypes(),
+                    isForagerJob ? jobDefinition.gatheringDistance : settings.gatheringDistance,
                     out foragingResource,
                     out foragingResourceType)
                 : mapManager.TryGetClosestReachableResourceObject(
@@ -173,7 +866,10 @@ public class VillagerJobController : MonoBehaviour
                     out foragingResource);
             if (!foundResource)
             {
-                nextResourceSearchTime = Time.time + settings.foodResourceSearchRetrySeconds;
+                nextResourceSearchTime = Time.time
+                    + (isForagerJob
+                        ? jobDefinition.resourceSearchRetrySeconds
+                        : settings.foodResourceSearchRetrySeconds);
                 villager.StopForagingMovement();
                 return false;
             }
@@ -207,7 +903,7 @@ public class VillagerJobController : MonoBehaviour
             : foragingResource.transform.position;
         float interactionDistance = interactionOffset != Vector2Int.zero
             ? 0.1f
-            : settings.gatheringDistance;
+            : isForagerJob ? jobDefinition.gatheringDistance : settings.gatheringDistance;
         if (Vector2.Distance(villager.transform.position, interactionPosition) > interactionDistance)
         {
             foragingGatheringTimer = 0f;
@@ -222,7 +918,11 @@ public class VillagerJobController : MonoBehaviour
             return true;
         }
 
-        villager.PlayForagingMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
+        villager.PlayForagingMotion(
+            isForagerJob ? jobDefinition.handHitPositions : settings.handHitPositions,
+            isForagerJob
+                ? jobDefinition.handMotionDurationSeconds
+                : settings.handMotionDurationSeconds);
         foragingResource.PlayShake(
             resourceSettings.shakeDurationSeconds,
             resourceSettings.shakeMagnitude,
@@ -231,7 +931,7 @@ public class VillagerJobController : MonoBehaviour
                 villager,
                 foragingResource,
                 foragingResourceType,
-                1,
+                isForagerJob ? jobDefinition.harvestAmount : 1,
                 false,
                 out int gatheredAmount)
             && gatheredAmount > 0)
@@ -250,8 +950,22 @@ public class VillagerJobController : MonoBehaviour
             ReleaseForagingResource(mapManager);
         }
 
-        foragingGatheringTimer = settings.gatheringPauseDurationSeconds;
+        foragingGatheringTimer = isForagerJob
+            ? jobDefinition.gatheringPauseDurationSeconds
+            : settings.gatheringPauseDurationSeconds;
         return true;
+    }
+
+    private ISet<ResourceType> GetAllowedResourceTypes()
+    {
+        if (jobDefinition == null
+            || jobDefinition.gatherAnyAvailableResource
+            || jobDefinition.resourceTypes == null)
+        {
+            return null;
+        }
+
+        return new HashSet<ResourceType>(jobDefinition.resourceTypes);
     }
 
     private void StopForagingForJob()
@@ -294,5 +1008,6 @@ public class VillagerJobController : MonoBehaviour
     private void OnDestroy()
     {
         ReleaseForagingResource(MapManager.Instance);
+        ReleaseWorkplace();
     }
 }

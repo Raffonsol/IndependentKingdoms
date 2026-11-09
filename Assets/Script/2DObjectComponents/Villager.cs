@@ -16,7 +16,9 @@ public class Villager : Combatant
         None,
         Deposit,
         Food,
-        HouseMaterials
+        HouseMaterials,
+        WorkplaceMaterials,
+        JobInputs
     }
 
     public const float MaximumHunger = 100f;
@@ -52,9 +54,53 @@ public class Villager : Combatant
         get { return HousingState == VillagerHousingState.Housed && housePlot != null; }
     }
 
+    internal HousePlotRecord HomeHousePlot
+    {
+        get { return housePlot; }
+    }
+
+    internal GameObject HomeHouseObject
+    {
+        get { return claimedSpaceObject; }
+    }
+
     internal bool IsRestingFromWork
     {
         get { return isRestingFromWork; }
+    }
+
+    internal bool IsPreparingJobWorkplace
+    {
+        get { return jobController != null && jobController.IsPreparingWorkplace; }
+    }
+
+    internal bool IsHelpingConstruction
+    {
+        get { return helpingConstructionSite != null; }
+    }
+
+    internal bool IsActivelyHelpingConstruction
+    {
+        get
+        {
+            return helpingConstructionSite != null
+                && helpingConstructionSite.IsActive
+                && isAtConstructionSite;
+        }
+    }
+
+    internal bool CanStartConstructionAssistance
+    {
+        get
+        {
+            return HousingState == VillagerHousingState.Housed
+                && !IsCombatEngaged
+                && !isSeekingFood
+                && storageTripPurpose == StorageTripPurpose.None
+                && !isRestingFromWork
+                && !isRestingAtHome
+                && !IsPreparingJobWorkplace;
+        }
     }
 
     public bool CanChooseCommunityStorageOperation
@@ -106,6 +152,7 @@ public class Villager : Combatant
     private VillagerSettings settings;
     private VillagerBrain brain;
     private VillagerJobController jobController;
+    private VillagerStorageSelector storageSelector;
     private HouseSettings houseSettings;
     private CommunityStorageSettings communityStorageSettings;
     private ResourceSettings resourceSettings;
@@ -132,6 +179,7 @@ public class Villager : Combatant
     private float nextCommunityStorageAttemptTime;
     private float nextHousingSearchAttemptTime;
     private float behaviorTimerBeforeFoodSeeking;
+    private float helpingConstructionHammerTimer;
     private int housingSearchAttempts;
     private int observedRoadRevision = -1;
     private Vector3 roadTargetPosition;
@@ -147,11 +195,15 @@ public class Villager : Combatant
     private bool isRestingAtHome;
     private bool isRestingFromWork;
     private StorageTripPurpose storageTripPurpose;
+    private CommunityStorage storageTripTarget;
+    private HouseConstructionSite helpingConstructionSite;
     private ResourceType storageTripResourceType;
     private int storageTripRequestedAmount;
+    private bool storageTripMadeProgress;
     private bool isIdlingWithoutHome;
     private bool isStayingHomeWithoutWork;
     private bool isAtHomeWithoutWork;
+    private bool isAtConstructionSite;
     private bool isWaitingForRoadChange;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
@@ -183,6 +235,93 @@ public class Villager : Combatant
         return false;
     }
 
+    internal bool TryRunConstructionAssistance()
+    {
+        if (helpingConstructionSite == null)
+        {
+            if (!HasPersonality(VillagerPersonalityType.Helpful)
+                || !CanStartConstructionAssistance)
+            {
+                return false;
+            }
+
+            MapManager mapManager = MapManager.Instance;
+            if (mapManager == null
+                || !mapManager.TryGetNearestActiveConstructionSite(
+                    this,
+                    out HouseConstructionSite constructionSite)
+                || !constructionSite.TryJoin(this))
+            {
+                return false;
+            }
+
+            helpingConstructionSite = constructionSite;
+            helpingConstructionHammerTimer = 0f;
+            isAtConstructionSite = false;
+            if (jobController != null)
+            {
+                jobController.ReleaseForagingResource();
+            }
+
+            ClearNoWorkBehavior();
+            EnterBehavior(VillagerBehaviorMode.Building, settings.idleBehaviorDuration);
+        }
+
+        if (helpingConstructionSite == null
+            || !helpingConstructionSite.IsActive
+            || !helpingConstructionSite.HasHelper(this))
+        {
+            StopConstructionAssistance(helpingConstructionSite);
+            return false;
+        }
+
+        SetMovementSpeed(DefaultMovementSpeed);
+        if (Vector2.Distance(transform.position, helpingConstructionSite.WorkPosition) > 0.1f)
+        {
+            isAtConstructionSite = false;
+            MoveTo(helpingConstructionSite.WorkPosition, 0.1f);
+            return true;
+        }
+
+        StopMoving();
+        isAtConstructionSite = true;
+        helpingConstructionHammerTimer -= Time.deltaTime;
+        if (helpingConstructionHammerTimer <= 0f)
+        {
+            PlayHouseHammerMotion();
+            helpingConstructionHammerTimer = houseSettings.hammerPauseDurationSeconds;
+        }
+
+        return true;
+    }
+
+    internal void StopConstructionAssistance()
+    {
+        StopConstructionAssistance(helpingConstructionSite);
+    }
+
+    internal void StopConstructionAssistance(HouseConstructionSite site)
+    {
+        if (helpingConstructionSite == null
+            || (site != null && helpingConstructionSite != site))
+        {
+            return;
+        }
+
+        HouseConstructionSite currentSite = helpingConstructionSite;
+        helpingConstructionSite = null;
+        helpingConstructionHammerTimer = 0f;
+        isAtConstructionSite = false;
+        if (currentSite != null)
+        {
+            currentSite.Leave(this);
+        }
+
+        EnterBehavior(
+            VillagerBehaviorMode.Idle,
+            settings != null ? settings.idleBehaviorDuration : 0.1f);
+    }
+
     public bool AssignJob(JobType job)
     {
         return jobController != null && jobController.AssignJob(job);
@@ -212,6 +351,12 @@ public class Villager : Combatant
         settings = gameData.villagerSettings;
         brain = GetComponent<VillagerBrain>();
         jobController = GetComponent<VillagerJobController>();
+        storageSelector = GetComponent<VillagerStorageSelector>();
+        if (storageSelector == null)
+        {
+            storageSelector = gameObject.AddComponent<VillagerStorageSelector>();
+        }
+
         houseSettings = gameData.houseSettings;
         communityStorageSettings = gameData.communityStorageSettings;
         resourceSettings = gameData.resourceSettings;
@@ -244,6 +389,7 @@ public class Villager : Combatant
 
         brain.Initialize(this, settings);
         jobController.Initialize(this, settings, resourceSettings);
+        storageSelector.Initialize(this);
         Hunger = 0f;
         Fatigue = 0f;
         HousingState = VillagerHousingState.FindingRoad;
@@ -410,8 +556,16 @@ public class Villager : Combatant
         }
 
         MapManager mapManager = MapManager.Instance;
-        if (mapManager == null
-            || !mapManager.TryClaimCommunityStorage(this, communityStorageSettings.dimensions))
+        if (mapManager == null || storageSelector == null)
+        {
+            return false;
+        }
+
+        if (!storageSelector.TrySelectStorageForDeposit(resourceInventory, out storageTripTarget)
+            && !mapManager.TryCreateCommunityStorage(
+                this,
+                communityStorageSettings.dimensions,
+                out storageTripTarget))
         {
             nextCommunityStorageAttemptTime =
                 Time.time + settings.communityStorageSearchRetrySeconds;
@@ -420,6 +574,7 @@ public class Villager : Combatant
 
         ClearNoWorkBehavior();
         storageTripPurpose = StorageTripPurpose.Deposit;
+        storageTripMadeProgress = false;
         EnterBehavior(VillagerBehaviorMode.LoadingToStorage, settings.idleBehaviorDuration);
         return true;
     }
@@ -509,6 +664,187 @@ public class Villager : Combatant
         PlayArmMotion(positions, duration);
     }
 
+    internal int GetResourceInventoryAmountForJob(ResourceType resourceType)
+    {
+        return GetResourceInventoryAmount(resourceType);
+    }
+
+    internal bool TryBeginWorkplaceMaterialsWithdrawal(ResourceType resourceType, int amount)
+    {
+        return BeginCommunityStorageWithdrawal(
+            resourceType,
+            amount,
+            StorageTripPurpose.WorkplaceMaterials);
+    }
+
+    internal bool TryBeginJobInputWithdrawal(ResourceType resourceType, int amount)
+    {
+        return BeginCommunityStorageWithdrawal(
+            resourceType,
+            amount,
+            StorageTripPurpose.JobInputs);
+    }
+
+    internal bool TryRemoveResourceCostsForJob(ResourceCost[] costs)
+    {
+        if (costs == null)
+        {
+            return false;
+        }
+
+        foreach (ResourceCost cost in costs)
+        {
+            if (cost == null || GetResourceInventoryAmount(cost.resourceType) < cost.amount)
+            {
+                return false;
+            }
+        }
+
+        foreach (ResourceCost cost in costs)
+        {
+            if (!TryRemoveResourceInventory(cost.resourceType, cost.amount))
+            {
+                Debug.LogError(
+                    "Could not remove workplace materials from the villager's inventory.",
+                    this);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    internal bool TryGatherWorkplaceResource(ResourceType resourceType, int requestedAmount)
+    {
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null || requestedAmount <= 0)
+        {
+            StopMoving();
+            return false;
+        }
+
+        bool hasAxe = equippedWeapon == VillagerWeaponType.Axe;
+        if (gatheringResource == null
+            || !gatheringResource.CanGather(resourceType, hasAxe)
+            || gatheringResource.Type != resourceType)
+        {
+            ReleaseGatheringResource(mapManager);
+            if (!mapManager.TryGetClosestResourceObject(
+                    this,
+                    resourceType,
+                    transform.position,
+                    hasAxe,
+                    out gatheringResource))
+            {
+                StopMoving();
+                return false;
+            }
+
+            isWaitingToApproachResource = true;
+            resourceReactionTimer = GetReactionTime();
+        }
+
+        if (isWaitingToApproachResource)
+        {
+            resourceReactionTimer = Mathf.Max(0f, resourceReactionTimer - Time.deltaTime);
+            if (resourceReactionTimer > 0f)
+            {
+                StopMoving();
+                return true;
+            }
+
+            isWaitingToApproachResource = false;
+        }
+
+        Vector2Int interactionOffset = gatheringResource.GetInteractionOffset(resourceType);
+        bool usesOffsetInteractionCell = interactionOffset != Vector2Int.zero;
+        Vector3 interactionPosition = usesOffsetInteractionCell
+            ? mapManager.GetGridCellBounds(gatheringResource.GridCell + interactionOffset).center
+            : gatheringResource.transform.position;
+        float interactionDistance = usesOffsetInteractionCell ? 0.1f : settings.gatheringDistance;
+        if (Vector2.Distance(transform.position, interactionPosition) > interactionDistance)
+        {
+            gatheringTimer = 0f;
+            MoveTo(interactionPosition, interactionDistance);
+            return true;
+        }
+
+        StopMoving();
+        gatheringTimer -= Time.deltaTime;
+        if (gatheringTimer > 0f)
+        {
+            return true;
+        }
+
+        PlayArmMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
+        gatheringResource.PlayShake(
+            resourceSettings.shakeDurationSeconds,
+            resourceSettings.shakeMagnitude,
+            resourceSettings.shakeFrequency);
+        if (mapManager.TryGatherResource(
+                this,
+                gatheringResource,
+                resourceType,
+                requestedAmount,
+                hasAxe,
+                out int gatheredAmount)
+            && gatheredAmount > 0)
+        {
+            if (!AddResourceInventory(resourceType, gatheredAmount))
+            {
+                Debug.LogError(
+                    "Could not add gathered " + resourceType + " to the villager's inventory.",
+                    this);
+            }
+        }
+        else
+        {
+            ReleaseGatheringResource(mapManager);
+        }
+
+        gatheringTimer = settings.gatheringPauseDurationSeconds;
+        return true;
+    }
+
+    internal bool MoveToHouseWorkPosition(MapManager mapManager, HousePlotRecord plot)
+    {
+        if (mapManager == null || plot == null)
+        {
+            StopMoving();
+            return false;
+        }
+
+        Vector3 workPosition = mapManager.GetHouseEntrancePosition(plot);
+        if (Vector2.Distance(transform.position, workPosition) > 0.1f)
+        {
+            MoveTo(workPosition, 0.1f);
+            return false;
+        }
+
+        StopMoving();
+        return true;
+    }
+
+    internal void PlayHouseHammerMotion()
+    {
+        PlayArmMotion(
+            houseSettings.hammerHitPositions,
+            houseSettings.hammerMotionDurationSeconds);
+    }
+
+    internal float GetHouseVisualWidth(
+        MapManager mapManager,
+        HousePlotRecord plot,
+        HouseDefinition definition)
+    {
+        return plot.dimensions.x * mapManager.GridCellSize * definition.visualScale;
+    }
+
+    internal void SetJobBehavior(VillagerBehaviorMode mode, float duration)
+    {
+        EnterBehavior(mode, duration);
+    }
+
     internal void OnForagedFood(int amount)
     {
         Hunger = Mathf.Max(0f, Hunger - amount * settings.hungerRestoredPerFoodUnit);
@@ -552,6 +888,7 @@ public class Villager : Combatant
         RefreshHousingRoadRevision();
         if (IsCombatEngaged)
         {
+            StopConstructionAssistance();
             ClearNoWorkBehavior();
             UpdateFatigue(Time.deltaTime);
             base.Update();
@@ -653,6 +990,7 @@ public class Villager : Combatant
             return;
         }
 
+        StopConstructionAssistance();
         // Work fatigue uses hysteresis: the villager starts resting at the productive
         // threshold and cannot work again until below the lower home-rest threshold.
         isRestingFromWork = true;
@@ -824,6 +1162,7 @@ public class Villager : Combatant
             return;
         }
 
+        StopConstructionAssistance();
         isSeekingFood = true;
         isEmergencyFoodSeeking = emergency;
         jobController.PauseJobForEmergencyFood();
@@ -943,7 +1282,10 @@ public class Villager : Combatant
         MapManager mapManager = MapManager.Instance;
         if (mapManager == null
             || mapManager.GetCommunityStorageAmount(resourceType) <= 0
-            || !mapManager.TryGetCommunityStorageEntrancePosition(out _))
+            || storageSelector == null
+            || !storageSelector.TrySelectStorageForWithdrawal(
+                resourceType,
+                out storageTripTarget))
         {
             return false;
         }
@@ -951,6 +1293,7 @@ public class Villager : Combatant
         storageTripPurpose = purpose;
         storageTripResourceType = resourceType;
         storageTripRequestedAmount = requestedAmount;
+        storageTripMadeProgress = false;
         EnterBehavior(VillagerBehaviorMode.LoadingToStorage, settings.idleBehaviorDuration);
         return true;
     }
@@ -958,9 +1301,24 @@ public class Villager : Combatant
     private void UpdateCommunityStorageTrip()
     {
         MapManager mapManager = MapManager.Instance;
-        if (mapManager == null
-            || !mapManager.TryGetCommunityStorageEntrancePosition(out Vector3 entrancePosition))
+        if (mapManager == null)
         {
+            FinishCommunityStorageTrip(false);
+            return;
+        }
+
+        if (!IsStorageTripTargetAvailable()
+            && !TrySelectStorageTripTarget(mapManager))
+        {
+            FinishCommunityStorageTrip(storageTripMadeProgress);
+            return;
+        }
+
+        if (!mapManager.TryGetCommunityStorageEntrancePosition(
+                storageTripTarget,
+                out Vector3 entrancePosition))
+        {
+            Debug.LogError("Villager's selected community storage has no valid entrance.", this);
             FinishCommunityStorageTrip(false);
             return;
         }
@@ -985,30 +1343,47 @@ public class Villager : Combatant
             for (int index = resourceInventory.Count - 1; index >= 0; index--)
             {
                 VillagerResourceEntry entry = resourceInventory[index];
+                bool hadPriorDepositProgress = storageTripMadeProgress;
                 if (entry != null
                     && mapManager.TryDepositCommunityStorage(
+                        storageTripTarget,
                         entry.resourceType,
                         entry.amount,
                         out int depositedAmount))
                 {
+                    storageTripMadeProgress = true;
                     if (!TryRemoveResourceInventory(entry.resourceType, depositedAmount))
                     {
                         Debug.LogError(
                             "Could not remove deposited resources from the villager's inventory.",
                             this);
                         mapManager.TryWithdrawCommunityStorage(
+                            storageTripTarget,
                             entry.resourceType,
                             depositedAmount,
                             out _);
+                        storageTripMadeProgress = hadPriorDepositProgress;
                     }
                 }
             }
 
-            FinishCommunityStorageTrip(true);
+            if (resourceInventory.Count == 0)
+            {
+                FinishCommunityStorageTrip(true);
+                return;
+            }
+
+            storageTripTarget = null;
+            if (!TrySelectStorageTripTarget(mapManager))
+            {
+                FinishCommunityStorageTrip(false);
+            }
+
             return;
         }
 
         if (mapManager.TryWithdrawCommunityStorage(
+                storageTripTarget,
                 storageTripResourceType,
                 storageTripRequestedAmount,
                 out int withdrawnAmount))
@@ -1019,35 +1394,90 @@ public class Villager : Combatant
                     "Could not add withdrawn resources to the villager's inventory.",
                     this);
                 mapManager.TryDepositCommunityStorage(
+                    storageTripTarget,
                     storageTripResourceType,
                     withdrawnAmount,
                     out _);
-                FinishCommunityStorageTrip(false);
+                FinishCommunityStorageTrip(storageTripMadeProgress);
                 return;
             }
 
+            storageTripMadeProgress = true;
+            storageTripRequestedAmount -= withdrawnAmount;
             if (completedPurpose == StorageTripPurpose.Food)
             {
                 foodSeekingStage = FoodSeekingStage.CheckInventory;
                 SetFoodSeekingBehavior(VillagerBehaviorMode.LookingForFood);
             }
-            else if (completedPurpose == StorageTripPurpose.HouseMaterials)
+            else if (completedPurpose == StorageTripPurpose.JobInputs && jobController != null)
             {
-                EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+                jobController.OnJobInputsWithdrawn(storageTripResourceType, withdrawnAmount);
             }
 
-            FinishCommunityStorageTrip(true);
+            if (storageTripRequestedAmount > 0)
+            {
+                storageTripTarget = null;
+                if (TrySelectStorageTripTarget(mapManager))
+                {
+                    return;
+                }
+            }
+
+            FinishCommunityStorageTrip(storageTripMadeProgress);
             return;
         }
 
-        FinishCommunityStorageTrip(false);
+        storageTripTarget = null;
+        if (TrySelectStorageTripTarget(mapManager))
+        {
+            return;
+        }
+
+        FinishCommunityStorageTrip(storageTripMadeProgress);
+    }
+
+    private bool IsStorageTripTargetAvailable()
+    {
+        if (storageTripTarget == null || !storageTripTarget.isActiveAndEnabled)
+        {
+            return false;
+        }
+
+        return storageTripPurpose == StorageTripPurpose.Deposit
+            ? storageTripTarget.GetDepositAmount(resourceInventory) > 0
+            : storageTripTarget.GetAmount(storageTripResourceType) > 0;
+    }
+
+    private bool TrySelectStorageTripTarget(MapManager mapManager)
+    {
+        if (mapManager == null || storageSelector == null)
+        {
+            return false;
+        }
+
+        if (storageTripPurpose == StorageTripPurpose.Deposit)
+        {
+            return storageSelector.TrySelectStorageForDeposit(
+                    resourceInventory,
+                    out storageTripTarget)
+                || mapManager.TryCreateCommunityStorage(
+                    this,
+                    communityStorageSettings.dimensions,
+                    out storageTripTarget);
+        }
+
+        return storageSelector.TrySelectStorageForWithdrawal(
+            storageTripResourceType,
+            out storageTripTarget);
     }
 
     private void FinishCommunityStorageTrip(bool succeeded)
     {
         StorageTripPurpose completedPurpose = storageTripPurpose;
         storageTripPurpose = StorageTripPurpose.None;
+        storageTripTarget = null;
         storageTripRequestedAmount = 0;
+        storageTripMadeProgress = false;
         if (!succeeded)
         {
             nextCommunityStorageAttemptTime =
@@ -1067,11 +1497,14 @@ public class Villager : Combatant
 
         if (completedPurpose == StorageTripPurpose.HouseMaterials)
         {
-            if (!succeeded)
-            {
-                EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
-            }
+            EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
+            return;
+        }
 
+        if (completedPurpose == StorageTripPurpose.WorkplaceMaterials
+            || completedPurpose == StorageTripPurpose.JobInputs)
+        {
+            EnterBehavior(VillagerBehaviorMode.Work, settings.idleBehaviorDuration);
             return;
         }
 
@@ -1426,7 +1859,8 @@ public class Villager : Combatant
         }
 
         housePlot.storedMaterials = CopyHouseCosts();
-        selectedHouseDefinition = houseDefinitions[Random.Range(0, houseDefinitions.Length)];
+        selectedHouseDefinition =
+            houseDefinitions[UnityEngine.Random.Range(0, houseDefinitions.Length)];
         float visualWidth = GetHouseVisualWidth(mapManager);
         houseVisual.ShowConstructionStage(
             houseBuildStageOneSprites,
@@ -1435,6 +1869,15 @@ public class Villager : Combatant
             selectedHouseDefinition.visualOffset,
             selectedHouseDefinition.sortingAnchorOffset,
             false);
+        HouseConstructionSite constructionSite =
+            mapManager.GetOrCreateHouseConstructionSite(claimedSpaceObject);
+        if (constructionSite == null
+            || !constructionSite.BeginWorkStep(this, GetHouseWorkPosition(mapManager)))
+        {
+            Debug.LogError("Could not start the house construction site.", claimedSpaceObject);
+            return;
+        }
+
         HousingState = VillagerHousingState.BuildingHouseStageOne;
         constructionTimer = 0f;
         hammeringTimer = 0f;
@@ -1453,6 +1896,15 @@ public class Villager : Combatant
         if (mapManager == null || housePlot == null)
         {
             return;
+        }
+
+        HouseConstructionSite constructionSite =
+            claimedSpaceObject != null
+                ? mapManager.GetOrCreateHouseConstructionSite(claimedSpaceObject)
+                : null;
+        if (constructionSite != null)
+        {
+            constructionSite.EndWorkStep();
         }
 
         houseVisual.ShowConstructionStage(
@@ -1480,6 +1932,17 @@ public class Villager : Combatant
         HousingState = VillagerHousingState.BuildingHouseStageTwo;
         constructionTimer = 0f;
         hammeringTimer = 0f;
+        MapManager mapManager = MapManager.Instance;
+        HouseConstructionSite constructionSite =
+            mapManager != null && claimedSpaceObject != null
+                ? mapManager.GetOrCreateHouseConstructionSite(claimedSpaceObject)
+                : null;
+        if (constructionSite == null
+            || !constructionSite.BeginWorkStep(this, GetHouseWorkPosition(mapManager)))
+        {
+            Debug.LogError("Could not resume the house construction site for stage two.", this);
+        }
+
         EnterBehavior(VillagerBehaviorMode.Building, houseSettings.secondConstructionDurationSeconds);
     }
 
@@ -1500,6 +1963,16 @@ public class Villager : Combatant
         float visualWidth = mapManager != null
             ? GetHouseVisualWidth(mapManager)
             : housePlot.dimensions.x * selectedHouseDefinition.visualScale;
+        if (claimedSpaceObject != null)
+        {
+            HouseConstructionSite constructionSite =
+                claimedSpaceObject.GetComponent<HouseConstructionSite>();
+            if (constructionSite != null)
+            {
+                constructionSite.Complete();
+            }
+        }
+
         houseVisual.ShowFinishedHouse(selectedHouseDefinition, visualWidth);
         HousingState = VillagerHousingState.Housed;
         if (mapManager != null)
@@ -1520,6 +1993,10 @@ public class Villager : Combatant
             return false;
         }
 
+        HouseConstructionSite constructionSite =
+            claimedSpaceObject != null
+                ? mapManager.GetOrCreateHouseConstructionSite(claimedSpaceObject)
+                : null;
         Vector3 workPosition = GetHouseWorkPosition(mapManager);
         if (Vector2.Distance(transform.position, workPosition) > 0.1f)
         {
@@ -1528,7 +2005,8 @@ public class Villager : Combatant
         }
 
         StopMoving();
-        constructionTimer += Time.deltaTime;
+        constructionTimer += Time.deltaTime
+            * (constructionSite != null ? constructionSite.WorkerCount : 1);
         hammeringTimer -= Time.deltaTime;
         if (hammeringTimer <= 0f)
         {
@@ -1701,6 +2179,14 @@ public class Villager : Combatant
         EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
     }
 
+    public void CancelWorkplacePlotForRoad()
+    {
+        if (jobController != null)
+        {
+            jobController.CancelWorkplacePlotForRoad();
+        }
+    }
+
     private void MoveAround()
     {
         movementPhaseTimer -= Time.deltaTime;
@@ -1713,19 +2199,34 @@ public class Villager : Combatant
         {
             StopMoving();
             isInMovementPhase = false;
-            movementPhaseTimer = Random.Range(IdleDurationRange.x, IdleDurationRange.y);
+            movementPhaseTimer = UnityEngine.Random.Range(
+                IdleDurationRange.x,
+                IdleDurationRange.y);
         }
         else
         {
-            Move(Random.Range(0f, 360f));
+            Move(UnityEngine.Random.Range(0f, 360f));
             isInMovementPhase = true;
-            movementPhaseTimer = Random.Range(MovementDurationRange.x, MovementDurationRange.y);
+            movementPhaseTimer = UnityEngine.Random.Range(
+                MovementDurationRange.x,
+                MovementDurationRange.y);
         }
     }
 
     protected override void OnDeath()
     {
+        StopConstructionAssistance();
         MapManager mapManager = MapManager.Instance;
+        if (claimedSpaceObject != null)
+        {
+            HouseConstructionSite constructionSite =
+                claimedSpaceObject.GetComponent<HouseConstructionSite>();
+            if (constructionSite != null)
+            {
+                constructionSite.Complete();
+            }
+        }
+
         if (HousingState == VillagerHousingState.Housed && mapManager != null)
         {
             mapManager.ReleaseCompletedHouse(this);
@@ -1733,6 +2234,7 @@ public class Villager : Combatant
 
         ReleaseGatheringResource(mapManager);
         jobController.ReleaseForagingResource();
+        jobController.ReleaseWorkplace();
         currentBehavior = new VillagerBehaviorStage
         {
             mode = VillagerBehaviorMode.Dying,
@@ -1763,6 +2265,17 @@ public class Villager : Combatant
 
     private void OnDestroy()
     {
+        StopConstructionAssistance();
+        if (claimedSpaceObject != null)
+        {
+            HouseConstructionSite constructionSite =
+                claimedSpaceObject.GetComponent<HouseConstructionSite>();
+            if (constructionSite != null)
+            {
+                constructionSite.Complete();
+            }
+        }
+
         Player player = Player.Instance;
         if (player != null)
         {
@@ -1774,6 +2287,11 @@ public class Villager : Combatant
         {
             mapManager.ReleaseHousePlot(this);
             mapManager.ReleaseResourceReservation(gatheringResource, this);
+        }
+
+        if (jobController != null)
+        {
+            jobController.ReleaseWorkplace();
         }
 
         if (HousingState != VillagerHousingState.Housed && claimedSpaceObject != null)

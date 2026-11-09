@@ -7,13 +7,16 @@ public class VillagerBrain : MonoBehaviour
         Housing,
         Food,
         Productive,
-        CommunityStorage
+        CommunityStorage,
+        ConstructionAssistance
     }
 
     private Villager villager;
     private VillagerSettings settings;
     private bool hasNoWorkDecision;
     private bool noWorkDecisionIsStayHome;
+    private bool hasActiveOperation;
+    private Operation activeOperation;
     private VillagerHousingState observedHousingState;
     private JobType observedJobAssignment;
 
@@ -42,6 +45,7 @@ public class VillagerBrain : MonoBehaviour
             || observedJobAssignment != villager.JobAssignment)
         {
             ResetNoWorkDecision();
+            hasActiveOperation = false;
             observedHousingState = villager.HousingState;
             observedJobAssignment = villager.JobAssignment;
         }
@@ -73,7 +77,12 @@ public class VillagerBrain : MonoBehaviour
         float productivePriority = villager.JobAssignment != JobType.None
             && !villager.IsRestingFromWork
             && villager.Fatigue < settings.productiveFatigueThreshold
-            ? settings.productiveOperationPriority
+            ? (villager.IsPreparingJobWorkplace
+                ? settings.housingOperationPriority
+                    - (villager.HasPersonality(VillagerPersonalityType.Lazy)
+                        ? settings.lazyHousingPriorityPenalty
+                        : 0f)
+                : settings.productiveOperationPriority)
             : float.NegativeInfinity;
         float communityStoragePriority = float.NegativeInfinity;
         if (communityStorageAvailable)
@@ -84,6 +93,26 @@ public class VillagerBrain : MonoBehaviour
                 + villager.CommunityStorageSurplusAmount
                     * settings.communityStoragePriorityPerItem;
         }
+        float constructionAssistancePriority = float.NegativeInfinity;
+        bool continuingConstructionAssistance = villager.IsHelpingConstruction;
+        bool anotherOperationIsActive = hasActiveOperation
+            && activeOperation != Operation.ConstructionAssistance;
+        MapManager mapManager = MapManager.Instance;
+        if (continuingConstructionAssistance
+            || (!anotherOperationIsActive
+                && villager.HasPersonality(VillagerPersonalityType.Helpful)
+                && villager.CanStartConstructionAssistance
+                && mapManager != null
+                && mapManager.HasActiveConstructionSiteFor(villager)))
+        {
+            constructionAssistancePriority = settings.helpfulConstructionOperationPriority;
+        }
+
+        if (communityStorageAvailable
+            && constructionAssistancePriority > communityStoragePriority)
+        {
+            constructionAssistancePriority = communityStoragePriority;
+        }
 
         Operation firstOperation = Operation.Housing;
         float firstPriority = housingPriority;
@@ -93,22 +122,58 @@ public class VillagerBrain : MonoBehaviour
         float thirdPriority = productivePriority;
         Operation fourthOperation = Operation.CommunityStorage;
         float fourthPriority = communityStoragePriority;
+        Operation fifthOperation = Operation.ConstructionAssistance;
+        float fifthPriority = constructionAssistancePriority;
         OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
         OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
-        OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
         OrderByPriority(ref thirdOperation, ref thirdPriority, ref fourthOperation, ref fourthPriority);
+        OrderByPriority(ref fourthOperation, ref fourthPriority, ref fifthOperation, ref fifthPriority);
+        OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
+        OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
+        OrderByPriority(ref thirdOperation, ref thirdPriority, ref fourthOperation, ref fourthPriority);
+        OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
         OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
         OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
 
-        if (TryRunOperation(firstOperation, housingAvailable, foodAvailable)
-            || TryRunOperation(secondOperation, housingAvailable, foodAvailable)
-            || TryRunOperation(thirdOperation, housingAvailable, foodAvailable)
-            || TryRunOperation(fourthOperation, housingAvailable, foodAvailable))
+        Operation selectedOperation = firstOperation;
+        if (TryRunPrioritizedOperation(
+                firstOperation,
+                firstPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation)
+            || TryRunPrioritizedOperation(
+                secondOperation,
+                secondPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation)
+            || TryRunPrioritizedOperation(
+                thirdOperation,
+                thirdPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation)
+            || TryRunPrioritizedOperation(
+                fourthOperation,
+                fourthPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation)
+            || TryRunPrioritizedOperation(
+                fifthOperation,
+                fifthPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation))
         {
+            hasActiveOperation = true;
+            activeOperation = selectedOperation;
             ResetNoWorkDecision();
             return;
         }
 
+        hasActiveOperation = false;
         if (villager.HasHome
             && villager.Fatigue >= settings.homeRestStartFatigueThreshold)
         {
@@ -121,7 +186,7 @@ public class VillagerBrain : MonoBehaviour
                 ? settings.lazyIdleHomeStayProbability
                 : settings.idleHomeStayProbability;
             noWorkDecisionIsStayHome = villager.HasHome
-                && Random.value < stayHomeProbability;
+                && UnityEngine.Random.value < stayHomeProbability;
             hasNoWorkDecision = true;
         }
 
@@ -134,8 +199,29 @@ public class VillagerBrain : MonoBehaviour
         noWorkDecisionIsStayHome = false;
     }
 
+    private bool TryRunPrioritizedOperation(
+        Operation operation,
+        float priority,
+        bool housingAvailable,
+        bool foodAvailable,
+        out Operation selectedOperation)
+    {
+        selectedOperation = operation;
+        if (priority <= float.NegativeInfinity)
+        {
+            return false;
+        }
+
+        return TryRunOperation(operation, housingAvailable, foodAvailable);
+    }
+
     private bool TryRunOperation(Operation operation, bool housingAvailable, bool foodAvailable)
     {
+        if (operation != Operation.ConstructionAssistance)
+        {
+            villager.StopConstructionAssistance();
+        }
+
         switch (operation)
         {
             case Operation.Housing:
@@ -147,6 +233,8 @@ public class VillagerBrain : MonoBehaviour
                 return villager.TryRunProductiveOperation();
             case Operation.CommunityStorage:
                 return villager.TryRunCommunityStorageOperation();
+            case Operation.ConstructionAssistance:
+                return villager.TryRunConstructionAssistance();
             default:
                 Debug.LogError("VillagerBrain received an unsupported operation.", this);
                 return false;
