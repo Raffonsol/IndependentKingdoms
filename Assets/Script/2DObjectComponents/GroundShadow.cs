@@ -36,8 +36,8 @@ public class GroundShadow : MonoBehaviour
             ? parentTransform.lossyScale
             : Vector3.one;
         transform.localScale = new Vector3(
-            worldSize.x / Mathf.Max(Mathf.Abs(parentScale.x), Mathf.Epsilon),
-            worldSize.y / Mathf.Max(Mathf.Abs(parentScale.y), Mathf.Epsilon),
+            worldSize.x,
+            worldSize.y,
             1f);
         Vector3 worldOffsetVector = new Vector3(worldOffset.x, worldOffset.y, 0f);
         transform.localPosition = parentTransform != null

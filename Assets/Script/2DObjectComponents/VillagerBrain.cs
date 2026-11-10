@@ -74,7 +74,8 @@ public class VillagerBrain : MonoBehaviour
                 + villager.Hunger * settings.hungerFoodPriorityMultiplier
                 + (emergencyFoodAvailable ? settings.emergencyFoodPriorityBonus : 0f)
             : float.NegativeInfinity;
-        float productivePriority = villager.JobAssignment != JobType.None
+        float productivePriority = villager.HousingState == VillagerHousingState.Housed
+            && villager.JobAssignment != JobType.None
             && !villager.IsRestingFromWork
             && villager.Fatigue < settings.productiveFatigueThreshold
             ? (villager.IsPreparingJobWorkplace

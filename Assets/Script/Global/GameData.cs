@@ -1243,6 +1243,8 @@ public class GameData
                     || record.spawnSettings == null
                     || record.outputs == null
                     || record.outputs.Length == 0
+                    || !IsFinite(record.sortingAnchorOffset.x)
+                    || !IsFinite(record.sortingAnchorOffset.y)
                     || !IsFinitePositive(record.shadowSize.x)
                     || !IsFinitePositive(record.shadowSize.y)
                     || !IsFinite(record.shadowOffset.x)
@@ -1312,6 +1314,7 @@ public class GameData
                 {
                     id = record.id,
                     spawnSettings = record.spawnSettings,
+                    sortingAnchorOffset = record.sortingAnchorOffset,
                     shadowSize = record.shadowSize,
                     shadowOffset = record.shadowOffset,
                     outputs = outputs

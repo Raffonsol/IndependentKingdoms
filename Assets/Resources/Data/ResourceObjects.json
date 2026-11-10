@@ -8,12 +8,13 @@
                 "minimumSpacing": 3,
                 "placementAttemptsPerObject": 6,
                 "randomizeRotation": false,
-                "visualOffset": { "x": 0, "y": 4 },
-                "scaleRange": { "x": 0.9, "y": 1.1 },
+                "visualOffset": { "x": 0.8, "y": 5.8 },
+                "scaleRange": { "x": 0.9, "y": 1 },
                 "randomSeed": 0
             },
-            "shadowSize": { "x": 1.5, "y": 0.62 },
-            "shadowOffset": { "x": 0, "y": 0 },
+            "sortingAnchorOffset": { "x": 0, "y": 6.3 },
+            "shadowSize": { "x": 3.5, "y": 2.62 },
+            "shadowOffset": { "x": 1, "y": 0.9 },
             "outputs": [
                 {
                     "type": "Wood",
@@ -45,6 +46,7 @@
                 "scaleRange": { "x": 1, "y": 1 },
                 "randomSeed": 0
             },
+            "sortingAnchorOffset": { "x": 0, "y": 0 },
             "shadowSize": { "x": 1.05, "y": 0.48 },
             "shadowOffset": { "x": 0, "y": 0 },
             "outputs": [

@@ -2852,17 +2852,16 @@ public class MapManager : MonoBehaviour
         System.Random random = new System.Random(
             spawnSettings.randomSeed == 0 ? Environment.TickCount : spawnSettings.randomSeed);
         float gridCellSize = settings.gridCellSize;
-        float halfCellSize = gridCellSize * 0.5f;
         Vector2 halfMapSize = mapSize * 0.5f;
         Vector2 spawnCenter = transform.position;
         float minX = spawnCenter.x - halfMapSize.x + spawnSettings.edgePadding;
         float maxX = spawnCenter.x + halfMapSize.x - spawnSettings.edgePadding;
         float minY = spawnCenter.y - halfMapSize.y + spawnSettings.edgePadding;
         float maxY = spawnCenter.y + halfMapSize.y - spawnSettings.edgePadding;
-        int minCellX = Mathf.CeilToInt((minX - halfCellSize) / gridCellSize);
-        int maxCellX = Mathf.FloorToInt((maxX - halfCellSize) / gridCellSize);
-        int minCellY = Mathf.CeilToInt((minY - halfCellSize) / gridCellSize);
-        int maxCellY = Mathf.FloorToInt((maxY - halfCellSize) / gridCellSize);
+        int minCellX = Mathf.CeilToInt(minX / gridCellSize);
+        int maxCellX = Mathf.FloorToInt(maxX / gridCellSize);
+        int minCellY = Mathf.CeilToInt(minY / gridCellSize);
+        int maxCellY = Mathf.FloorToInt(maxY / gridCellSize);
 
         if (minCellX > maxCellX || minCellY > maxCellY)
         {
@@ -2893,12 +2892,13 @@ public class MapManager : MonoBehaviour
                     continue;
                 }
 
-                cellPosition = GridCellToWorldPosition(cell, gridCellSize);
+                cellPosition = GridCellToGridIntersectionPosition(cell, gridCellSize);
                 cellPosition.z = transform.position.z;
                 bool isTooClose = false;
                 foreach (Vector2Int existingCell in occupiedCells)
                 {
-                    Vector3 existingPosition = GridCellToWorldPosition(existingCell, gridCellSize);
+                    Vector3 existingPosition =
+                        GridCellToGridIntersectionPosition(existingCell, gridCellSize);
                     if ((cellPosition - existingPosition).sqrMagnitude < minimumDistanceSquared)
                     {
                         isTooClose = true;
@@ -3695,6 +3695,16 @@ public class MapManager : MonoBehaviour
         return new Vector3(
             cell.x * gridCellSize + halfCellSize,
             cell.y * gridCellSize + halfCellSize,
+            0f);
+    }
+
+    private static Vector3 GridCellToGridIntersectionPosition(
+        Vector2Int cell,
+        float gridCellSize)
+    {
+        return new Vector3(
+            cell.x * gridCellSize,
+            cell.y * gridCellSize,
             0f);
     }
 

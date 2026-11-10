@@ -900,6 +900,7 @@ public class ResourceObjectDefinitionRecord
 {
     public string id;
     public ResourceObjectSpawnSettings spawnSettings;
+    public Vector2 sortingAnchorOffset;
     public Vector2 shadowSize = new Vector2(1f, 0.5f);
     public Vector2 shadowOffset;
     public ResourceOutputRecord[] outputs;
@@ -910,6 +911,7 @@ public class ResourceObjectDefinition
 {
     public string id;
     public ResourceObjectSpawnSettings spawnSettings;
+    public Vector2 sortingAnchorOffset;
     public Vector2 shadowSize = new Vector2(1f, 0.5f);
     public Vector2 shadowOffset;
     public ResourceOutputDefinition[] outputs;

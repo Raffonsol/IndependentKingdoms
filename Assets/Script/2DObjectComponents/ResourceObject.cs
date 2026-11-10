@@ -30,9 +30,12 @@ public class ResourceObject : MonoBehaviour
     private ResourceType resourceType;
     private bool isConfigured;
     private bool canBeRemovedByConstruction;
+    private Transform sortingAnchor;
     private Transform visualRoot;
     private GroundShadow groundShadow;
+    private Vector3 sortingAnchorStartingPosition;
     private Vector3 startingLocalPosition;
+    private Vector2 appliedSortingAnchorOffset;
     private float shakeTimer;
     private float activeShakeDuration;
     private float activeShakeMagnitude;
@@ -83,17 +86,18 @@ public class ResourceObject : MonoBehaviour
 
     private void Awake()
     {
-        Transform sortingAnchorTransform = transform.Find("SortingAnchor");
-        visualRoot = sortingAnchorTransform != null
-            ? sortingAnchorTransform.Find("Visuals")
+        sortingAnchor = transform.Find("SortingAnchor");
+        visualRoot = sortingAnchor != null
+            ? sortingAnchor.Find("Visuals")
             : null;
         groundShadow = GetComponentInChildren<GroundShadow>(true);
-        if (visualRoot == null)
+        if (sortingAnchor == null || visualRoot == null)
         {
             Debug.LogError("Resource object prefab is missing SortingAnchor/Visuals.", this);
             return;
         }
 
+        sortingAnchorStartingPosition = sortingAnchor.localPosition;
         startingLocalPosition = visualRoot.localPosition;
     }
 
@@ -138,19 +142,28 @@ public class ResourceObject : MonoBehaviour
             return false;
         }
 
-        if (visualRoot == null)
+        if (sortingAnchor == null || visualRoot == null)
         {
-            Transform sortingAnchorTransform = transform.Find("SortingAnchor");
-            visualRoot = sortingAnchorTransform != null
-                ? sortingAnchorTransform.Find("Visuals")
+            sortingAnchor = transform.Find("SortingAnchor");
+            visualRoot = sortingAnchor != null
+                ? sortingAnchor.Find("Visuals")
                 : null;
         }
 
-        if (visualRoot == null)
+        if (sortingAnchor == null || visualRoot == null)
         {
             Debug.LogError("Resource object prefab is missing SortingAnchor/Visuals.", this);
             return false;
         }
+
+        Vector2 sortingAnchorOffsetDelta = definition.sortingAnchorOffset - appliedSortingAnchorOffset;
+        sortingAnchor.localPosition = sortingAnchorStartingPosition
+            + new Vector3(definition.sortingAnchorOffset.x, definition.sortingAnchorOffset.y, 0f);
+        visualRoot.localPosition -= new Vector3(
+            sortingAnchorOffsetDelta.x,
+            sortingAnchorOffsetDelta.y,
+            0f);
+        appliedSortingAnchorOffset = definition.sortingAnchorOffset;
 
         if (groundShadow == null)
         {
