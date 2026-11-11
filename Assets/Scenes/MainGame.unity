@@ -2070,7 +2070,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 10913, guid: 0000000000000000f000000000000000, type: 0}
+  m_Sprite: {fileID: 8433161019236272162, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -2515,10 +2515,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 117535589}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0.5, y: 0}
-  m_AnchorMax: {x: 0.5, y: 0}
-  m_AnchoredPosition: {x: 640.00903, y: 78.051}
-  m_SizeDelta: {x: 16.5613, y: 15.1761}
+  m_AnchorMin: {x: 1, y: 0}
+  m_AnchorMax: {x: 1, y: 0}
+  m_AnchoredPosition: {x: -17.2, y: 78.051}
+  m_SizeDelta: {x: 16.56128, y: 15.1761}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1806513098
 MonoBehaviour:
@@ -2599,7 +2599,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 10913, guid: 0000000000000000f000000000000000, type: 0}
+  m_Sprite: {fileID: 8433161019236272162, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   m_Type: 0
   m_PreserveAspect: 0
   m_FillCenter: 1
@@ -2635,6 +2635,7 @@ MonoBehaviour:
     prefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
   - id: rock_stone
     prefab: {fileID: 4558023136005666554, guid: 4ce1d5a0350d22249b19c6e4c2834190, type: 3}
+  productionProgressBarPrefab: {fileID: 1000000000000001, guid: 6d58270353284a35a088cfc52d49bab1, type: 3}
 --- !u!1 &1899186161
 GameObject:
   m_ObjectHideFlags: 0

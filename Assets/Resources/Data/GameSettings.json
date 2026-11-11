@@ -49,6 +49,7 @@
         "secondConstructionDurationSeconds": 15,
         "hammerMotionDurationSeconds": 0.35,
         "hammerPauseDurationSeconds": 1.65,
+        "productionProgressBarOffsetFromTop": { "x": 0, "y": -8.1, "z": 0 },
         "hammerHitPositions": [
             { "x": 1, "y": 1, "z": 160 },
             { "x": -0.4, "y": 1, "z": 260 }
@@ -98,7 +99,12 @@
         "hungerFoodPriorityMultiplier": 2,
         "emergencyFoodPriorityBonus": 1000,
         "productiveOperationPriority": 65,
+        "productiveOperationPriorityWhileMissingRequiredItem": 0,
         "helpfulConstructionOperationPriority": 150,
+        "requiredItemWaitInterruptibility": {
+            "idleRestWander": true,
+            "helpfulConstruction": true
+        },
         "foodResourceSearchRetrySeconds": 1,
         "housingSearchAttemptsBeforePause": 3,
         "housingSearchRetrySeconds": 3,

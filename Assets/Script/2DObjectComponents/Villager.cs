@@ -79,6 +79,16 @@ public class Villager : Combatant
         get { return helpingConstructionSite != null; }
     }
 
+    internal bool IsWaitingForRequiredItem
+    {
+        get { return jobController != null && jobController.IsWaitingForRequiredItem; }
+    }
+
+    internal bool HasRequiredItemAvailable
+    {
+        get { return jobController != null && jobController.HasRequiredItemAvailable; }
+    }
+
     internal bool IsActivelyHelpingConstruction
     {
         get
@@ -513,9 +523,13 @@ public class Villager : Combatant
 
     public void RefreshHeldItemVisual()
     {
-        Transform heldItemTransform = transform.Find("rightHandHeld");
+        Transform heldItemTransform = FindDescendantByName(transform, "rightHandHeld");
         if (heldItemTransform == null)
         {
+            Debug.LogError(
+                "Villager instance '" + name
+                + "' has no descendant named 'rightHandHeld'.",
+                this);
             return;
         }
 
@@ -542,6 +556,25 @@ public class Villager : Combatant
 
         heldItemRenderer.sprite = heldItemSprite;
         heldItemRenderer.enabled = true;
+    }
+
+    private static Transform FindDescendantByName(Transform parent, string targetName)
+    {
+        foreach (Transform child in parent)
+        {
+            if (child.name == targetName)
+            {
+                return child;
+            }
+
+            Transform match = FindDescendantByName(child, targetName);
+            if (match != null)
+            {
+                return match;
+            }
+        }
+
+        return null;
     }
 
     public void ConfigureGatheringAnimation(Transform villagerRightArm)
@@ -934,8 +967,18 @@ public class Villager : Combatant
         }
 
         RefreshHousingRoadRevision();
+        if (jobController != null)
+        {
+            jobController.UpdateRequiredItemAvailability();
+        }
+
         if (IsCombatEngaged)
         {
+            if (jobController != null)
+            {
+                jobController.PauseJobWork();
+            }
+
             StopConstructionAssistance();
             ClearNoWorkBehavior();
             UpdateFatigue(Time.deltaTime);
@@ -1036,6 +1079,11 @@ public class Villager : Combatant
         if (isRestingFromWork)
         {
             return;
+        }
+
+        if (jobController != null)
+        {
+            jobController.PauseJobWork();
         }
 
         StopConstructionAssistance();

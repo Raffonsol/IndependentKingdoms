@@ -32,6 +32,8 @@ public class VillagerJobController : MonoBehaviour
     private ResourceCost[] workplaceProjectCosts;
     private ResourceObject foragingResource;
     private ResourceType foragingResourceType;
+    private HouseWorkplace requiredItemWorkplace;
+    private HousePlotRecord requiredItemHousePlot;
     private readonly HashSet<ResourceObject> unreachableResources =
         new HashSet<ResourceObject>();
     private readonly Dictionary<ResourceType, int> jobInputStock =
@@ -41,11 +43,14 @@ public class VillagerJobController : MonoBehaviour
     private float nextResourceSearchTime;
     private float workplaceConstructionTimer;
     private float workplaceHammeringTimer;
-    private float productionTimer;
+    private float nextRequiredItemSearchTime;
     private int pathfindingRevision = -1;
     private int availabilityRevision = -1;
     private bool isWaitingToApproachResource;
     private bool isForagingForJob;
+    private bool isApproachingRequiredItem;
+    private bool isWaitingForRequiredItem;
+    private bool hasRequiredItemAvailable;
     private bool isSeparateWorkplace;
     private bool isBuildingNewWorkplaceHouse;
     private WorkplaceStage workplaceStage;
@@ -58,6 +63,16 @@ public class VillagerJobController : MonoBehaviour
     public bool IsForagingForJob
     {
         get { return isForagingForJob && foragingResource != null; }
+    }
+
+    public bool IsWaitingForRequiredItem
+    {
+        get { return isWaitingForRequiredItem; }
+    }
+
+    public bool HasRequiredItemAvailable
+    {
+        get { return isWaitingForRequiredItem && hasRequiredItemAvailable; }
     }
 
     public bool IsPreparingWorkplace
@@ -125,6 +140,7 @@ public class VillagerJobController : MonoBehaviour
 
         jobAssignment = job;
         jobDefinition = assignedDefinition;
+        ClearRequiredItemWaiting();
         return true;
     }
 
@@ -147,7 +163,6 @@ public class VillagerJobController : MonoBehaviour
                 || (jobDefinition.workType == JobWorkType.Production
                     && storage.RemainingCapacity < jobDefinition.outputAmount)))
         {
-            productionTimer = 0f;
             StopForagingForJob();
             return false;
         }
@@ -159,6 +174,11 @@ public class VillagerJobController : MonoBehaviour
             {
                 return true;
             }
+        }
+
+        if (!TryEnsureRequiredItemEquipped())
+        {
+            return isApproachingRequiredItem;
         }
 
         switch (jobDefinition.workType)
@@ -176,6 +196,219 @@ public class VillagerJobController : MonoBehaviour
             default:
                 return false;
         }
+    }
+
+    public void UpdateRequiredItemAvailability()
+    {
+        if (jobDefinition == null || villager == null)
+        {
+            return;
+        }
+
+        if (!jobDefinition.requiresEquippedItem
+            || !jobDefinition.requiredEquippedItemType.HasValue)
+        {
+            ClearRequiredItemWaiting();
+            return;
+        }
+
+        VillagerItemType requiredItemType = jobDefinition.requiredEquippedItemType.Value;
+        if (villager.EquippedItem == requiredItemType
+            || villager.GetInventoryItemCount(requiredItemType) > 0)
+        {
+            ClearRequiredItemWaiting();
+            return;
+        }
+
+        if (requiredItemWorkplace != null || isApproachingRequiredItem)
+        {
+            isWaitingForRequiredItem = false;
+            hasRequiredItemAvailable = false;
+            return;
+        }
+
+        if (!isWaitingForRequiredItem)
+        {
+            isWaitingForRequiredItem = true;
+            hasRequiredItemAvailable = false;
+            nextRequiredItemSearchTime = Time.time;
+        }
+
+        if (Time.time < nextRequiredItemSearchTime)
+        {
+            return;
+        }
+
+        nextRequiredItemSearchTime =
+            Time.time + jobDefinition.resourceSearchRetrySeconds;
+        MapManager mapManager = MapManager.Instance;
+        hasRequiredItemAvailable = mapManager != null
+            && mapManager.HasAvailableHouseItem(villager, requiredItemType);
+    }
+
+    private bool TryEnsureRequiredItemEquipped()
+    {
+        if (!jobDefinition.requiresEquippedItem)
+        {
+            ClearRequiredItemWaiting();
+            return true;
+        }
+
+        if (!jobDefinition.requiredEquippedItemType.HasValue)
+        {
+            Debug.LogError(
+                "Job '" + jobDefinition.jobType
+                + "' requires an item but has no required item type.",
+                this);
+            return false;
+        }
+
+        VillagerItemType requiredItemType = jobDefinition.requiredEquippedItemType.Value;
+        if (villager.EquippedItem == requiredItemType)
+        {
+            ReleaseRequiredItemPickup();
+            ClearRequiredItemWaiting();
+            return true;
+        }
+
+        ReleaseForagingResource(MapManager.Instance);
+        if (villager.GetInventoryItemCount(requiredItemType) > 0)
+        {
+            if (!villager.EquipItem(requiredItemType))
+            {
+                Debug.LogError(
+                    "Could not equip required job item '" + requiredItemType + "'.",
+                    villager);
+                return false;
+            }
+
+            ReleaseRequiredItemPickup();
+            ClearRequiredItemWaiting();
+            return true;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
+        {
+            ReleaseRequiredItemPickup();
+            WaitForRequiredItem();
+            return false;
+        }
+
+        if (requiredItemWorkplace == null)
+        {
+            ReleaseRequiredItemPickup();
+            if (!hasRequiredItemAvailable && Time.time < nextRequiredItemSearchTime)
+            {
+                isWaitingForRequiredItem = true;
+                return false;
+            }
+
+            if (!mapManager.TryReserveHouseItem(
+                    villager,
+                    requiredItemType,
+                    out requiredItemWorkplace,
+                    out requiredItemHousePlot))
+            {
+                WaitForRequiredItem();
+                return false;
+            }
+
+            isWaitingForRequiredItem = false;
+            hasRequiredItemAvailable = false;
+        }
+
+        if (!requiredItemWorkplace.isActiveAndEnabled
+            || requiredItemHousePlot == null)
+        {
+            ReleaseRequiredItemPickup();
+            WaitForRequiredItem();
+            villager.StopForagingMovement();
+            return false;
+        }
+
+        Vector3 entrancePosition =
+            mapManager.GetHouseEntrancePosition(requiredItemHousePlot);
+        if (isApproachingRequiredItem
+            && villager.HasFailedPathRequestForAction
+            && Vector2.Distance(villager.transform.position, entrancePosition) > 0.1f)
+        {
+            ReleaseRequiredItemPickup();
+            WaitForRequiredItem();
+            villager.StopForagingMovement();
+            return false;
+        }
+
+        if (!villager.MoveToHouseWorkPosition(mapManager, requiredItemHousePlot))
+        {
+            isApproachingRequiredItem = true;
+            return false;
+        }
+
+        if (!requiredItemWorkplace.TryWithdrawReservedItem(
+                villager,
+                out VillagerItemType withdrawnItemType))
+        {
+            ReleaseRequiredItemPickup();
+            WaitForRequiredItem();
+            return false;
+        }
+
+        HouseWorkplace sourceWorkplace = requiredItemWorkplace;
+        ReleaseRequiredItemPickup();
+        if (!villager.AddInventoryItem(withdrawnItemType, 1))
+        {
+            if (!sourceWorkplace.TryStoreItem(withdrawnItemType, 1))
+            {
+                Debug.LogError(
+                    "Could not restore a required item after the villager could not add it to inventory.",
+                    sourceWorkplace);
+            }
+
+            WaitForRequiredItem();
+            Debug.LogError(
+                "Could not add required job item '" + withdrawnItemType + "' to villager inventory.",
+                villager);
+            return false;
+        }
+
+        if (!villager.EquipItem(withdrawnItemType))
+        {
+            Debug.LogError(
+                "Could not equip required job item '" + withdrawnItemType + "' after pickup.",
+                villager);
+            return false;
+        }
+
+        ClearRequiredItemWaiting();
+        return true;
+    }
+
+    private void WaitForRequiredItem()
+    {
+        isWaitingForRequiredItem = true;
+        hasRequiredItemAvailable = false;
+        nextRequiredItemSearchTime =
+            Time.time + jobDefinition.resourceSearchRetrySeconds;
+    }
+
+    private void ClearRequiredItemWaiting()
+    {
+        isWaitingForRequiredItem = false;
+        hasRequiredItemAvailable = false;
+        nextRequiredItemSearchTime = 0f;
+    }
+
+    private void ReleaseRequiredItemPickup()
+    {
+        if (requiredItemWorkplace != null)
+        {
+            requiredItemWorkplace.ReleaseStoredItemReservation(villager);
+        }
+
+        requiredItemWorkplace = null;
+        requiredItemHousePlot = null;
+        isApproachingRequiredItem = false;
     }
 
     private HouseWorkplace GetProductiveHouseStorage()
@@ -230,7 +463,6 @@ public class VillagerJobController : MonoBehaviour
                 continue;
             }
 
-            productionTimer = 0f;
             if (villager.TryBeginJobInputWithdrawal(input.resourceType, missingAmount))
             {
                 return true;
@@ -240,8 +472,11 @@ public class VillagerJobController : MonoBehaviour
             return true;
         }
 
-        productionTimer += Time.deltaTime;
-        if (productionTimer < jobDefinition.productionDurationSeconds)
+        workplace.AdvanceProduction(
+            jobDefinition.outputItemType,
+            jobDefinition.productionDurationSeconds,
+            Time.deltaTime);
+        if (!workplace.IsProductionComplete(jobDefinition.outputItemType))
         {
             return true;
         }
@@ -250,14 +485,12 @@ public class VillagerJobController : MonoBehaviour
                 jobDefinition.outputItemType,
                 jobDefinition.outputAmount))
         {
-            productionTimer = 0f;
-            return false;
+            return true;
         }
 
         if (!villager.TryRemoveResourceCostsForJob(jobDefinition.inputCosts))
         {
             Debug.LogError("Blacksmith could not consume the configured production inputs.", villager);
-            productionTimer = 0f;
             return true;
         }
 
@@ -269,11 +502,10 @@ public class VillagerJobController : MonoBehaviour
         if (!workplace.TryStoreItem(jobDefinition.outputItemType, jobDefinition.outputAmount))
         {
             Debug.LogError("Could not store the produced item at the workplace.", workplaceHouse);
-            productionTimer = 0f;
             return true;
         }
 
-        productionTimer = 0f;
+        workplace.CompleteProduction(jobDefinition.outputItemType);
         return true;
     }
 
@@ -760,7 +992,6 @@ public class VillagerJobController : MonoBehaviour
         workplaceStage = WorkplaceStage.None;
         isSeparateWorkplace = false;
         isBuildingNewWorkplaceHouse = false;
-        productionTimer = 0f;
     }
 
     private HouseConstructionSite GetConstructionSite()
@@ -798,7 +1029,24 @@ public class VillagerJobController : MonoBehaviour
 
     public void PauseJobForEmergencyFood()
     {
+        PauseJobWork();
+    }
+
+    public void PauseJobWork()
+    {
+        bool wasPickingUpRequiredItem =
+            requiredItemWorkplace != null || isApproachingRequiredItem;
         StopForagingForJob();
+        if (wasPickingUpRequiredItem
+            && jobDefinition != null
+            && jobDefinition.requiresEquippedItem
+            && jobDefinition.requiredEquippedItemType.HasValue
+            && villager.EquippedItem != jobDefinition.requiredEquippedItemType.Value
+            && villager.GetInventoryItemCount(
+                jobDefinition.requiredEquippedItemType.Value) == 0)
+        {
+            WaitForRequiredItem();
+        }
     }
 
     public void BeginEmergencyFoodSearch()
@@ -1018,6 +1266,7 @@ public class VillagerJobController : MonoBehaviour
 
     private void StopForagingForJob()
     {
+        ReleaseRequiredItemPickup();
         if (isForagingForJob)
         {
             ReleaseForagingResource(MapManager.Instance);
@@ -1055,6 +1304,7 @@ public class VillagerJobController : MonoBehaviour
 
     private void OnDestroy()
     {
+        ReleaseRequiredItemPickup();
         ReleaseForagingResource(MapManager.Instance);
         ReleaseWorkplace();
     }

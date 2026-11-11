@@ -114,15 +114,17 @@ public class GameData
         string resourcePath = "BodyParts/handHelds/"
             + (isMale ? "m_" : "f_")
             + definition.heldSpriteKey.Trim();
-        sprite = Resources.Load<Sprite>(resourcePath);
-        if (sprite == null)
+        Sprite[] sprites = Resources.LoadAll<Sprite>(resourcePath);
+        if (sprites == null || sprites.Length != 1 || sprites[0] == null)
         {
             Debug.LogError(
-                "Could not load held-item sprite for " + itemType + " at Resources/"
-                + resourcePath + ".png.");
+                "Expected exactly one held-item sprite for " + itemType + " at Resources/"
+                + resourcePath + ".png, but found "
+                + (sprites != null ? sprites.Length : 0) + ".");
             return false;
         }
 
+        sprite = sprites[0];
         return true;
     }
 
@@ -1707,6 +1709,8 @@ public class GameData
                     secondConstructionDurationSeconds = jsonHouseSettings.secondConstructionDurationSeconds,
                     hammerMotionDurationSeconds = jsonHouseSettings.hammerMotionDurationSeconds,
                     hammerPauseDurationSeconds = jsonHouseSettings.hammerPauseDurationSeconds,
+                    productionProgressBarOffsetFromTop =
+                        jsonHouseSettings.productionProgressBarOffsetFromTop,
                     hammerHitPositions = jsonHouseSettings.hammerHitPositions
                 },
                 communityStorageSettings = new CommunityStorageSettings
@@ -1768,6 +1772,9 @@ public class GameData
                 || settings.houseSettings.secondConstructionDurationSeconds <= 0f
                 || settings.houseSettings.hammerMotionDurationSeconds <= 0f
                 || settings.houseSettings.hammerPauseDurationSeconds < 0f
+                || !IsFinite(settings.houseSettings.productionProgressBarOffsetFromTop.x)
+                || !IsFinite(settings.houseSettings.productionProgressBarOffsetFromTop.y)
+                || !IsFinite(settings.houseSettings.productionProgressBarOffsetFromTop.z)
                 || !AreValidArmMotionPoints(settings.houseSettings.hammerHitPositions)
                 || settings.houseSettings.baseHouseCosts == null
                 || settings.houseSettings.baseHouseCosts.Length == 0)
@@ -1775,7 +1782,8 @@ public class GameData
                 Debug.LogError(
                     "House settings must define positive storage capacity, dimensions and construction times, "
                     + "non-negative break/hammer pauses, "
-                    + "hammer positions, and at least one resource cost.");
+                    + "a finite productionProgressBarOffsetFromTop, hammer positions, "
+                    + "and at least one resource cost.");
                 return new GameSettingsCollection();
             }
 
@@ -1853,12 +1861,17 @@ public class GameData
                 || villagerSettings.foodResourceSearchRetrySeconds <= 0f
                 || villagerSettings.housingSearchAttemptsBeforePause <= 0
                 || villagerSettings.housingSearchRetrySeconds <= 0f
+                || !IsFiniteNonNegative(
+                    villagerSettings.productiveOperationPriorityWhileMissingRequiredItem)
+                || villagerSettings.requiredItemWaitInterruptibility == null
                 || villagerSettings.gatheringDistance < 0f
                 || villagerSettings.gatheringPauseDurationSeconds < 0f
                 || villagerSettings.handMotionDurationSeconds <= 0f
                 || !AreValidArmMotionPoints(villagerSettings.handHitPositions))
             {
-                Debug.LogError("Villager settings contain invalid movement, fatigue, housing-search, or gathering values.");
+                Debug.LogError(
+                    "Villager settings contain invalid movement, fatigue, housing-search, "
+                    + "required-item wait priority/interruptibility, or gathering values.");
                 return new GameSettingsCollection();
             }
 

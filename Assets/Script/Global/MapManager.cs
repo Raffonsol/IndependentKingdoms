@@ -56,6 +56,7 @@ public class MapManager : MonoBehaviour
 
     [SerializeField] private Vector2 mapSize = new Vector2(100f, 100f);
     [SerializeField] private ResourceObjectPrefabReference[] resourceObjectPrefabs;
+    [SerializeField] private GameObject productionProgressBarPrefab;
 
     private MapSettings settings;
     private int houseStorageCapacity;
@@ -498,7 +499,152 @@ public class MapManager : MonoBehaviour
             return null;
         }
 
+        if (productionProgressBarPrefab != null)
+        {
+            workplace.ConfigureProductionProgressBar(productionProgressBarPrefab);
+        }
+
         return workplace;
+    }
+
+    public bool TryReserveHouseItem(
+        Villager villager,
+        VillagerItemType itemType,
+        out HouseWorkplace workplace,
+        out HousePlotRecord housePlot)
+    {
+        workplace = null;
+        housePlot = null;
+        if (villager == null
+            || !Enum.IsDefined(typeof(VillagerItemType), itemType))
+        {
+            return false;
+        }
+
+        List<KeyValuePair<float, AvailableHouseRecord>> candidates =
+            GetAvailableHouseItemCandidates(villager, itemType);
+        foreach (KeyValuePair<float, AvailableHouseRecord> candidate in candidates)
+        {
+            HouseWorkplace candidateWorkplace =
+                GetOrCreateHouseWorkplace(candidate.Value.houseObject);
+            if (candidateWorkplace == null
+                || !candidateWorkplace.TryReserveStoredItem(villager, itemType))
+            {
+                continue;
+            }
+
+            workplace = candidateWorkplace;
+            housePlot = candidate.Value.housePlot;
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool HasAvailableHouseItem(Villager villager, VillagerItemType itemType)
+    {
+        return GetAvailableHouseItemCandidates(villager, itemType).Count > 0;
+    }
+
+    private List<KeyValuePair<float, AvailableHouseRecord>> GetAvailableHouseItemCandidates(
+        Villager villager,
+        VillagerItemType itemType)
+    {
+        List<KeyValuePair<float, AvailableHouseRecord>> candidates =
+            new List<KeyValuePair<float, AvailableHouseRecord>>();
+        if (villager == null || !Enum.IsDefined(typeof(VillagerItemType), itemType))
+        {
+            return candidates;
+        }
+
+        HashSet<GameObject> addedHouseObjects = new HashSet<GameObject>();
+        foreach (KeyValuePair<Villager, GameObject> completedHouse in completedHouseObjects)
+        {
+            if (claimedHousePlots.TryGetValue(completedHouse.Key, out HousePlotRecord plot))
+            {
+                AddHouseItemCandidate(
+                    completedHouse.Value,
+                    plot,
+                    itemType,
+                    villager.transform.position,
+                    addedHouseObjects,
+                    candidates);
+            }
+        }
+
+        foreach (KeyValuePair<Villager, AvailableHouseRecord> workplaceHouse in claimedWorkplaceHouses)
+        {
+            if (workplaceHouse.Value != null)
+            {
+                AddHouseItemCandidate(
+                    workplaceHouse.Value.houseObject,
+                    workplaceHouse.Value.housePlot,
+                    itemType,
+                    villager.transform.position,
+                    addedHouseObjects,
+                    candidates);
+            }
+        }
+
+        foreach (AvailableHouseRecord availableHouse in availableHouses)
+        {
+            if (availableHouse != null)
+            {
+                AddHouseItemCandidate(
+                    availableHouse.houseObject,
+                    availableHouse.housePlot,
+                    itemType,
+                    villager.transform.position,
+                    addedHouseObjects,
+                    candidates);
+            }
+        }
+
+        candidates.Sort((first, second) => first.Key.CompareTo(second.Key));
+        return candidates;
+    }
+
+    private void AddHouseItemCandidate(
+        GameObject houseObject,
+        HousePlotRecord housePlot,
+        VillagerItemType itemType,
+        Vector3 position,
+        ISet<GameObject> addedHouseObjects,
+        ICollection<KeyValuePair<float, AvailableHouseRecord>> candidates)
+    {
+        if (houseObject == null
+            || housePlot == null
+            || !addedHouseObjects.Add(houseObject))
+        {
+            return;
+        }
+
+        HouseWorkplace workplace = houseObject.GetComponent<HouseWorkplace>();
+        if (workplace == null || workplace.GetAvailableStoredItemAmount(itemType) <= 0)
+        {
+            return;
+        }
+
+        Vector3 entrancePosition = GetHouseEntrancePosition(housePlot);
+        if (!TryFindPath(
+                position,
+                entrancePosition,
+                0.1f,
+                out List<Vector3> waypoints)
+            || waypoints == null
+            || waypoints.Count == 0)
+        {
+            return;
+        }
+
+        float distanceSquared = (entrancePosition - position).sqrMagnitude;
+        candidates.Add(new KeyValuePair<float, AvailableHouseRecord>(
+            distanceSquared,
+            new AvailableHouseRecord
+            {
+                houseObject = houseObject,
+                housePlot = housePlot
+            }));
     }
 
     public HouseConstructionSite GetOrCreateHouseConstructionSite(GameObject houseObject)

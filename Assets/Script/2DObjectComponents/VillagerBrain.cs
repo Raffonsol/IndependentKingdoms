@@ -62,6 +62,8 @@ public class VillagerBrain : MonoBehaviour
             || (villager.HousingState == VillagerHousingState.Housed
                 && villager.Hunger > settings.boredFoodSeekingHungerThreshold);
         bool communityStorageAvailable = villager.CanChooseCommunityStorageOperation;
+        bool requiredItemAvailable = villager.IsWaitingForRequiredItem
+            && villager.HasRequiredItemAvailable;
 
         float housingPriority = housingAvailable
             ? settings.housingOperationPriority
@@ -83,8 +85,25 @@ public class VillagerBrain : MonoBehaviour
                     - (villager.HasPersonality(VillagerPersonalityType.Lazy)
                         ? settings.lazyHousingPriorityPenalty
                         : 0f)
-                : settings.productiveOperationPriority)
+                : villager.IsWaitingForRequiredItem && !villager.HasRequiredItemAvailable
+                    ? settings.productiveOperationPriorityWhileMissingRequiredItem
+                    : settings.productiveOperationPriority)
             : float.NegativeInfinity;
+        VillagerBehaviorStage currentBehavior = villager.CurrentBehavior;
+        bool isNoWorkBehavior = !hasActiveOperation
+            && (currentBehavior == null
+                || currentBehavior.mode == VillagerBehaviorMode.Idle
+                || currentBehavior.mode == VillagerBehaviorMode.Wander);
+        bool noWorkBehaviorHasEnded = currentBehavior == null
+            || villager.BehaviorTimer >= currentBehavior.duration;
+        if (requiredItemAvailable
+            && isNoWorkBehavior
+            && !settings.requiredItemWaitInterruptibility.idleRestWander
+            && !noWorkBehaviorHasEnded)
+        {
+            productivePriority =
+                settings.productiveOperationPriorityWhileMissingRequiredItem;
+        }
         float communityStoragePriority = float.NegativeInfinity;
         if (communityStorageAvailable)
         {
@@ -113,6 +132,16 @@ public class VillagerBrain : MonoBehaviour
             && constructionAssistancePriority > communityStoragePriority)
         {
             constructionAssistancePriority = communityStoragePriority;
+        }
+
+        if (requiredItemAvailable
+            && continuingConstructionAssistance
+            && settings.requiredItemWaitInterruptibility.helpfulConstruction
+            && productivePriority > float.NegativeInfinity)
+        {
+            constructionAssistancePriority = Mathf.Min(
+                constructionAssistancePriority,
+                productivePriority - 1f);
         }
 
         Operation firstOperation = Operation.Housing;

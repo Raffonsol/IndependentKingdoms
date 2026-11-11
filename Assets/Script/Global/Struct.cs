@@ -294,6 +294,7 @@ public class HouseSettings
     public float secondConstructionDurationSeconds = 15f;
     public float hammerMotionDurationSeconds = 0.35f;
     public float hammerPauseDurationSeconds = 1.65f;
+    public Vector3 productionProgressBarOffsetFromTop = new Vector3(0f, 0.1f, 0f);
     public ArmMotionPoint[] hammerHitPositions =
     {
         new ArmMotionPoint { x = 0.15f, y = 0.2f, z = 0f },
@@ -312,6 +313,7 @@ public class HouseSettingsJson
     public float secondConstructionDurationSeconds;
     public float hammerMotionDurationSeconds;
     public float hammerPauseDurationSeconds;
+    public Vector3 productionProgressBarOffsetFromTop;
     public ArmMotionPoint[] hammerHitPositions;
 }
 
@@ -378,6 +380,8 @@ public class VillagerScaleSettings
 public class VillagerSettings
 {
     public VillagerScaleSettings villagerScaleSettings = new VillagerScaleSettings();
+    public RequiredItemWaitInterruptibilitySettings requiredItemWaitInterruptibility =
+        new RequiredItemWaitInterruptibilitySettings();
     public float communityStorageOperationPriority = 20f;
     public float communityStoragePriorityPerItem = 1f;
     public float communityStorageSearchRetrySeconds = 5f;
@@ -406,6 +410,7 @@ public class VillagerSettings
     public float hungerFoodPriorityMultiplier = 2f;
     public float emergencyFoodPriorityBonus = 1000f;
     public float productiveOperationPriority = 80f;
+    public float productiveOperationPriorityWhileMissingRequiredItem;
     public float helpfulConstructionOperationPriority = 150f;
     public float foodResourceSearchRetrySeconds = 1f;
     public int housingSearchAttemptsBeforePause = 3;
@@ -418,6 +423,13 @@ public class VillagerSettings
         new ArmMotionPoint { x = 0.15f, y = 0.2f, z = 0f },
         new ArmMotionPoint { x = 0.3f, y = 0.05f, z = 0f }
     };
+}
+
+[Serializable]
+public class RequiredItemWaitInterruptibilitySettings
+{
+    public bool idleRestWander = true;
+    public bool helpfulConstruction = true;
 }
 
 [Serializable]
