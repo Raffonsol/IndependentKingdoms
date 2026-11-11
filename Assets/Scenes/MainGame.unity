@@ -176,15 +176,24 @@ MonoBehaviour:
   bottomPanel: {fileID: 326455561}
   resourceIcons:
   - {fileID: 6614486739263092370, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
-  - {fileID: 5794026976087507576, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
-  - {fileID: 1547900206258304430, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
-  - {fileID: 7459378434304140324, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: 8366826731013992322, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: 6946359190575959630, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: 168973078320758132, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 8070313721017210411, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   - {fileID: -3268051800775605451, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 1959363491405561562, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   - {fileID: 4796411995235822177, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   - {fileID: 546683024548441455, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 210482170386069155, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  itemIcons:
+  - {fileID: 841209144158294702, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  - {fileID: 3605789414552969829, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  - {fileID: 6347086815577226450, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  - {fileID: -8867492080351601353, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: -1888165817677307911, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: 4872568545249948413, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  - {fileID: -388992702935907970, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
+  - {fileID: 6739892325992173793, guid: e6143bf695aae254995cb40b26dbe3c9, type: 3}
   defaultCursorImage: {fileID: 2800000, guid: c2ac49dea58d8fc43a5ca3c5368cc5be, type: 3}
   roadBuildCursorImage: {fileID: 2800000, guid: f12ec65ac65a7ee44b24b29d38c0f519, type: 3}
   roadEndpointPrefab: {fileID: 4726614355224352886, guid: db5709a2e7025584faef6d9ec1d61171, type: 3}

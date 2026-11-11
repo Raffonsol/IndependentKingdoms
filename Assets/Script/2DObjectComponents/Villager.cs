@@ -168,7 +168,7 @@ public class Villager : Combatant
     private ResourceObject gatheringResource;
     private readonly List<VillagerInventoryEntry> inventory = new List<VillagerInventoryEntry>();
     private readonly List<VillagerResourceEntry> resourceInventory = new List<VillagerResourceEntry>();
-    private VillagerWeaponType equippedWeapon;
+    private VillagerItemType? equippedItem;
     private float movementPhaseTimer;
     private float gatheringTimer;
     private float constructionTimer;
@@ -218,9 +218,9 @@ public class Villager : Combatant
         get { return resourceInventory; }
     }
 
-    public VillagerWeaponType EquippedWeapon
+    public VillagerItemType? EquippedItem
     {
-        get { return equippedWeapon; }
+        get { return equippedItem; }
     }
 
     public bool TryGetHomeCoordinates(out Vector2Int coordinates)
@@ -343,6 +343,7 @@ public class Villager : Combatant
 
         Person = person;
         HoverAnchor = hoverAnchor;
+        RefreshHeldItemVisual();
     }
 
     private void Start()
@@ -454,9 +455,10 @@ public class Villager : Combatant
             if (entry.amount == 0)
             {
                 inventory.RemoveAt(index);
-                if (itemType == VillagerItemType.Axe)
+                if (equippedItem == itemType)
                 {
-                    equippedWeapon = VillagerWeaponType.None;
+                    equippedItem = null;
+                    RefreshHeldItemVisual();
                 }
             }
 
@@ -466,34 +468,80 @@ public class Villager : Combatant
         return false;
     }
 
-    public bool EquipWeapon(VillagerWeaponType weaponType)
+    public bool EquipItem(VillagerItemType itemType)
     {
-        if (weaponType == VillagerWeaponType.None)
-        {
-            equippedWeapon = VillagerWeaponType.None;
-            return true;
-        }
-
-        VillagerItemType requiredItem;
-        if (weaponType == VillagerWeaponType.Axe)
-        {
-            requiredItem = VillagerItemType.Axe;
-        }
-        else
+        if (!System.Enum.IsDefined(typeof(VillagerItemType), itemType))
         {
             return false;
         }
 
         foreach (VillagerInventoryEntry entry in inventory)
         {
-            if (entry.itemType == requiredItem && entry.amount > 0)
+            if (entry.itemType == itemType && entry.amount > 0)
             {
-                equippedWeapon = weaponType;
+                equippedItem = itemType;
+                RefreshHeldItemVisual();
                 return true;
             }
         }
 
         return false;
+    }
+
+    public void UnequipItem()
+    {
+        equippedItem = null;
+        RefreshHeldItemVisual();
+    }
+
+    public bool CanUseEquippedToolForResource(ResourceType resourceType)
+    {
+        if (!equippedItem.HasValue)
+        {
+            return false;
+        }
+
+        if (!GameData.Instance.TryGetItemHarvestResourceType(
+                equippedItem.Value,
+                out ResourceType allowedResourceType))
+        {
+            return false;
+        }
+
+        return allowedResourceType == resourceType;
+    }
+
+    public void RefreshHeldItemVisual()
+    {
+        Transform heldItemTransform = transform.Find("rightHandHeld");
+        if (heldItemTransform == null)
+        {
+            return;
+        }
+
+        SpriteRenderer heldItemRenderer = heldItemTransform.GetComponent<SpriteRenderer>();
+        if (heldItemRenderer == null)
+        {
+            Debug.LogError(
+                "The villager 'rightHandHeld' object must have a SpriteRenderer to show a held item.",
+                heldItemTransform);
+            return;
+        }
+
+        if (!equippedItem.HasValue
+            || Person == null
+            || !GameData.Instance.TryGetHeldItemSprite(
+                equippedItem.Value,
+                Person.isMale,
+                out Sprite heldItemSprite))
+        {
+            heldItemRenderer.sprite = null;
+            heldItemRenderer.enabled = false;
+            return;
+        }
+
+        heldItemRenderer.sprite = heldItemSprite;
+        heldItemRenderer.enabled = true;
     }
 
     public void ConfigureGatheringAnimation(Transform villagerRightArm)
@@ -723,7 +771,7 @@ public class Villager : Combatant
             return false;
         }
 
-        bool hasAxe = equippedWeapon == VillagerWeaponType.Axe;
+        bool hasAxe = equippedItem == VillagerItemType.Axe;
         if (gatheringResource == null
             || !gatheringResource.CanGather(resourceType, hasAxe)
             || gatheringResource.Type != resourceType)
@@ -1750,7 +1798,7 @@ public class Villager : Combatant
             return;
         }
 
-        bool hasAxe = equippedWeapon == VillagerWeaponType.Axe;
+        bool hasAxe = equippedItem == VillagerItemType.Axe;
         if (gatheringResource == null
             || !gatheringResource.CanGather(hasAxe)
             || gatheringResource.Type != missingCost.resourceType)
@@ -1882,7 +1930,9 @@ public class Villager : Combatant
         constructionTimer = 0f;
         hammeringTimer = 0f;
         mapManager.NotifyHouseConstructionStarted(this);
-        EnterBehavior(VillagerBehaviorMode.Building, houseSettings.firstConstructionDurationSeconds);
+        EnterBehavior(
+            VillagerBehaviorMode.WorkingOnHome,
+            houseSettings.firstConstructionDurationSeconds);
     }
 
     private void UpdateBuildingHouseStageOne()
@@ -1917,7 +1967,9 @@ public class Villager : Combatant
         HousingState = VillagerHousingState.HouseConstructionBreak;
         constructionTimer = 0f;
         hammeringTimer = 0f;
-        EnterBehavior(VillagerBehaviorMode.Idle, houseSettings.constructionBreakDurationSeconds);
+        EnterBehavior(
+            VillagerBehaviorMode.WorkingOnHome,
+            houseSettings.constructionBreakDurationSeconds);
     }
 
     private void UpdateHouseConstructionBreak()
@@ -1943,7 +1995,9 @@ public class Villager : Combatant
             Debug.LogError("Could not resume the house construction site for stage two.", this);
         }
 
-        EnterBehavior(VillagerBehaviorMode.Building, houseSettings.secondConstructionDurationSeconds);
+        EnterBehavior(
+            VillagerBehaviorMode.WorkingOnHome,
+            houseSettings.secondConstructionDurationSeconds);
     }
 
     private void UpdateBuildingHouseStageTwo()

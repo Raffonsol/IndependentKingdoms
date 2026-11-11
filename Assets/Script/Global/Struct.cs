@@ -462,12 +462,6 @@ public class GameSettingsCollection
 
 public enum VillagerItemType
 {
-    Axe
-}
-
-public enum VillagerWeaponType
-{
-    None,
     Axe,
     Pickaxe,
     Sword,
@@ -476,6 +470,31 @@ public enum VillagerWeaponType
     SpearAndShield,
     Bow,
     Staff,
+}
+
+[Serializable]
+public class ItemDefinition
+{
+    public VillagerItemType type;
+    public int iconIndex;
+    public string heldSpriteKey;
+    public bool hasHarvestResourceType;
+    public ResourceType harvestResourceType;
+}
+
+[Serializable]
+public class ItemDefinitionJson
+{
+    public string type;
+    public int iconIndex;
+    public string heldSpriteKey;
+    public string harvestResourceType;
+}
+
+[Serializable]
+public class ItemDefinitionJsonCollection
+{
+    public ItemDefinitionJson[] itemDefinitions;
 }
 
 [Serializable]
@@ -642,6 +661,7 @@ public class JobDefinitionJson
     public bool needsAnnex;
     public bool gatherAnyAvailableResource;
     public string[] resourceTypes;
+    public string requiredEquippedItemType;
     public int harvestAmount;
     public float gatheringDistance;
     public float gatheringPauseDurationSeconds;
@@ -662,6 +682,8 @@ public class JobDefinition
     public bool needsAnnex;
     public bool gatherAnyAvailableResource;
     public ResourceType[] resourceTypes;
+    public bool requiresEquippedItem;
+    public VillagerItemType? requiredEquippedItemType;
     public int harvestAmount;
     public float gatheringDistance;
     public float gatheringPauseDurationSeconds;
@@ -696,7 +718,8 @@ public enum VillagerBehaviorMode
     Building,
     LookingForFood,
     Foraging,
-    LoadingToStorage
+    LoadingToStorage,
+    WorkingOnHome
 }
 
 [Serializable]
@@ -864,6 +887,7 @@ public class ResourceInitialAmount
 public class ResourceOutputRecord
 {
     public string type;
+    public string primaryResourceType;
     public int fullCutAmount;
     public int bareHandAmount;
     public Vector2Int interactionOffset;
@@ -875,6 +899,8 @@ public class ResourceOutputRecord
 public class ResourceOutputDefinition
 {
     public ResourceType type;
+    public ResourceType primaryResourceType;
+    public bool primaryResourceTypeWasExplicitlySet;
     public int fullCutAmount;
     public int bareHandAmount;
     public Vector2Int interactionOffset;
@@ -899,6 +925,7 @@ public class ResourceObjectSpawnSettings
 public class ResourceObjectDefinitionRecord
 {
     public string id;
+    public string primaryResourceType;
     public ResourceObjectSpawnSettings spawnSettings;
     public Vector2 sortingAnchorOffset;
     public Vector2 shadowSize = new Vector2(1f, 0.5f);
@@ -910,6 +937,8 @@ public class ResourceObjectDefinitionRecord
 public class ResourceObjectDefinition
 {
     public string id;
+    public ResourceType primaryResourceType;
+    public bool primaryResourceTypeWasExplicitlySet;
     public ResourceObjectSpawnSettings spawnSettings;
     public Vector2 sortingAnchorOffset;
     public Vector2 shadowSize = new Vector2(1f, 0.5f);

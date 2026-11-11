@@ -9,6 +9,7 @@ public class GameData
     private const string GameSettingsResourcePath = "Data/GameSettings";
     private const string MonsterDataResourcePath = "Data/Monsters";
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
+    private const string ItemDefinitionsResourcePath = "Data/ItemDefinitions";
     private const string ResourceObjectDataResourcePath = "Data/ResourceObjects";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
@@ -36,6 +37,7 @@ public class GameData
     public MonsterSpawnSettings monsterSpawnSettings;
     public MonsterDefinition[] monsterDefinitions;
     public ResourceDefinition[] resourceDefinitions;
+    public ItemDefinition[] itemDefinitions;
     public ResourceObjectDefinition[] resourceObjectDefinitions;
     public NamePart[] nameParts;
     public VillagerPersonalityValue[] villagerPersonalityValues;
@@ -63,6 +65,65 @@ public class GameData
 
         definition = null;
         return false;
+    }
+
+    public bool TryGetItemDefinition(VillagerItemType itemType, out ItemDefinition definition)
+    {
+        if (itemDefinitions != null)
+        {
+            foreach (ItemDefinition candidate in itemDefinitions)
+            {
+                if (candidate != null && candidate.type == itemType)
+                {
+                    definition = candidate;
+                    return true;
+                }
+            }
+        }
+
+        definition = null;
+        return false;
+    }
+
+    public bool TryGetItemHarvestResourceType(VillagerItemType itemType, out ResourceType resourceType)
+    {
+        resourceType = default(ResourceType);
+        if (!TryGetItemDefinition(itemType, out ItemDefinition definition))
+        {
+            return false;
+        }
+
+        if (!definition.hasHarvestResourceType)
+        {
+            return false;
+        }
+
+        resourceType = definition.harvestResourceType;
+        return true;
+    }
+
+    public bool TryGetHeldItemSprite(VillagerItemType itemType, bool isMale, out Sprite sprite)
+    {
+        sprite = null;
+        if (!TryGetItemDefinition(itemType, out ItemDefinition definition)
+            || string.IsNullOrWhiteSpace(definition.heldSpriteKey))
+        {
+            return false;
+        }
+
+        string resourcePath = "BodyParts/handHelds/"
+            + (isMale ? "m_" : "f_")
+            + definition.heldSpriteKey.Trim();
+        sprite = Resources.Load<Sprite>(resourcePath);
+        if (sprite == null)
+        {
+            Debug.LogError(
+                "Could not load held-item sprite for " + itemType + " at Resources/"
+                + resourcePath + ".png.");
+            return false;
+        }
+
+        return true;
     }
 
     public bool TryGetJobDefinition(JobType jobType, out JobDefinition definition)
@@ -118,6 +179,7 @@ public class GameData
             monsterSpawnSettings = monsterData.spawnSettings,
             monsterDefinitions = monsterData.monsters,
             resourceDefinitions = LoadResourceDefinitions(),
+            itemDefinitions = LoadItemDefinitions(),
             resourceObjectDefinitions = resourceObjectData.resourceObjects,
             nameParts = LoadNameParts(),
             villagerPersonalityValues = LoadVillagerPersonalityValues(),
@@ -203,6 +265,31 @@ public class GameData
                         return new JobDefinition[0];
                     }
 
+                    bool hasRequiredEquippedItem = !string.IsNullOrWhiteSpace(record.requiredEquippedItemType);
+                    VillagerItemType? requiredEquippedItemType = null;
+                    if (hasRequiredEquippedItem)
+                    {
+                        if (!TryParseEnumName(
+                                record.requiredEquippedItemType,
+                                out VillagerItemType parsedRequiredEquippedItemType))
+                        {
+                            Debug.LogError(
+                                "Field-gathering job '" + jobType
+                                + "' contains an invalid requiredEquippedItemType.");
+                            return new JobDefinition[0];
+                        }
+
+                        requiredEquippedItemType = parsedRequiredEquippedItemType;
+                    }
+
+                    if (hasRequiredEquippedItem && record.resourceTypes.Length != 1)
+                    {
+                        Debug.LogError(
+                            "Field-gathering job '" + jobType
+                            + "' currently requires exactly one target resource when a requiredEquippedItemType is defined.");
+                        return new JobDefinition[0];
+                    }
+
                     ResourceType[] resourceTypes = new ResourceType[record.resourceTypes.Length];
                     bool[] foundResourceTypes = new bool[Enum.GetValues(typeof(ResourceType)).Length];
                     for (int resourceIndex = 0; resourceIndex < record.resourceTypes.Length; resourceIndex++)
@@ -239,6 +326,8 @@ public class GameData
 
                     definition.gatherAnyAvailableResource = record.gatherAnyAvailableResource;
                     definition.resourceTypes = resourceTypes;
+                    definition.requiresEquippedItem = hasRequiredEquippedItem;
+                    definition.requiredEquippedItemType = requiredEquippedItemType;
                     definition.harvestAmount = record.harvestAmount;
                     definition.gatheringDistance = record.gatheringDistance;
                     definition.gatheringPauseDurationSeconds = record.gatheringPauseDurationSeconds;
@@ -1208,6 +1297,102 @@ public class GameData
         }
     }
 
+    private static ItemDefinition[] LoadItemDefinitions()
+    {
+        TextAsset definitionsJson = Resources.Load<TextAsset>(ItemDefinitionsResourcePath);
+        if (definitionsJson == null)
+        {
+            Debug.LogError(
+                "Could not load item definitions at Resources/"
+                + ItemDefinitionsResourcePath + ".json.");
+            return new ItemDefinition[0];
+        }
+
+        try
+        {
+            ItemDefinitionJsonCollection jsonCollection =
+                JsonUtility.FromJson<ItemDefinitionJsonCollection>(definitionsJson.text);
+            Array itemTypes = Enum.GetValues(typeof(VillagerItemType));
+            if (jsonCollection == null
+                || jsonCollection.itemDefinitions == null
+                || jsonCollection.itemDefinitions.Length != itemTypes.Length)
+            {
+                Debug.LogError(
+                    "Item definitions at Resources/" + ItemDefinitionsResourcePath
+                    + ".json must contain exactly one entry per VillagerItemType.");
+                return new ItemDefinition[0];
+            }
+
+            bool[] foundTypes = new bool[itemTypes.Length];
+            ItemDefinition[] definitions =
+                new ItemDefinition[jsonCollection.itemDefinitions.Length];
+            for (int index = 0; index < jsonCollection.itemDefinitions.Length; index++)
+            {
+                ItemDefinitionJson jsonDefinition = jsonCollection.itemDefinitions[index];
+                if (jsonDefinition == null
+                    || !TryParseEnumName(jsonDefinition.type, out VillagerItemType itemType))
+                {
+                    Debug.LogError("Item definitions contain an invalid or null VillagerItemType entry.");
+                    return new ItemDefinition[0];
+                }
+
+                int enumIndex = Convert.ToInt32(itemType);
+                if (enumIndex < 0 || enumIndex >= foundTypes.Length || foundTypes[enumIndex])
+                {
+                    Debug.LogError("Item definitions must contain exactly one entry for each VillagerItemType.");
+                    return new ItemDefinition[0];
+                }
+
+                if (jsonDefinition.iconIndex < 0)
+                {
+                    Debug.LogError("Item icon indices cannot be negative.");
+                    return new ItemDefinition[0];
+                }
+
+                string heldSpriteKey = jsonDefinition.heldSpriteKey == null
+                    ? null
+                    : jsonDefinition.heldSpriteKey.Trim();
+                if (string.IsNullOrWhiteSpace(heldSpriteKey))
+                {
+                    Debug.LogError(
+                        "Item definition for " + itemType
+                        + " must include a non-empty heldSpriteKey for the gendered hand-held sprite.");
+                    return new ItemDefinition[0];
+                }
+
+                ResourceType harvestResourceType = default(ResourceType);
+                bool hasHarvestResourceType = !string.IsNullOrWhiteSpace(jsonDefinition.harvestResourceType);
+                if (hasHarvestResourceType
+                    && !TryParseEnumName(jsonDefinition.harvestResourceType, out harvestResourceType))
+                {
+                    Debug.LogError(
+                        "Item definition for " + itemType
+                        + " contains an invalid harvestResourceType value.");
+                    return new ItemDefinition[0];
+                }
+
+                foundTypes[enumIndex] = true;
+                definitions[index] = new ItemDefinition
+                {
+                    type = itemType,
+                    iconIndex = jsonDefinition.iconIndex,
+                    heldSpriteKey = heldSpriteKey,
+                    hasHarvestResourceType = hasHarvestResourceType,
+                    harvestResourceType = harvestResourceType
+                };
+            }
+
+            return definitions;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse item definitions at Resources/" + ItemDefinitionsResourcePath
+                + ".json: " + exception.Message);
+            return new ItemDefinition[0];
+        }
+    }
+
     private static ResourceObjectData LoadResourceObjectData()
     {
         TextAsset dataJson = Resources.Load<TextAsset>(ResourceObjectDataResourcePath);
@@ -1270,6 +1455,21 @@ public class GameData
                 ResourceOutputDefinition[] outputs =
                     new ResourceOutputDefinition[record.outputs.Length];
                 bool[] foundOutputTypes = new bool[resourceTypes.Length];
+                bool hasPrimaryResourceType = false;
+                ResourceType primaryResourceType = default(ResourceType);
+                if (!string.IsNullOrWhiteSpace(record.primaryResourceType)
+                    && !TryParseEnumName(record.primaryResourceType, out primaryResourceType))
+                {
+                    Debug.LogError(
+                        "Resource object '" + record.id
+                        + "' contains an invalid primaryResourceType.");
+                    return new ResourceObjectData();
+                }
+                else if (!string.IsNullOrWhiteSpace(record.primaryResourceType))
+                {
+                    hasPrimaryResourceType = true;
+                }
+
                 for (int outputIndex = 0; outputIndex < record.outputs.Length; outputIndex++)
                 {
                     ResourceOutputRecord outputRecord = record.outputs[outputIndex];
@@ -1298,10 +1498,33 @@ public class GameData
                         return new ResourceObjectData();
                     }
 
+                    bool hasOutputPrimaryResourceType = false;
+                    ResourceType outputPrimaryResourceType = default(ResourceType);
+                    if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType)
+                        && !TryParseEnumName(outputRecord.primaryResourceType, out outputPrimaryResourceType))
+                    {
+                        Debug.LogError(
+                            "Resource object '" + record.id
+                            + "' contains an invalid output.primaryResourceType.");
+                        return new ResourceObjectData();
+                    }
+                    else if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType))
+                    {
+                        hasOutputPrimaryResourceType = true;
+                    }
+
+                    if (!hasPrimaryResourceType && hasOutputPrimaryResourceType)
+                    {
+                        primaryResourceType = outputPrimaryResourceType;
+                        hasPrimaryResourceType = true;
+                    }
+
                     foundOutputTypes[typeIndex] = true;
                     outputs[outputIndex] = new ResourceOutputDefinition
                     {
                         type = type,
+                        primaryResourceType = outputPrimaryResourceType,
+                        primaryResourceTypeWasExplicitlySet = hasOutputPrimaryResourceType,
                         fullCutAmount = outputRecord.fullCutAmount,
                         bareHandAmount = outputRecord.bareHandAmount,
                         interactionOffset = outputRecord.interactionOffset,
@@ -1310,9 +1533,17 @@ public class GameData
                     };
                 }
 
+                if (!hasPrimaryResourceType && outputs != null && outputs.Length > 0 && outputs[0] != null)
+                {
+                    primaryResourceType = outputs[0].type;
+                    hasPrimaryResourceType = true;
+                }
+
                 definitions[index] = new ResourceObjectDefinition
                 {
                     id = record.id,
+                    primaryResourceType = primaryResourceType,
+                    primaryResourceTypeWasExplicitlySet = hasPrimaryResourceType,
                     spawnSettings = record.spawnSettings,
                     sortingAnchorOffset = record.sortingAnchorOffset,
                     shadowSize = record.shadowSize,

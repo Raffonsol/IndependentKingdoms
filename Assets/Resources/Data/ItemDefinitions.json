@@ -1,0 +1,12 @@
+{
+    "itemDefinitions": [
+        { "type": "Axe", "iconIndex": 0, "heldSpriteKey": "axe0", "harvestResourceType": "Wood" },
+        { "type": "Pickaxe", "iconIndex": 1, "heldSpriteKey": "pickaxe0", "harvestResourceType": "" },
+        { "type": "Sword", "iconIndex": 2, "heldSpriteKey": "sword0", "harvestResourceType": "" },
+        { "type": "SwordAndShield", "iconIndex": 3, "heldSpriteKey": "swordShield0", "harvestResourceType": "" },
+        { "type": "Spear", "iconIndex": 4, "heldSpriteKey": "spear0", "harvestResourceType": "" },
+        { "type": "SpearAndShield", "iconIndex": 5, "heldSpriteKey": "spearShield0", "harvestResourceType": "" },
+        { "type": "Bow", "iconIndex": 6, "heldSpriteKey": "bow0", "harvestResourceType": "" },
+        { "type": "Staff", "iconIndex": 7, "heldSpriteKey": "staff0", "harvestResourceType": "" }
+    ]
+}

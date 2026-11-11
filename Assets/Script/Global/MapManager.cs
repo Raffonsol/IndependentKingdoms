@@ -1832,10 +1832,10 @@ public class MapManager : MonoBehaviour
         }
 
         gatheredAmount = resourceObject.Take(resourceType, requestedAmount, hasAxe);
-        if (!resourceObject.HasAnyResources)
+        if (!resourceObject.HasAnyResources || resourceObject.IsPrimaryResourceDepleted)
         {
             ReleaseResourceReservation(resourceObject, villager);
-            if (!resourceObject.CanRegenerateAnyResource)
+            if (!resourceObject.CanRegenerateAnyResource || resourceObject.IsPrimaryResourceDepleted)
             {
                 resourceObjectsByCell.Remove(resourceObject.GridCell);
                 PathfindingRevision++;

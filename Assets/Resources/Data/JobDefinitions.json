@@ -27,6 +27,23 @@
             "outputItemType": "Axe",
             "outputAmount": 1,
             "productionDurationSeconds": 300
+        },
+        {
+            "jobType": "Lumberjack",
+            "workType": "FieldGathering",
+            "needsAnnex": false,
+            "gatherAnyAvailableResource": false,
+            "resourceTypes": ["Wood"],
+            "requiredEquippedItemType": "Axe",
+            "harvestAmount": 1,
+            "gatheringDistance": 2.0,
+            "gatheringPauseDurationSeconds": 1.65,
+            "resourceSearchRetrySeconds": 1,
+            "handMotionDurationSeconds": 0.35,
+            "handHitPositions": [
+                { "x": 0.15, "y": 0.2, "z": 0 },
+                { "x": 0.3, "y": 0.05, "z": 0 }
+            ]
         }
     ]
 }

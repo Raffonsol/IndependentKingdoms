@@ -21,6 +21,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private GameObject topPanel;
     [SerializeField] private GameObject bottomPanel;
     [SerializeField] private Sprite[] resourceIcons;
+    [SerializeField] private Sprite[] itemIcons;
     [SerializeField] private Texture2D defaultCursorImage;
     [SerializeField] private Texture2D roadBuildCursorImage;
     [SerializeField] private GameObject roadEndpointPrefab;
@@ -97,6 +98,35 @@ public class UIManager : MonoBehaviour
 
         Debug.LogError("No resource definition is configured for " + resourceType + ".", this);
         return null;
+    }
+
+    public Sprite GetItemIcon(VillagerItemType itemType)
+    {
+        GameData gameData = GameData.Instance;
+        if (!gameData.TryGetItemDefinition(itemType, out ItemDefinition definition))
+        {
+            Debug.LogError("No item definition is configured for " + itemType + ".", this);
+            return null;
+        }
+
+        if (itemIcons == null
+            || definition.iconIndex < 0
+            || definition.iconIndex >= itemIcons.Length)
+        {
+            Debug.LogError(
+                "Item icon index " + definition.iconIndex + " for " + itemType
+                + " is outside the configured item icon range.",
+                this);
+            return null;
+        }
+
+        Sprite icon = itemIcons[definition.iconIndex];
+        if (icon == null)
+        {
+            Debug.LogError("No item icon is assigned at index " + definition.iconIndex + ".", this);
+        }
+
+        return icon;
     }
 
     private void Awake()

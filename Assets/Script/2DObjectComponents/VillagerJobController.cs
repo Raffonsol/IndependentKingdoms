@@ -328,7 +328,7 @@ public class VillagerJobController : MonoBehaviour
                     workplaceHammeringTimer = 0f;
                     BeginConstructionWorkStep();
                     villager.SetJobBehavior(
-                        VillagerBehaviorMode.Building,
+                        GetHomeAwareConstructionBehavior(VillagerBehaviorMode.Building),
                         houseSettings.secondConstructionDurationSeconds);
                 }
                 break;
@@ -457,6 +457,14 @@ public class VillagerJobController : MonoBehaviour
             : null;
     }
 
+    private VillagerBehaviorMode GetHomeAwareConstructionBehavior(
+        VillagerBehaviorMode fallbackBehavior)
+    {
+        return workplaceHouse != null && workplaceHouse == villager.HomeHouseObject
+            ? VillagerBehaviorMode.WorkingOnHome
+            : fallbackBehavior;
+    }
+
     private bool HasWorkplaceAnnex()
     {
         HouseVisual houseVisual = workplaceHouse != null
@@ -533,7 +541,7 @@ public class VillagerJobController : MonoBehaviour
         workplaceConstructionTimer = 0f;
         workplaceHammeringTimer = 0f;
         villager.SetJobBehavior(
-            VillagerBehaviorMode.Building,
+            GetHomeAwareConstructionBehavior(VillagerBehaviorMode.Building),
             houseSettings.firstConstructionDurationSeconds);
     }
 
@@ -560,7 +568,7 @@ public class VillagerJobController : MonoBehaviour
         workplaceConstructionTimer = 0f;
         workplaceHammeringTimer = 0f;
         villager.SetJobBehavior(
-            VillagerBehaviorMode.Idle,
+            GetHomeAwareConstructionBehavior(VillagerBehaviorMode.Idle),
             houseSettings.constructionBreakDurationSeconds);
     }
 
@@ -607,7 +615,7 @@ public class VillagerJobController : MonoBehaviour
         workplaceConstructionTimer = 0f;
         workplaceHammeringTimer = 0f;
         villager.SetJobBehavior(
-            VillagerBehaviorMode.Building,
+            GetHomeAwareConstructionBehavior(VillagerBehaviorMode.Building),
             houseSettings.secondConstructionDurationSeconds);
     }
 
@@ -837,8 +845,32 @@ public class VillagerJobController : MonoBehaviour
             ReleaseForagingResource(mapManager);
         }
 
+        bool requiresEquippedTool = isForagerJob
+            && jobDefinition != null
+            && jobDefinition.requiresEquippedItem;
+        bool canUseEquippedToolForWork = !requiresEquippedTool;
+        if (requiresEquippedTool)
+        {
+            if (jobDefinition.resourceTypes == null
+                || jobDefinition.resourceTypes.Length != 1
+                || villager.EquippedItem != jobDefinition.requiredEquippedItemType)
+            {
+                villager.StopForagingMovement();
+                return false;
+            }
+
+            canUseEquippedToolForWork = villager.CanUseEquippedToolForResource(jobDefinition.resourceTypes[0]);
+            if (!canUseEquippedToolForWork)
+            {
+                villager.StopForagingMovement();
+                return false;
+            }
+        }
+
         if (foragingResource == null
-            || !foragingResource.CanGather(foragingResourceType, false))
+            || !foragingResource.CanGather(
+                foragingResourceType,
+                requiresEquippedTool && canUseEquippedToolForWork))
         {
             ReleaseForagingResource(mapManager);
             if (Time.time < nextResourceSearchTime)
@@ -848,14 +880,23 @@ public class VillagerJobController : MonoBehaviour
             }
 
             bool foundResource = isForagerJob
-                ? mapManager.TryGetClosestReachableBareHandResourceObject(
-                    villager,
-                    villager.transform.position,
-                    unreachableResources,
-                    GetAllowedResourceTypes(),
-                    isForagerJob ? jobDefinition.gatheringDistance : settings.gatheringDistance,
-                    out foragingResource,
-                    out foragingResourceType)
+                ? (requiresEquippedTool
+                    ? mapManager.TryGetClosestReachableResourceObject(
+                        villager,
+                        jobDefinition.resourceTypes[0],
+                        villager.transform.position,
+                        true,
+                        unreachableResources,
+                        jobDefinition.gatheringDistance,
+                        out foragingResource)
+                    : mapManager.TryGetClosestReachableBareHandResourceObject(
+                        villager,
+                        villager.transform.position,
+                        unreachableResources,
+                        GetAllowedResourceTypes(),
+                        isForagerJob ? jobDefinition.gatheringDistance : settings.gatheringDistance,
+                        out foragingResource,
+                        out foragingResourceType))
                 : mapManager.TryGetClosestReachableResourceObject(
                     villager,
                     ResourceType.Food,
@@ -874,7 +915,11 @@ public class VillagerJobController : MonoBehaviour
                 return false;
             }
 
-            if (!isForagerJob)
+            if (requiresEquippedTool)
+            {
+                foragingResourceType = jobDefinition.resourceTypes[0];
+            }
+            else if (!isForagerJob)
             {
                 foragingResourceType = ResourceType.Food;
             }
@@ -927,12 +972,15 @@ public class VillagerJobController : MonoBehaviour
             resourceSettings.shakeDurationSeconds,
             resourceSettings.shakeMagnitude,
             resourceSettings.shakeFrequency);
+        bool hasRequiredToolForCurrentGather = requiresEquippedTool
+            && villager.EquippedItem == jobDefinition.requiredEquippedItemType
+            && villager.CanUseEquippedToolForResource(foragingResourceType);
         if (mapManager.TryGatherResource(
                 villager,
                 foragingResource,
                 foragingResourceType,
                 isForagerJob ? jobDefinition.harvestAmount : 1,
-                false,
+                hasRequiredToolForCurrentGather,
                 out int gatheredAmount)
             && gatheredAmount > 0)
         {

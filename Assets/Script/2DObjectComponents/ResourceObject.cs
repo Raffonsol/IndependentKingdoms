@@ -17,6 +17,8 @@ public class ResourceObject : MonoBehaviour
 
     public Vector2Int GridCell { get; private set; }
 
+    public ResourceType PrimaryResourceType { get; private set; }
+
     public bool HasGridCell { get; private set; }
     public string DefinitionId { get; private set; }
     internal Transform VisualRoot
@@ -186,6 +188,9 @@ public class ResourceObject : MonoBehaviour
         availableResourceTypes.Clear();
         DefinitionId = definition.id;
         resourceType = definition.outputs[0].type;
+        PrimaryResourceType = definition.primaryResourceTypeWasExplicitlySet
+            ? definition.primaryResourceType
+            : definition.outputs[0].type;
         InteractionOffset = definition.outputs[0].interactionOffset;
         canBeRemovedByConstruction = true;
         foreach (ResourceOutputDefinition output in definition.outputs)
@@ -229,6 +234,11 @@ public class ResourceObject : MonoBehaviour
             regenerationPerSecond = definition.resourceRegenerationPerSecond,
             interactionOffset = definition.interactionOffset
         };
+        if (definition.primaryResourceTypeWasExplicitlySet
+            && definition.type == definition.primaryResourceType)
+        {
+            PrimaryResourceType = definition.type;
+        }
         resourceStocks.Add(definition.type, stock);
         availableResourceTypes.Add(definition.type);
     }
@@ -347,6 +357,15 @@ public class ResourceObject : MonoBehaviour
             }
 
             return false;
+        }
+    }
+
+    public bool IsPrimaryResourceDepleted
+    {
+        get
+        {
+            return resourceStocks.TryGetValue(PrimaryResourceType, out ResourceStock stock)
+                && stock.amount <= 0;
         }
     }
 

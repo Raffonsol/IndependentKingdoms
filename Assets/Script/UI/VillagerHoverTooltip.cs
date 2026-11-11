@@ -29,16 +29,24 @@ public class VillagerHoverTooltip : HoverTooltip
         Person person = villager.Person;
         if (nameText != null)
         {
-            nameText.text = person != null && !string.IsNullOrWhiteSpace(person.name)
+            string villagerName = person != null && !string.IsNullOrWhiteSpace(person.name)
                 ? person.name
                 : "Unknown";
+            if (nameText.text != villagerName)
+            {
+                nameText.text = villagerName;
+            }
         }
 
         if (activityText != null)
         {
-            activityText.text = villager.IsLookingForStreet
+            string activity = villager.IsLookingForStreet
                 ? "Looking for street"
                 : GetActivityText(villager.CurrentBehavior);
+            if (activityText.text != activity)
+            {
+                activityText.text = activity;
+            }
         }
     }
 
@@ -59,6 +67,8 @@ public class VillagerHoverTooltip : HoverTooltip
                 return "Working";
             case VillagerBehaviorMode.Building:
                 return "Building";
+            case VillagerBehaviorMode.WorkingOnHome:
+                return "Working on Home";
             case VillagerBehaviorMode.LoadingToStorage:
                 return "Taking goods to storage";
             case VillagerBehaviorMode.Eat:
