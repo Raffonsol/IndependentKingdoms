@@ -2,6 +2,7 @@
     "uiSettings": {
         "defaultCursorHotspot": { "x": 0, "y": 0 },
         "roadBuildCursorHotspot": { "x": 0, "y": 0 },
+        "uiIconScaleOnWorld": 3,
         "trackVillagers": true,
         "villagerIndicatorSize": { "x": 24, "y": 24 },
         "villagerIndicatorEdgeInset": 48,

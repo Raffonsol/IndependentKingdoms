@@ -1736,11 +1736,13 @@ public class GameData
 
             if (settings.uiSettings.villagerIndicatorSize.x <= 0f
                 || settings.uiSettings.villagerIndicatorSize.y <= 0f
-                || settings.uiSettings.villagerIndicatorEdgeInset < 0f)
+                || settings.uiSettings.villagerIndicatorEdgeInset < 0f
+                || !IsFinitePositive(settings.uiSettings.uiIconScaleOnWorld))
             {
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
-                    + ".json must define a positive villagerIndicatorSize and a non-negative villagerIndicatorEdgeInset.");
+                    + ".json must define a positive villagerIndicatorSize and uiIconScaleOnWorld, "
+                    + "and a non-negative villagerIndicatorEdgeInset.");
                 return new GameSettingsCollection();
             }
 

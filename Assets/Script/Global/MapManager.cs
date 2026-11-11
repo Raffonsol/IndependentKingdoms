@@ -1367,17 +1367,26 @@ public class MapManager : MonoBehaviour
             iconsByType.Add(resourceType, instances);
         }
 
-        foreach (GameObject iconInstance in instances)
+        for (int index = instances.Count - 1; index >= 0; index--)
         {
-            if (iconInstance != null)
+            if (instances[index] == null)
             {
-                Destroy(iconInstance);
+                instances.RemoveAt(index);
             }
         }
 
-        instances.Clear();
         int resourceAmount = storage.GetAmount(resourceType);
-        if (resourceAmount <= 0)
+        int iconCount = resourceAmount > 0
+            ? 1 + resourceAmount / communityStorageSettings.unitsPerAdditionalIcon
+            : 0;
+        while (instances.Count > iconCount)
+        {
+            int lastIndex = instances.Count - 1;
+            Destroy(instances[lastIndex]);
+            instances.RemoveAt(lastIndex);
+        }
+
+        if (instances.Count >= iconCount)
         {
             return;
         }
@@ -1405,9 +1414,8 @@ public class MapManager : MonoBehaviour
             return;
         }
 
-        int iconCount = 1 + resourceAmount
-            / communityStorageSettings.unitsPerAdditionalIcon;
-        float iconWidth = settings.gridCellSize * 0.35f;
+        float iconWidth = settings.gridCellSize * 0.35f
+            * GameData.Instance.uiSettings.uiIconScaleOnWorld;
         float spriteWidth = iconSprite.bounds.size.x;
         float iconScale = spriteWidth > 0f ? iconWidth / spriteWidth : 1f;
         float iconRadius = iconWidth * 0.5f;
@@ -1421,11 +1429,6 @@ public class MapManager : MonoBehaviour
         List<Vector2> occupiedPositions = new List<Vector2>();
         foreach (KeyValuePair<ResourceType, List<GameObject>> entry in iconsByType)
         {
-            if (entry.Key == resourceType)
-            {
-                continue;
-            }
-
             foreach (GameObject existingIcon in entry.Value)
             {
                 if (existingIcon != null)
@@ -1435,7 +1438,7 @@ public class MapManager : MonoBehaviour
             }
         }
 
-        for (int index = 0; index < iconCount; index++)
+        for (int index = instances.Count; index < iconCount; index++)
         {
             Vector2 position = Vector2.zero;
             bool foundPosition = false;

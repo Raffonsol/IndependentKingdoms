@@ -233,6 +233,7 @@ public class UISettings
 {
     public Vector2 defaultCursorHotspot;
     public Vector2 roadBuildCursorHotspot;
+    public float uiIconScaleOnWorld = 1f;
     public bool trackVillagers = true;
     public Vector2 villagerIndicatorSize = new Vector2(24f, 24f);
     public float villagerIndicatorEdgeInset = 48f;
