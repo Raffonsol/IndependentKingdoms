@@ -9,6 +9,7 @@
             "visualScale": 1.5,
             "visualOffset": { "x": 1, "y": 6 },
             "sortingAnchorOffset": { "x": 0, "y": 1 },
+            "annexWorkPositionOffset": { "x": -5, "y": -10 },
             "yardSprites": ["b0_yard0"],
             "yardColorCodes": ["#795727"],
             "baseSprites": ["b0_base0"],
@@ -19,14 +20,15 @@
             "extensionRoofSprites": ["b0_extensionRoof0"],
             "annexSprites": ["b0_annex0"],
             "annexRoofSprites": ["b0_annexRoof0"],
-            "wallColorCodes": ["#795727", "#5B3616", "#5C3714", "#85643B", "#A76E3C"],
-            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#5A3012", "#352011"]
+            "wallColorCodes": ["#5A4221", "#5B3616", "#5C3714", "#85643B", "#612f0f"],
+            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#3D2310", "#352011"]
         },
         {
             "id": "h1",
             "visualScale": 1.5,
             "visualOffset": { "x": 1, "y": 8 },
             "sortingAnchorOffset": { "x": 0, "y": 0 },
+            "annexWorkPositionOffset": { "x": 2, "y": -10 },
             "yardSprites": ["b1_yard0"],
             "yardColorCodes": ["#795727"],
             "baseSprites": ["b1_base0"],
@@ -37,14 +39,15 @@
             "extensionRoofSprites": ["b1_extensionRoof0"],
             "annexSprites": ["b1_annex0"],
             "annexRoofSprites": ["b1_annexRoof0"],
-            "wallColorCodes": ["#795727", "#5B3616", "#5C3714", "#85643B", "#A76E3C"],
-            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#5A3012", "#352011"]
+            "wallColorCodes": ["#5A4221", "#5B3616", "#5C3714", "#85643B", "#612f0f"],
+            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#3D2310", "#352011"]
         },
         {
             "id": "h2",
             "visualScale": 1.5,
             "visualOffset": { "x": 0, "y": 7 },
             "sortingAnchorOffset": { "x": 0, "y": 0 },
+            "annexWorkPositionOffset": { "x": -8, "y": -9 },
             "yardSprites": ["b2_yard0"],
             "yardColorCodes": ["#795727"],
             "baseSprites": ["b2_base0"],
@@ -55,8 +58,8 @@
             "extensionRoofSprites": ["b2_extensionRoof0"],
             "annexSprites": ["b2_annex0"],
             "annexRoofSprites": ["b2_annexRoof0"],
-            "wallColorCodes": ["#795727", "#5B3616", "#5C3714", "#85643B", "#A76E3C"],
-            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#5A3012", "#352011"]
+            "wallColorCodes": ["#5A4221", "#5B3616", "#5C3714", "#85643B", "#612f0f"],
+            "roofColorCodes": ["#54280a", "#513f20", "#684a21", "#3D2310", "#352011"]
         }
     ]
 }

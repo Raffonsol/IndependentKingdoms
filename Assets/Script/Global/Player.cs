@@ -161,6 +161,17 @@ public class Player : MonoBehaviour
                 return false;
             }
 
+            if (definition.isCommunityStorageResource
+                && initialAmountsByType[resourceIndex] > 0)
+            {
+                Debug.LogError(
+                    "Initial " + definition.type
+                    + " cannot be held in the player balance because it is community-storage-backed.",
+                    this);
+                resources = null;
+                return false;
+            }
+
             resources[resourceIndex] = new ResourceRecord
             {
                 type = definition.type,
@@ -180,6 +191,15 @@ public class Player : MonoBehaviour
     {
         if (resources != null)
         {
+            if (GameData.Instance.IsCommunityStorageResource(resourceType))
+            {
+                MapManager mapManager = MapManager.Instance;
+                amount = mapManager != null
+                    ? mapManager.GetCommunityStorageAmount(resourceType)
+                    : 0;
+                return true;
+            }
+
             foreach (ResourceRecord resource in resources)
             {
                 if (resource != null && resource.type == resourceType)
@@ -198,6 +218,15 @@ public class Player : MonoBehaviour
     {
         if (amount <= 0 || resources == null)
         {
+            return false;
+        }
+
+        if (GameData.Instance.IsCommunityStorageResource(resourceType))
+        {
+            Debug.LogError(
+                "Cannot add " + resourceType
+                + " directly to the player balance because it is community-storage-backed.",
+                this);
             return false;
         }
 
@@ -225,14 +254,39 @@ public class Player : MonoBehaviour
         foreach (ResourceCost cost in costs)
         {
             if (cost == null || !TryGetResourceAmount(cost.resourceType, out int amount)
+                || cost.amount < 0
                 || amount < cost.amount)
             {
                 return false;
             }
         }
 
+        GameData gameData = GameData.Instance;
+        MapManager mapManager = MapManager.Instance;
         foreach (ResourceCost cost in costs)
         {
+            if (gameData.IsCommunityStorageResource(cost.resourceType))
+            {
+                if (cost.amount == 0)
+                {
+                    continue;
+                }
+
+                if (mapManager == null
+                    || !mapManager.TryWithdrawCommunityStorageAmount(
+                        cost.resourceType,
+                        cost.amount))
+                {
+                    Debug.LogError(
+                        "Could not withdraw " + cost.amount + " " + cost.resourceType
+                        + " from community storage after validating resource costs.",
+                        this);
+                    return false;
+                }
+
+                continue;
+            }
+
             foreach (ResourceRecord resource in resources)
             {
                 if (resource != null && resource.type == cost.resourceType)

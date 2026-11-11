@@ -23,13 +23,18 @@ public class Mover : MonoBehaviour
     private Vector3 requestedDestination;
     private Vector2Int requestedDestinationCell;
     private float requestedArrivalDistance;
+    private HousePlotRecord annexWorkHousePlotException;
     private int pathfindingRevision = -1;
     private bool pathCompleted;
     private bool hasPathRequest;
     private bool loggedMissingMapManagerForPathfinding;
+    private bool loggedMissingRecoveryCell;
     private Quaternion[] legStartingRotations;
     private Vector3[] legPivotLocalOffsets;
     private Vector3 torsoStartingLocalPosition;
+    private Vector3 lastMovementProgressPosition;
+    private float movementStuckTimer;
+    private MapSettings mapSettings;
     private SortingAnchor sortingAnchor;
     private GroundShadow groundShadow;
 
@@ -73,6 +78,11 @@ public class Mover : MonoBehaviour
         get { return hasPathRequest && !pathCompleted && pathWaypoints.Count == 0; }
     }
 
+    protected bool IsMoving
+    {
+        get { return movementDirection.sqrMagnitude > 0f; }
+    }
+
     protected virtual void Awake()
     {
         defaultMovementSpeed = movementSpeed;
@@ -83,6 +93,14 @@ public class Mover : MonoBehaviour
         }
 
         groundShadow = GetComponentInChildren<GroundShadow>(true);
+        mapSettings = GameData.Instance.mapSettings;
+        if (mapSettings == null || mapSettings.stuckMovementTimeoutSeconds <= 0f)
+        {
+            Debug.LogError("Mover stuck-movement settings could not be loaded from GameData.", this);
+            enabled = false;
+            return;
+        }
+
         CombatSettings combatSettings = GameData.Instance.combatSettings;
         if (combatSettings == null)
         {
@@ -92,14 +110,29 @@ public class Mover : MonoBehaviour
         }
 
         runningSpeed = combatSettings.runningSpeed;
+        lastMovementProgressPosition = transform.position;
         InitializeRuntimeState();
         UpdateFacingScale();
     }
 
     protected virtual void Update()
     {
-        FollowPath(Time.deltaTime);
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager != null && RecoverFromHouseOccupiedCell(mapManager))
+        {
+            FollowPath(Time.deltaTime);
+            UpdateMovementAnimation();
+            return;
+        }
 
+        FollowPath(Time.deltaTime);
+        UpdateStuckMovement(Time.deltaTime, mapManager);
+
+        UpdateMovementAnimation();
+    }
+
+    private void UpdateMovementAnimation()
+    {
         if (movementDirection.sqrMagnitude > 0f && movementSpeed > 0f)
         {
             AnimateLegs();
@@ -108,6 +141,121 @@ public class Mover : MonoBehaviour
         {
             ResetLegs();
             AnimateIdleHeaving();
+        }
+    }
+
+    private bool RecoverFromHouseOccupiedCell(MapManager mapManager)
+    {
+        if (mapManager.GridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        Vector2Int currentCell = WorldPositionToGridCell(transform.position, mapManager.GridCellSize);
+        if (annexWorkHousePlotException != null
+            && mapManager.IsCellInsideHousePlot(annexWorkHousePlotException, currentCell))
+        {
+            return false;
+        }
+
+        if (!mapManager.IsCellOccupiedByHouse(currentCell))
+        {
+            loggedMissingRecoveryCell = false;
+            return false;
+        }
+
+        if (!mapManager.TryGetNearestAvailableCellPosition(
+                currentCell,
+                true,
+                false,
+                out Vector3 availablePosition))
+        {
+            LogMissingRecoveryCell();
+            return true;
+        }
+
+        transform.position = availablePosition;
+        ResetMovementProgressTracking();
+        RebuildPathAfterRelocation(mapManager);
+        return true;
+    }
+
+    private void UpdateStuckMovement(float deltaTime, MapManager mapManager)
+    {
+        if (mapManager == null
+            || mapManager.GridCellSize <= 0f
+            || !hasPathRequest
+            || pathCompleted
+            || pathWaypoints.Count == 0
+            || movementSpeed <= 0f)
+        {
+            ResetMovementProgressTracking();
+            return;
+        }
+
+        const float minimumProgressDistance = 0.05f;
+        if ((transform.position - lastMovementProgressPosition).sqrMagnitude
+            >= minimumProgressDistance * minimumProgressDistance)
+        {
+            ResetMovementProgressTracking();
+            return;
+        }
+
+        movementStuckTimer += deltaTime;
+        if (movementStuckTimer < mapSettings.stuckMovementTimeoutSeconds)
+        {
+            return;
+        }
+
+        movementStuckTimer = 0f;
+        Vector2Int currentCell = WorldPositionToGridCell(transform.position, mapManager.GridCellSize);
+        if (RecoverFromHouseOccupiedCell(mapManager))
+        {
+            return;
+        }
+
+        if (!mapManager.TryGetNearestAvailableCellPosition(
+                currentCell,
+                true,
+                true,
+                out Vector3 availablePosition))
+        {
+            LogMissingRecoveryCell();
+            lastMovementProgressPosition = transform.position;
+            return;
+        }
+
+        transform.position = availablePosition;
+        ResetMovementProgressTracking();
+        RebuildPathAfterRelocation(mapManager);
+    }
+
+    private void RebuildPathAfterRelocation(MapManager mapManager)
+    {
+        loggedMissingRecoveryCell = false;
+        movementDirection = Vector2.zero;
+        if (!hasPathRequest)
+        {
+            return;
+        }
+
+        pathfindingRevision = mapManager.PathfindingRevision;
+        pathCompleted = false;
+        RebuildPath(mapManager);
+    }
+
+    private void ResetMovementProgressTracking()
+    {
+        movementStuckTimer = 0f;
+        lastMovementProgressPosition = transform.position;
+    }
+
+    private void LogMissingRecoveryCell()
+    {
+        if (!loggedMissingRecoveryCell)
+        {
+            Debug.LogError("Mover could not find an available map cell for unstuck recovery.", this);
+            loggedMissingRecoveryCell = true;
         }
     }
 
@@ -343,6 +491,39 @@ public class Mover : MonoBehaviour
         }
 
         UpdateFacingFromDirection(pathWaypoints[0] - transform.position);
+    }
+
+    protected void SetAnnexWorkHousePlotException(HousePlotRecord housePlot)
+    {
+        annexWorkHousePlotException = housePlot;
+    }
+
+    protected void TeleportToPosition(Vector3 position, bool rebuildActivePath)
+    {
+        transform.position = position;
+        ResetMovementProgressTracking();
+        if (!rebuildActivePath)
+        {
+            StopMoving();
+            return;
+        }
+
+        if (!hasPathRequest)
+        {
+            movementDirection = Vector2.zero;
+            return;
+        }
+
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager == null)
+        {
+            LogMissingMapManager();
+            StopMoving();
+            return;
+        }
+
+        pathfindingRevision = mapManager.PathfindingRevision;
+        RebuildPath(mapManager);
     }
 
     private void FollowPath(float deltaTime)

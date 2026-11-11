@@ -2,43 +2,53 @@
     "resourceDefinitions": [
         {
             "type": "Gold",
-            "iconIndex": 0
+            "iconIndex": 0,
+            "isCommunityStorageResource": false
         },
         {
             "type": "Food",
-            "iconIndex": 1
+            "iconIndex": 1,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Mana",
-            "iconIndex": 2
+            "iconIndex": 2,
+            "isCommunityStorageResource": false
         },
         {
             "type": "Wood",
-            "iconIndex": 3
+            "iconIndex": 3,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Stone",
-            "iconIndex": 4
+            "iconIndex": 4,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Iron",
-            "iconIndex": 5
+            "iconIndex": 5,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Leather",
-            "iconIndex": 6
+            "iconIndex": 6,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Cloth",
-            "iconIndex": 7
+            "iconIndex": 7,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Gems",
-            "iconIndex": 8
+            "iconIndex": 8,
+            "isCommunityStorageResource": true
         },
         {
             "type": "Herbs",
-            "iconIndex": 9
+            "iconIndex": 9,
+            "isCommunityStorageResource": true
          }
     ]
 }

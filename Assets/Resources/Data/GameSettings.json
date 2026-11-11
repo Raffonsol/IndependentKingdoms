@@ -20,7 +20,8 @@
         "roadTileSpacing": 1,
         "maxRoadKeyPointDistance": 10,
         "roadEndpointKeyPointClearance": 9,
-        "manaCostPerKeyPoint": 1
+        "manaCostPerKeyPoint": 1,
+        "stuckMovementTimeoutSeconds": 2
     },
     "playerSettings": {
         "initialVillagerCount": 8,
@@ -112,6 +113,11 @@
         "gatheringDistance": 1.2,
         "gatheringPauseDurationSeconds": 1.65,
         "handMotionDurationSeconds": 0.35,
+        "maleResourceHoldingArmPosition": { "x": 1, "y": 0.6, "z": -200 },
+        "femaleResourceHoldingArmPosition": { "x": 0.6, "y": 0, "z": -200 },
+        "resourceHoldingIconLocalPosition": { "x": 0.6, "y": -0.6, "z": 0 },
+        "resourceHoldingIconSortingLayer": "Everything",
+        "resourceHoldingIconSortingOrder": 200,
         "handHitPositions": [
             { "x": 1, "y": 1, "z": 160 },
             { "x": -0.4, "y": 1, "z": 260 }

@@ -8,6 +8,7 @@ public class VillagerHandMotion : MonoBehaviour
     private ArmMotionPoint[] hitPositions;
     private float hitDuration;
     private float hitTimer;
+    private bool isHoldingPose;
 
     public void Configure(Transform villagerArm)
     {
@@ -29,14 +30,49 @@ public class VillagerHandMotion : MonoBehaviour
             return;
         }
 
+        isHoldingPose = false;
         hitPositions = positions;
         hitDuration = duration;
         hitTimer = duration;
     }
 
+    public void SetHoldingPose(ArmMotionPoint position)
+    {
+        if (arm == null || position == null)
+        {
+            return;
+        }
+
+        isHoldingPose = true;
+        hitTimer = 0f;
+        ApplyArmPosition(position);
+    }
+
+    public void ClearHoldingPose()
+    {
+        if (arm == null || !isHoldingPose)
+        {
+            return;
+        }
+
+        isHoldingPose = false;
+        arm.localPosition = startingLocalPosition;
+        arm.localRotation = startingLocalRotation;
+    }
+
     private void Update()
     {
-        if (arm == null || hitTimer <= 0f)
+        if (arm == null)
+        {
+            return;
+        }
+
+        if (isHoldingPose)
+        {
+            return;
+        }
+
+        if (hitTimer <= 0f)
         {
             return;
         }
@@ -73,5 +109,11 @@ public class VillagerHandMotion : MonoBehaviour
             arm.localPosition = startingLocalPosition;
             arm.localRotation = startingLocalRotation;
         }
+    }
+
+    private void ApplyArmPosition(ArmMotionPoint position)
+    {
+        arm.localPosition = startingLocalPosition + new Vector3(position.x, position.y, 0f);
+        arm.localRotation = startingLocalRotation * Quaternion.Euler(0f, 0f, position.z);
     }
 }

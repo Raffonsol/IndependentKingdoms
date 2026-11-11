@@ -66,9 +66,12 @@ public class CommunityStorage : MonoBehaviour
         }
 
         int total = 0;
-        foreach (int amount in resourceAmounts)
+        for (int index = 0; index < resourceAmounts.Length; index++)
         {
-            total += amount;
+            if (GameData.Instance.IsCommunityStorageResource((ResourceType)index))
+            {
+                total += resourceAmounts[index];
+            }
         }
 
         return total;
@@ -84,7 +87,11 @@ public class CommunityStorage : MonoBehaviour
         int carriedAmount = 0;
         foreach (VillagerResourceEntry entry in inventory)
         {
-            carriedAmount += entry != null ? Mathf.Max(0, entry.amount) : 0;
+            if (entry != null
+                && GameData.Instance.IsCommunityStorageResource(entry.resourceType))
+            {
+                carriedAmount += Mathf.Max(0, entry.amount);
+            }
         }
 
         return Mathf.Min(carriedAmount, RemainingCapacity);
@@ -123,7 +130,9 @@ public class CommunityStorage : MonoBehaviour
     private bool TryGetResourceIndex(ResourceType resourceType, out int resourceIndex)
     {
         resourceIndex = -1;
-        if (!IsInitialized || !Enum.IsDefined(typeof(ResourceType), resourceType))
+        if (!IsInitialized
+            || !Enum.IsDefined(typeof(ResourceType), resourceType)
+            || !GameData.Instance.IsCommunityStorageResource(resourceType))
         {
             return false;
         }

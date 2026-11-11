@@ -26,7 +26,13 @@
             ],
             "outputItemType": "Axe",
             "outputAmount": 1,
-            "productionDurationSeconds": 30
+            "productionDurationSeconds": 30,
+            "handMotionDurationSeconds": 0.35,
+            "workMotionIntervalSeconds": 1.65,
+            "handHitPositions": [
+                { "x": 1, "y": 1, "z": 160 },
+                { "x": -0.4, "y": 1, "z": 260 }
+            ]
         },
         {
             "jobType": "Lumberjack",

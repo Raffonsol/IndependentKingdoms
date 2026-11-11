@@ -67,6 +67,12 @@ public class GameData
         return false;
     }
 
+    public bool IsCommunityStorageResource(ResourceType resourceType)
+    {
+        return TryGetResourceDefinition(resourceType, out ResourceDefinition definition)
+            && definition.isCommunityStorageResource;
+    }
+
     public bool TryGetItemDefinition(VillagerItemType itemType, out ItemDefinition definition)
     {
         if (itemDefinitions != null)
@@ -343,9 +349,15 @@ public class GameData
                         || record.inputCosts.Length == 0
                         || !TryParseEnumName(record.outputItemType, out VillagerItemType outputItemType)
                         || record.outputAmount <= 0
-                        || !IsFinitePositive(record.productionDurationSeconds))
+                        || !IsFinitePositive(record.productionDurationSeconds)
+                        || !IsFinitePositive(record.handMotionDurationSeconds)
+                        || !IsFinitePositive(record.workMotionIntervalSeconds)
+                        || record.workMotionIntervalSeconds < record.handMotionDurationSeconds
+                        || !AreValidArmMotionPoints(record.handHitPositions))
                     {
-                        Debug.LogError("Production job '" + jobType + "' has invalid input/output settings.");
+                        Debug.LogError(
+                            "Production job '" + jobType
+                            + "' has invalid input/output or hand-motion settings.");
                         return new JobDefinition[0];
                     }
 
@@ -383,6 +395,9 @@ public class GameData
                     definition.outputItemType = outputItemType;
                     definition.outputAmount = record.outputAmount;
                     definition.productionDurationSeconds = record.productionDurationSeconds;
+                    definition.handMotionDurationSeconds = record.handMotionDurationSeconds;
+                    definition.handHitPositions = record.handHitPositions;
+                    definition.workMotionIntervalSeconds = record.workMotionIntervalSeconds;
                 }
                 else if (workType == JobWorkType.Combat)
                 {
@@ -658,6 +673,7 @@ public class GameData
                 visualScale = record.visualScale,
                 visualOffset = record.visualOffset,
                 sortingAnchorOffset = record.sortingAnchorOffset,
+                annexWorkPositionOffset = record.annexWorkPositionOffset,
                 yardSprites = LoadHouseSprites(record.yardSprites, record.id, "yardSprites", true),
                 yardColors = LoadHouseColors(record.yardColorCodes, record.id, "yardColorCodes"),
                 baseSprites = LoadHouseSprites(record.baseSprites, record.id, "baseSprites", true),
@@ -675,11 +691,14 @@ public class GameData
             };
             if (definition.visualScale <= 0f
                 || !IsFinite(definition.sortingAnchorOffset.x)
-                || !IsFinite(definition.sortingAnchorOffset.y))
+                || !IsFinite(definition.sortingAnchorOffset.y)
+                || !IsFinite(definition.annexWorkPositionOffset.x)
+                || !IsFinite(definition.annexWorkPositionOffset.y))
             {
                 Debug.LogError(
                     "House '" + record.id
-                    + "' must define a positive visualScale and finite sortingAnchorOffset.");
+                    + "' must define a positive visualScale and finite sortingAnchorOffset "
+                    + "and annexWorkPositionOffset.");
                 return new HouseDefinition[0];
             }
 
@@ -1269,7 +1288,8 @@ public class GameData
                 ResourceDefinition definition = new ResourceDefinition
                 {
                     type = type,
-                    iconIndex = jsonDefinition.iconIndex
+                    iconIndex = jsonDefinition.iconIndex,
+                    isCommunityStorageResource = jsonDefinition.isCommunityStorageResource
                 };
                 definitions[index] = definition;
                 int enumIndex = Convert.ToInt32(definition.type);
@@ -1749,12 +1769,14 @@ public class GameData
             if (settings.mapSettings.roadMovementSpeedMultiplier < 1f
                 || settings.mapSettings.roadTileSpacing <= 0f
                 || !IsFiniteNonNegative(settings.mapSettings.roadMovementBonusRange)
-                || settings.mapSettings.manaCostPerKeyPoint < 0)
+                || settings.mapSettings.manaCostPerKeyPoint < 0
+                || !IsFinitePositive(settings.mapSettings.stuckMovementTimeoutSeconds))
             {
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json must define a roadMovementSpeedMultiplier of at least 1, a positive roadTileSpacing, "
-                    + "a finite non-negative roadMovementBonusRange, and a non-negative manaCostPerKeyPoint.");
+                    + "a finite non-negative roadMovementBonusRange, a non-negative manaCostPerKeyPoint, "
+                    + "and a positive stuckMovementTimeoutSeconds.");
                 return new GameSettingsCollection();
             }
 
@@ -1869,11 +1891,23 @@ public class GameData
                 || villagerSettings.gatheringDistance < 0f
                 || villagerSettings.gatheringPauseDurationSeconds < 0f
                 || villagerSettings.handMotionDurationSeconds <= 0f
+                || villagerSettings.maleResourceHoldingArmPosition == null
+                || !IsFinite(villagerSettings.maleResourceHoldingArmPosition.x)
+                || !IsFinite(villagerSettings.maleResourceHoldingArmPosition.y)
+                || !IsFinite(villagerSettings.maleResourceHoldingArmPosition.z)
+                || villagerSettings.femaleResourceHoldingArmPosition == null
+                || !IsFinite(villagerSettings.femaleResourceHoldingArmPosition.x)
+                || !IsFinite(villagerSettings.femaleResourceHoldingArmPosition.y)
+                || !IsFinite(villagerSettings.femaleResourceHoldingArmPosition.z)
+                || !IsFinite(villagerSettings.resourceHoldingIconLocalPosition.x)
+                || !IsFinite(villagerSettings.resourceHoldingIconLocalPosition.y)
+                || !IsFinite(villagerSettings.resourceHoldingIconLocalPosition.z)
+                || !IsValidSortingLayerName(villagerSettings.resourceHoldingIconSortingLayer)
                 || !AreValidArmMotionPoints(villagerSettings.handHitPositions))
             {
                 Debug.LogError(
                     "Villager settings contain invalid movement, fatigue, housing-search, "
-                    + "required-item wait priority/interruptibility, or gathering values.");
+                    + "required-item wait priority/interruptibility, gathering, or resource-holding values.");
                 return new GameSettingsCollection();
             }
 
@@ -1925,6 +1959,24 @@ public class GameData
     private static bool IsFinitePositive(float value)
     {
         return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsValidSortingLayerName(string sortingLayerName)
+    {
+        if (string.IsNullOrWhiteSpace(sortingLayerName))
+        {
+            return false;
+        }
+
+        foreach (SortingLayer sortingLayer in SortingLayer.layers)
+        {
+            if (sortingLayer.name == sortingLayerName)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool AreValidArmMotionPoints(ArmMotionPoint[] points)

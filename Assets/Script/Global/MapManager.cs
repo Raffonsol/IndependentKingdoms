@@ -150,7 +150,10 @@ public class MapManager : MonoBehaviour
         int villagerAmount = 0;
         foreach (VillagerResourceEntry entry in inventory)
         {
-            villagerAmount += entry != null ? Mathf.Max(0, entry.amount) : 0;
+            if (entry != null && GameData.Instance.IsCommunityStorageResource(entry.resourceType))
+            {
+                villagerAmount += Mathf.Max(0, entry.amount);
+            }
         }
 
         int availableCapacity = communityStorageSettings.maximumAmountPerStorage;
@@ -936,6 +939,40 @@ public class MapManager : MonoBehaviour
         return totalAmount;
     }
 
+    public bool TryWithdrawCommunityStorageAmount(
+        ResourceType resourceType,
+        int requestedAmount)
+    {
+        if (requestedAmount <= 0
+            || !GameData.Instance.IsCommunityStorageResource(resourceType)
+            || GetCommunityStorageAmount(resourceType) < requestedAmount)
+        {
+            return false;
+        }
+
+        int remainingAmount = requestedAmount;
+        foreach (CommunityStorage storage in communityStorages)
+        {
+            if (storage == null
+                || !storage.TryWithdraw(resourceType, remainingAmount, out int withdrawnAmount))
+            {
+                continue;
+            }
+
+            RefreshCommunityStorageIcons(storage, resourceType);
+            remainingAmount -= withdrawnAmount;
+            if (remainingAmount == 0)
+            {
+                return true;
+            }
+        }
+
+        Debug.LogError(
+            "Community storage amounts changed while withdrawing " + requestedAmount
+            + " " + resourceType + ".");
+        return false;
+    }
+
     public bool TryDepositCommunityStorage(
         CommunityStorage storage,
         ResourceType resourceType,
@@ -980,6 +1017,73 @@ public class MapManager : MonoBehaviour
         Vector3 center = GridCellToWorldPosition(cell, gridCellSize);
         center.z = MapCenter.z;
         return new Bounds(center, new Vector3(gridCellSize, gridCellSize, 0f));
+    }
+
+    public bool IsCellOccupiedByHouse(Vector2Int cell)
+    {
+        return IsOccupiedByStartedHouse(cell);
+    }
+
+    public bool TryGetNearestAvailableCellPosition(
+        Vector2Int originCell,
+        bool excludeOriginCell,
+        bool chooseRandomNearestCell,
+        out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (settings == null || settings.gridCellSize <= 0f || mapSize.x <= 0f || mapSize.y <= 0f)
+        {
+            return false;
+        }
+
+        Vector2 mapMinimum = (Vector2)MapCenter - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)MapCenter + mapSize * 0.5f;
+        int minimumCellX = Mathf.FloorToInt(mapMinimum.x / settings.gridCellSize);
+        int minimumCellY = Mathf.FloorToInt(mapMinimum.y / settings.gridCellSize);
+        int maximumCellX = Mathf.CeilToInt(mapMaximum.x / settings.gridCellSize) - 1;
+        int maximumCellY = Mathf.CeilToInt(mapMaximum.y / settings.gridCellSize) - 1;
+        int nearestDistanceSquared = int.MaxValue;
+        List<Vector2Int> nearestCells = new List<Vector2Int>();
+
+        for (int x = minimumCellX; x <= maximumCellX; x++)
+        {
+            for (int y = minimumCellY; y <= maximumCellY; y++)
+            {
+                Vector2Int candidate = new Vector2Int(x, y);
+                if ((excludeOriginCell && candidate == originCell)
+                    || !IsCellInsideMap(candidate)
+                    || IsCellBlocked(candidate))
+                {
+                    continue;
+                }
+
+                int deltaX = candidate.x - originCell.x;
+                int deltaY = candidate.y - originCell.y;
+                int distanceSquared = deltaX * deltaX + deltaY * deltaY;
+                if (distanceSquared < nearestDistanceSquared)
+                {
+                    nearestDistanceSquared = distanceSquared;
+                    nearestCells.Clear();
+                    nearestCells.Add(candidate);
+                }
+                else if (distanceSquared == nearestDistanceSquared)
+                {
+                    nearestCells.Add(candidate);
+                }
+            }
+        }
+
+        if (nearestCells.Count == 0)
+        {
+            return false;
+        }
+
+        int selectedIndex = chooseRandomNearestCell
+            ? UnityEngine.Random.Range(0, nearestCells.Count)
+            : 0;
+        position = GridCellToWorldPosition(nearestCells[selectedIndex], settings.gridCellSize);
+        position.z = MapCenter.z;
+        return true;
     }
 
     public bool TryGetRandomMapCellPosition(out Vector3 position)
@@ -1082,7 +1186,8 @@ public class MapManager : MonoBehaviour
         foreach (Vector2Int direction in directions)
         {
             Vector2Int approachCell = blockedCell + direction;
-            if (!IsCellInsideMap(approachCell) || IsCellBlocked(approachCell))
+            if (!IsCellInsideMap(approachCell)
+                || IsCellBlocked(approachCell))
             {
                 continue;
             }
@@ -1195,7 +1300,8 @@ public class MapManager : MonoBehaviour
                 bool isDiagonal = direction.x != 0 && direction.y != 0;
                 if (closedCells.Contains(neighbor)
                     || !IsCellInsideMap(neighbor)
-                    || (neighbor != startCell && IsCellBlocked(neighbor)))
+                    || (neighbor != startCell
+                        && IsCellBlocked(neighbor)))
                 {
                     continue;
                 }
@@ -1621,6 +1727,11 @@ public class MapManager : MonoBehaviour
         return position;
     }
 
+    public bool IsCellInsideHousePlot(HousePlotRecord housePlot, Vector2Int cell)
+    {
+        return ContainsHouseCell(housePlot, cell);
+    }
+
     public bool TryGetClosestRoadCellPosition(Vector3 position, out Vector3 roadPosition)
     {
         roadPosition = Vector3.zero;
@@ -2022,7 +2133,7 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
-        if (!TryFindAvailableHousePlot(dimensions, out housePlot))
+        if (!TryFindAvailableHousePlot(dimensions, out housePlot, villager))
         {
             return false;
         }
@@ -2386,8 +2497,19 @@ public class MapManager : MonoBehaviour
             || housingState == VillagerHousingState.Housed;
     }
 
-    private bool TryFindAvailableHousePlot(Vector2Int dimensions, out HousePlotRecord housePlot)
+    private bool TryFindAvailableHousePlot(
+        Vector2Int dimensions,
+        out HousePlotRecord housePlot,
+        Villager claimant = null)
     {
+        bool prioritizeDistance = claimant != null
+            && claimant.HasPersonality(VillagerPersonalityType.Loner);
+        List<HousePlotRecord> existingPlots = prioritizeDistance
+            ? GetExistingPlotsForLoner()
+            : null;
+        HousePlotRecord farthestPlot = null;
+        float farthestDistanceSquared = float.NegativeInfinity;
+
         foreach (Vector2Int roadCell in roadCells)
         {
             Vector2Int centeredHorizontalOrigin = new Vector2Int(
@@ -2402,7 +2524,11 @@ public class MapManager : MonoBehaviour
                 new Vector2Int(centeredHorizontalOrigin.x, roadCell.y - dimensions.y),
                 new Vector2Int(centeredHorizontalOrigin.x, roadCell.y + 1),
                 new Vector2Int(roadCell.x - dimensions.x, centeredVerticalOrigin.y),
-                new Vector2Int(roadCell.x + 1, centeredVerticalOrigin.y)
+                new Vector2Int(roadCell.x + 1, centeredVerticalOrigin.y),
+                new Vector2Int(roadCell.x - dimensions.x, roadCell.y - dimensions.y),
+                new Vector2Int(roadCell.x - dimensions.x, roadCell.y + 1),
+                new Vector2Int(roadCell.x + 1, roadCell.y - dimensions.y),
+                new Vector2Int(roadCell.x + 1, roadCell.y + 1)
             };
 
             foreach (Vector2Int origin in candidateOrigins)
@@ -2420,19 +2546,126 @@ public class MapManager : MonoBehaviour
                     (dimensions.y - 1) * gridCellSize * 0.5f,
                     0f);
                 center.z = transform.position.z;
-                housePlot = new HousePlotRecord
+                HousePlotRecord candidatePlot = new HousePlotRecord
                 {
                     originCell = origin,
                     dimensions = dimensions,
                     entranceCell = entranceCell,
                     center = center
                 };
-                return true;
+
+                if (!prioritizeDistance)
+                {
+                    housePlot = candidatePlot;
+                    return true;
+                }
+
+                float distanceSquared = GetMinimumPlotSeparationSquared(
+                    candidatePlot,
+                    existingPlots);
+                if (farthestPlot == null || distanceSquared > farthestDistanceSquared)
+                {
+                    farthestPlot = candidatePlot;
+                    farthestDistanceSquared = distanceSquared;
+                }
             }
+        }
+
+        if (farthestPlot != null)
+        {
+            housePlot = farthestPlot;
+            return true;
         }
 
         housePlot = null;
         return false;
+    }
+
+    private List<HousePlotRecord> GetExistingPlotsForLoner()
+    {
+        List<HousePlotRecord> existingPlots = new List<HousePlotRecord>();
+        foreach (HousePlotRecord plot in claimedHousePlots.Values)
+        {
+            AddExistingPlot(existingPlots, plot);
+        }
+
+        foreach (HousePlotRecord plot in claimedWorkplacePlots.Values)
+        {
+            AddExistingPlot(existingPlots, plot);
+        }
+
+        foreach (AvailableHouseRecord house in claimedWorkplaceHouses.Values)
+        {
+            if (house != null)
+            {
+                AddExistingPlot(existingPlots, house.housePlot);
+            }
+        }
+
+        foreach (AvailableHouseRecord house in availableHouses)
+        {
+            if (house != null)
+            {
+                AddExistingPlot(existingPlots, house.housePlot);
+            }
+        }
+
+        foreach (CommunityStorage storage in communityStorages)
+        {
+            if (storage != null)
+            {
+                AddExistingPlot(existingPlots, new HousePlotRecord
+                {
+                    originCell = storage.OriginCell,
+                    dimensions = storage.Dimensions
+                });
+            }
+        }
+
+        return existingPlots;
+    }
+
+    private static void AddExistingPlot(
+        List<HousePlotRecord> existingPlots,
+        HousePlotRecord plot)
+    {
+        if (plot != null && plot.dimensions.x > 0 && plot.dimensions.y > 0)
+        {
+            existingPlots.Add(plot);
+        }
+    }
+
+    private static float GetMinimumPlotSeparationSquared(
+        HousePlotRecord candidate,
+        List<HousePlotRecord> existingPlots)
+    {
+        if (existingPlots == null || existingPlots.Count == 0)
+        {
+            return 0f;
+        }
+
+        float minimumDistanceSquared = float.PositiveInfinity;
+        foreach (HousePlotRecord existingPlot in existingPlots)
+        {
+            int horizontalGap = Mathf.Max(
+                0,
+                Mathf.Max(
+                    existingPlot.originCell.x
+                        - (candidate.originCell.x + candidate.dimensions.x),
+                    candidate.originCell.x
+                        - (existingPlot.originCell.x + existingPlot.dimensions.x)));
+            int verticalGap = Mathf.Max(
+                0,
+                Mathf.Max(
+                    existingPlot.originCell.y
+                        - (candidate.originCell.y + candidate.dimensions.y),
+                    candidate.originCell.y
+                        - (existingPlot.originCell.y + existingPlot.dimensions.y)));
+            float distanceSquared = horizontalGap * horizontalGap + verticalGap * verticalGap;
+            minimumDistanceSquared = Mathf.Min(minimumDistanceSquared, distanceSquared);
+        }
+
+        return minimumDistanceSquared;
     }
 
     private bool TrySelectHouseEntranceCell(
@@ -2469,6 +2702,21 @@ public class MapManager : MonoBehaviour
             if (roadCells.Contains(eastCell))
             {
                 adjacentRoadCells.Add(eastCell);
+            }
+        }
+
+        Vector2Int[] cornerCells =
+        {
+            new Vector2Int(origin.x - 1, origin.y - 1),
+            new Vector2Int(origin.x - 1, origin.y + dimensions.y),
+            new Vector2Int(origin.x + dimensions.x, origin.y - 1),
+            new Vector2Int(origin.x + dimensions.x, origin.y + dimensions.y)
+        };
+        foreach (Vector2Int cornerCell in cornerCells)
+        {
+            if (roadCells.Contains(cornerCell))
+            {
+                adjacentRoadCells.Add(cornerCell);
             }
         }
 

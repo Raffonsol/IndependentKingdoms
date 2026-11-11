@@ -6,6 +6,7 @@ public class HouseVisual : MonoBehaviour
 {
     private const int BasePartSortingOrder = 55;
     private const int RoofPartSortingOrder = 105;
+    private const int AnnexBodySortingOrder = 1;
     private const int RenovationProgressSortingOrder = 200;
     private const int FirstConstructionStageSortingOrder = 30;
     private const string HouseSortingLayer = "Everything";
@@ -16,6 +17,7 @@ public class HouseVisual : MonoBehaviour
     private readonly List<GameObject> progressParts = new List<GameObject>();
     private SortingAnchor sortingAnchor;
     private GameObject yardVisual;
+    private SpriteRenderer annexBodyRenderer;
     private HouseDefinition houseDefinition;
     private float houseFootprintWidth;
     private Color wallColor;
@@ -26,6 +28,23 @@ public class HouseVisual : MonoBehaviour
     public HouseDefinition Definition
     {
         get { return houseDefinition; }
+    }
+
+    public bool TryGetAnnexCenter(out Vector3 center)
+    {
+        center = transform.position;
+        if (!HasAnnex || annexBodyRenderer == null)
+        {
+            return false;
+        }
+
+        center = annexBodyRenderer.bounds.center;
+        center += transform.TransformVector(new Vector3(
+            houseDefinition.annexWorkPositionOffset.x,
+            houseDefinition.annexWorkPositionOffset.y,
+            0f));
+        center.z = transform.position.z;
+        return true;
     }
 
     public void ShowConstructionStage(
@@ -139,12 +158,11 @@ public class HouseVisual : MonoBehaviour
             return;
         }
 
-        AddSprite(
+        annexBodyRenderer = AddGroundSprite(
             SelectSprite(houseDefinition.annexSprites),
             wallColor,
             houseFootprintWidth,
-            BasePartSortingOrder,
-            HouseSortingLayer,
+            AnnexBodySortingOrder,
             visualParts,
             houseDefinition.visualOffset);
         AddSprite(
@@ -156,6 +174,41 @@ public class HouseVisual : MonoBehaviour
             visualParts,
             houseDefinition.visualOffset);
         HasAnnex = true;
+    }
+
+    private SpriteRenderer AddGroundSprite(
+        Sprite sprite,
+        Color color,
+        float footprintWidth,
+        int sortingOrder,
+        List<GameObject> destination,
+        Vector2 visualOffset)
+    {
+        if (sprite == null || sprite.texture == null || sprite.texture.width <= 0)
+        {
+            Debug.LogError("Cannot display a missing or invalid house sprite.", this);
+            return null;
+        }
+
+        float pixelsToWorld = footprintWidth / sprite.texture.width;
+        Vector2 pixelPosition = sprite.rect.position + sprite.pivot;
+        pixelPosition -= new Vector2(sprite.texture.width, sprite.texture.height) * 0.5f;
+
+        GameObject part = new GameObject(sprite.name);
+        part.transform.SetParent(transform, false);
+        part.transform.localPosition = new Vector3(
+            pixelPosition.x * pixelsToWorld + visualOffset.x,
+            pixelPosition.y * pixelsToWorld + visualOffset.y,
+            SpriteDepthOffset);
+        part.transform.localScale = Vector3.one * pixelsToWorld * sprite.pixelsPerUnit;
+
+        SpriteRenderer renderer = part.AddComponent<SpriteRenderer>();
+        renderer.sprite = sprite;
+        renderer.color = color;
+        renderer.sortingLayerName = YardSortingLayer;
+        renderer.sortingOrder = sortingOrder;
+        destination.Add(part);
+        return renderer;
     }
 
     private void CreateYardVisual(
@@ -299,6 +352,7 @@ public class HouseVisual : MonoBehaviour
         }
 
         visualParts.Clear();
+        annexBodyRenderer = null;
     }
 
     private void ClearProgressParts()

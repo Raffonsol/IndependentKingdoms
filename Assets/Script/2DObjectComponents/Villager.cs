@@ -64,6 +64,11 @@ public class Villager : Combatant
         get { return claimedSpaceObject; }
     }
 
+    internal bool IsAtHomeAnnexWorkPosition
+    {
+        get { return isAtHomeAnnexWorkPosition; }
+    }
+
     internal bool IsRestingFromWork
     {
         get { return isRestingFromWork; }
@@ -163,6 +168,9 @@ public class Villager : Combatant
     private VillagerBrain brain;
     private VillagerJobController jobController;
     private VillagerStorageSelector storageSelector;
+    private VillagerHandMotion handMotion;
+    private Transform villagerRightArm;
+    private SpriteRenderer resourceHoldingIconRenderer;
     private HouseSettings houseSettings;
     private CommunityStorageSettings communityStorageSettings;
     private ResourceSettings resourceSettings;
@@ -214,9 +222,14 @@ public class Villager : Combatant
     private bool isStayingHomeWithoutWork;
     private bool isAtHomeWithoutWork;
     private bool isAtConstructionSite;
+    private bool isAtHomeAnnexWorkPosition;
+    private Vector3 homeAnnexEntrancePosition;
     private bool isWaitingForRoadChange;
     private bool loggedMissingMapManager;
     private bool loggedMissingPlayer;
+    private bool loggedMissingResourceHoldingIconManager;
+    private ResourceType? resourceHoldingIconType;
+    private bool isResourceHoldingPoseActive;
 
     public IReadOnlyList<VillagerInventoryEntry> Inventory
     {
@@ -411,6 +424,7 @@ public class Villager : Combatant
         }
 
         EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
+        InitializeResourceHoldingVisual();
     }
 
     public bool AddInventoryItem(VillagerItemType itemType, int amount)
@@ -555,7 +569,7 @@ public class Villager : Combatant
         }
 
         heldItemRenderer.sprite = heldItemSprite;
-        heldItemRenderer.enabled = true;
+        heldItemRenderer.enabled = !isResourceHoldingPoseActive;
     }
 
     private static Transform FindDescendantByName(Transform parent, string targetName)
@@ -579,7 +593,9 @@ public class Villager : Combatant
 
     public void ConfigureGatheringAnimation(Transform villagerRightArm)
     {
+        this.villagerRightArm = villagerRightArm;
         ConfigureCombatAnimation(villagerRightArm);
+        handMotion = GetComponent<VillagerHandMotion>();
     }
 
     internal bool HasFailedPathRequestForAction
@@ -906,6 +922,62 @@ public class Villager : Combatant
         return true;
     }
 
+    internal bool MoveToHomeAnnexWorkPosition(
+        MapManager mapManager,
+        HousePlotRecord plot,
+        HouseVisual houseVisual)
+    {
+        if (mapManager == null || plot == null)
+        {
+            StopMoving();
+            return false;
+        }
+
+        if (plot != housePlot
+            || claimedSpaceObject == null
+            || houseVisual == null
+            || houseVisual.gameObject != claimedSpaceObject
+            || !houseVisual.TryGetAnnexCenter(out Vector3 annexCenter))
+        {
+            LeaveHomeAnnexWorkPosition();
+            return MoveToHouseWorkPosition(mapManager, plot);
+        }
+
+        if (isAtHomeAnnexWorkPosition)
+        {
+            return true;
+        }
+
+        if (!MoveToHouseWorkPosition(mapManager, plot))
+        {
+            return false;
+        }
+
+        homeAnnexEntrancePosition = mapManager.GetHouseEntrancePosition(plot);
+        isAtHomeAnnexWorkPosition = true;
+        SetAnnexWorkHousePlotException(plot);
+        TeleportToPosition(annexCenter, false);
+        return true;
+    }
+
+    internal void LeaveHomeAnnexWorkPosition()
+    {
+        if (!isAtHomeAnnexWorkPosition)
+        {
+            return;
+        }
+
+        Vector3 entrancePosition = homeAnnexEntrancePosition;
+        isAtHomeAnnexWorkPosition = false;
+        SetAnnexWorkHousePlotException(null);
+        TeleportToPosition(entrancePosition, true);
+    }
+
+    internal void PlayHomeWorkMotion(ArmMotionPoint[] positions, float duration)
+    {
+        PlayArmMotion(positions, duration);
+    }
+
     internal void PlayHouseHammerMotion()
     {
         PlayArmMotion(
@@ -949,12 +1021,19 @@ public class Villager : Combatant
     {
         if (!IsAlive)
         {
+            EndJobOperationFrame();
             return;
         }
 
         if (settings == null || houseSettings == null || resourceSettings == null)
         {
+            EndJobOperationFrame();
             return;
+        }
+
+        if (jobController != null)
+        {
+            jobController.BeginOperationFrame();
         }
 
         Hunger = Mathf.Min(
@@ -963,6 +1042,7 @@ public class Villager : Combatant
         if (Hunger >= MaximumHunger)
         {
             Die();
+            EndJobOperationFrame();
             return;
         }
 
@@ -982,6 +1062,7 @@ public class Villager : Combatant
             StopConstructionAssistance();
             ClearNoWorkBehavior();
             UpdateFatigue(Time.deltaTime);
+            EndJobOperationFrame();
             base.Update();
             return;
         }
@@ -990,6 +1071,7 @@ public class Villager : Combatant
         {
             UpdateCommunityStorageTrip();
             UpdateFatigue(Time.deltaTime);
+            EndJobOperationFrame();
             base.Update();
             return;
         }
@@ -1009,6 +1091,7 @@ public class Villager : Combatant
             {
                 UpdateFoodSeeking();
                 UpdateFatigue(Time.deltaTime);
+                EndJobOperationFrame();
                 base.Update();
                 return;
             }
@@ -1016,7 +1099,214 @@ public class Villager : Combatant
 
         brain.DecideNextOperation();
         UpdateFatigue(Time.deltaTime);
+        EndJobOperationFrame();
         base.Update();
+    }
+
+    private void LateUpdate()
+    {
+        UpdateResourceHoldingVisual();
+    }
+
+    private void EndJobOperationFrame()
+    {
+        if (jobController != null)
+        {
+            jobController.EndOperationFrame();
+        }
+    }
+
+    private void InitializeResourceHoldingVisual()
+    {
+        if (villagerRightArm == null)
+        {
+            villagerRightArm = FindDescendantByName(transform, "rightArm");
+        }
+
+        if (villagerRightArm == null)
+        {
+            Debug.LogError(
+                "Villager resource-holding visuals require a descendant named 'rightArm'.",
+                this);
+            return;
+        }
+
+        GameObject iconObject = new GameObject("CarriedResourceIcon", typeof(SpriteRenderer));
+        iconObject.transform.SetParent(villagerRightArm, false);
+        iconObject.transform.localPosition = settings.resourceHoldingIconLocalPosition;
+        resourceHoldingIconRenderer = iconObject.GetComponent<SpriteRenderer>();
+        resourceHoldingIconRenderer.sortingLayerName =
+            settings.resourceHoldingIconSortingLayer;
+        resourceHoldingIconRenderer.sortingOrder =
+            settings.resourceHoldingIconSortingOrder;
+        resourceHoldingIconRenderer.enabled = false;
+
+        if (handMotion == null)
+        {
+            handMotion = GetComponent<VillagerHandMotion>();
+        }
+
+        if (handMotion == null)
+        {
+            Debug.LogError(
+                "Villager resource-holding visuals require a configured right-arm motion component.",
+                this);
+        }
+    }
+
+    private void UpdateResourceHoldingVisual()
+    {
+        if (resourceHoldingIconRenderer == null)
+        {
+            return;
+        }
+
+        if (!TryGetResourceToDisplay(out ResourceType resourceType) || IsCombatEngaged)
+        {
+            resourceHoldingIconRenderer.enabled = false;
+            resourceHoldingIconType = null;
+            bool wasHoldingResources = isResourceHoldingPoseActive;
+            isResourceHoldingPoseActive = false;
+            if (wasHoldingResources)
+            {
+                if (handMotion != null)
+                {
+                    handMotion.ClearHoldingPose();
+                }
+
+                RefreshHeldItemVisual();
+            }
+
+            return;
+        }
+
+        if (!isResourceHoldingPoseActive)
+        {
+            if (handMotion != null && Person != null)
+            {
+                ArmMotionPoint holdingArmPosition = Person.isMale
+                    ? settings.maleResourceHoldingArmPosition
+                    : settings.femaleResourceHoldingArmPosition;
+                handMotion.SetHoldingPose(holdingArmPosition);
+            }
+            else if (handMotion != null)
+            {
+                handMotion.ClearHoldingPose();
+            }
+
+            resourceHoldingIconRenderer.transform.localRotation = Quaternion.Euler(
+                0f,
+                0f,
+                -villagerRightArm.localEulerAngles.z);
+            isResourceHoldingPoseActive = true;
+            RefreshHeldItemVisual();
+        }
+
+        UIManager uiManager = UIManager.Instance;
+        if (uiManager == null)
+        {
+            if (!loggedMissingResourceHoldingIconManager)
+            {
+                Debug.LogError(
+                    "Villager is carrying resources, but UIManager is unavailable to provide resource icons.",
+                    this);
+                loggedMissingResourceHoldingIconManager = true;
+            }
+
+            resourceHoldingIconRenderer.enabled = false;
+            return;
+        }
+
+        loggedMissingResourceHoldingIconManager = false;
+        if (!resourceHoldingIconType.HasValue || resourceHoldingIconType.Value != resourceType)
+        {
+            resourceHoldingIconType = resourceType;
+            Sprite iconSprite = uiManager.GetResourceIcon(resourceType);
+            resourceHoldingIconRenderer.sprite = iconSprite;
+            if (iconSprite != null)
+            {
+                float iconWidth = GameData.Instance.mapSettings.gridCellSize * 0.35f
+                    * GameData.Instance.uiSettings.uiIconScaleOnWorld;
+                float spriteWidth = iconSprite.bounds.size.x;
+                float iconScale = spriteWidth > 0f ? iconWidth / spriteWidth : 1f;
+                resourceHoldingIconRenderer.transform.localScale = Vector3.one * iconScale;
+            }
+        }
+
+        resourceHoldingIconRenderer.enabled = resourceHoldingIconRenderer.sprite != null;
+    }
+
+    private bool TryGetResourceToDisplay(out ResourceType resourceType)
+    {
+        resourceType = default(ResourceType);
+        bool isHaulingResources = storageTripPurpose != StorageTripPurpose.None
+            || (HousingState == VillagerHousingState.GatheringHouseResources
+                && gatheringResource == null)
+            || HousingState == VillagerHousingState.DeliveringHouseResources
+            || (JobAssignment != JobType.None && IsMoving);
+        if (!isHaulingResources
+            || (gatheringResource != null
+                && HousingState != VillagerHousingState.DeliveringHouseResources
+                && storageTripPurpose == StorageTripPurpose.None))
+        {
+            return false;
+        }
+
+        int largestAmount = 0;
+        int tiedResourceCount = 0;
+        foreach (VillagerResourceEntry entry in resourceInventory)
+        {
+            if (entry != null && entry.amount > 0)
+            {
+                if (entry.amount > largestAmount)
+                {
+                    largestAmount = entry.amount;
+                    tiedResourceCount = 1;
+                }
+                else if (entry.amount == largestAmount)
+                {
+                    tiedResourceCount++;
+                }
+            }
+        }
+
+        if (largestAmount == 0)
+        {
+            return false;
+        }
+
+        if (resourceHoldingIconType.HasValue)
+        {
+            foreach (VillagerResourceEntry entry in resourceInventory)
+            {
+                if (entry != null
+                    && entry.amount == largestAmount
+                    && entry.resourceType == resourceHoldingIconType.Value)
+                {
+                    resourceType = entry.resourceType;
+                    return true;
+                }
+            }
+        }
+
+        int selectedTie = UnityEngine.Random.Range(0, tiedResourceCount);
+        foreach (VillagerResourceEntry entry in resourceInventory)
+        {
+            if (entry == null || entry.amount != largestAmount)
+            {
+                continue;
+            }
+
+            if (selectedTie == 0)
+            {
+                resourceType = entry.resourceType;
+                return true;
+            }
+
+            selectedTie--;
+        }
+
+        return false;
     }
 
     private void UpdateFatigue(float deltaTime)

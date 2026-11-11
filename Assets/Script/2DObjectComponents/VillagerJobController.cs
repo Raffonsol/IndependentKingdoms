@@ -43,6 +43,7 @@ public class VillagerJobController : MonoBehaviour
     private float nextResourceSearchTime;
     private float workplaceConstructionTimer;
     private float workplaceHammeringTimer;
+    private float workMotionTimer;
     private float nextRequiredItemSearchTime;
     private int pathfindingRevision = -1;
     private int availabilityRevision = -1;
@@ -53,6 +54,7 @@ public class VillagerJobController : MonoBehaviour
     private bool hasRequiredItemAvailable;
     private bool isSeparateWorkplace;
     private bool isBuildingNewWorkplaceHouse;
+    private bool isWorkingAtHomeAnnexThisFrame;
     private WorkplaceStage workplaceStage;
 
     public JobType JobAssignment
@@ -140,8 +142,24 @@ public class VillagerJobController : MonoBehaviour
 
         jobAssignment = job;
         jobDefinition = assignedDefinition;
+        workMotionTimer = 0f;
         ClearRequiredItemWaiting();
         return true;
+    }
+
+    internal void BeginOperationFrame()
+    {
+        isWorkingAtHomeAnnexThisFrame = false;
+    }
+
+    internal void EndOperationFrame()
+    {
+        bool isWorkingAtHomeAnnex = isWorkingAtHomeAnnexThisFrame;
+        isWorkingAtHomeAnnexThisFrame = false;
+        if (!isWorkingAtHomeAnnex && villager != null)
+        {
+            villager.LeaveHomeAnnexWorkPosition();
+        }
     }
 
     public bool TryStartProductiveOperation()
@@ -449,11 +467,6 @@ public class VillagerJobController : MonoBehaviour
             return false;
         }
 
-        if (!villager.MoveToHouseWorkPosition(mapManager, workplacePlot))
-        {
-            return true;
-        }
-
         foreach (ResourceCost input in jobDefinition.inputCosts)
         {
             int missingAmount =
@@ -470,6 +483,43 @@ public class VillagerJobController : MonoBehaviour
 
             villager.StopForagingMovement();
             return true;
+        }
+
+        if (!workplace.CanStoreItem(jobDefinition.outputItemType, jobDefinition.outputAmount))
+        {
+            return true;
+        }
+
+        HouseVisual houseVisual = workplaceHouse.GetComponent<HouseVisual>();
+        if (workplaceHouse == villager.HomeHouseObject
+            && workplacePlot == villager.HomeHousePlot)
+        {
+            if (!villager.MoveToHomeAnnexWorkPosition(mapManager, workplacePlot, houseVisual))
+            {
+                return true;
+            }
+        }
+        else if (!villager.MoveToHouseWorkPosition(mapManager, workplacePlot))
+        {
+            return true;
+        }
+
+        if (villager.IsAtHomeAnnexWorkPosition)
+        {
+            isWorkingAtHomeAnnexThisFrame = true;
+        }
+
+        if (workMotionTimer > 0f)
+        {
+            workMotionTimer -= Time.deltaTime;
+        }
+
+        if (workMotionTimer <= 0f)
+        {
+            villager.PlayHomeWorkMotion(
+                jobDefinition.handHitPositions,
+                jobDefinition.handMotionDurationSeconds);
+            workMotionTimer = jobDefinition.workMotionIntervalSeconds;
         }
 
         workplace.AdvanceProduction(

@@ -255,6 +255,7 @@ public class MapSettings
     public float maxRoadKeyPointDistance = 10f;
     public float roadEndpointKeyPointClearance = 9f;
     public int manaCostPerKeyPoint = 1;
+    public float stuckMovementTimeoutSeconds = 2f;
 }
 
 [Serializable]
@@ -419,6 +420,13 @@ public class VillagerSettings
     public float gatheringDistance = 1.2f;
     public float gatheringPauseDurationSeconds = 1.65f;
     public float handMotionDurationSeconds = 0.35f;
+    public ArmMotionPoint maleResourceHoldingArmPosition =
+        new ArmMotionPoint { x = 1f, y = 0.6f, z = -200f };
+    public ArmMotionPoint femaleResourceHoldingArmPosition =
+        new ArmMotionPoint { x = 1f, y = 0.6f, z = -200f };
+    public Vector3 resourceHoldingIconLocalPosition = new Vector3(0.35f, 0.45f, 0f);
+    public string resourceHoldingIconSortingLayer = "Everything";
+    public int resourceHoldingIconSortingOrder = 65;
     public ArmMotionPoint[] handHitPositions =
     {
         new ArmMotionPoint { x = 0.15f, y = 0.2f, z = 0f },
@@ -561,6 +569,7 @@ public class HouseDefinitionRecord
     public float visualScale = 1f;
     public Vector2 visualOffset;
     public Vector2 sortingAnchorOffset;
+    public Vector2 annexWorkPositionOffset;
     public string[] yardSprites;
     public string[] yardColorCodes;
     public string[] baseSprites;
@@ -592,6 +601,7 @@ public class HouseDefinition
     public float visualScale;
     public Vector2 visualOffset;
     public Vector2 sortingAnchorOffset;
+    public Vector2 annexWorkPositionOffset;
     public Sprite[] yardSprites;
     public Color[] yardColors;
     public Sprite[] baseSprites;
@@ -681,6 +691,7 @@ public class JobDefinitionJson
     public float resourceSearchRetrySeconds;
     public float handMotionDurationSeconds;
     public ArmMotionPoint[] handHitPositions;
+    public float workMotionIntervalSeconds;
     public ResourceCostJson[] inputCosts;
     public string outputItemType;
     public int outputAmount;
@@ -703,6 +714,7 @@ public class JobDefinition
     public float resourceSearchRetrySeconds;
     public float handMotionDurationSeconds;
     public ArmMotionPoint[] handHitPositions;
+    public float workMotionIntervalSeconds;
     public ResourceCost[] inputCosts;
     public VillagerItemType outputItemType;
     public int outputAmount;
@@ -855,6 +867,7 @@ public class ResourceDefinition
 {
     public ResourceType type;
     public int iconIndex;
+    public bool isCommunityStorageResource;
 }
 
 [Serializable]
@@ -862,6 +875,7 @@ public class ResourceDefinitionJson
 {
     public string type;
     public int iconIndex;
+    public bool isCommunityStorageResource;
 }
 
 [Serializable]
