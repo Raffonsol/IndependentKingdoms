@@ -48,6 +48,11 @@ public class VillagerHoverTooltip : HoverTooltip
                 activityText.text = activity;
             }
         }
+
+        if (nameText != null && activityText != null)
+        {
+            ResizeToFit(nameText, activityText);
+        }
     }
 
     private string GetActivityText(VillagerBehaviorStage behavior)

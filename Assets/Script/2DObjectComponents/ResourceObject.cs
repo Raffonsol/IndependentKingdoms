@@ -172,13 +172,8 @@ public class ResourceObject : MonoBehaviour
             groundShadow = GetComponentInChildren<GroundShadow>(true);
         }
 
-        if (groundShadow == null)
-        {
-            Debug.LogError("Resource object prefab is missing a valid GroundShadow child.", this);
-            return false;
-        }
-
-        if (!groundShadow.Configure(definition.shadowSize, definition.shadowOffset))
+        if (groundShadow != null
+            && !groundShadow.Configure(definition.shadowSize, definition.shadowOffset))
         {
             return false;
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -8,13 +9,12 @@ public class ResourceHoverTooltip : HoverTooltip
     [SerializeField] private TMP_Text nameText;
     [SerializeField] private TMP_Text amountText;
 
-    private RectTransform rootRect;
-    private RectTransform nameRect;
-    private RectTransform amountRect;
-    private Vector2 originalRootSize;
-    private Vector2 originalNamePosition;
-    private Vector2 originalAmountPosition;
-    private Vector2 originalAmountSize;
+    private StorageTooltipIconRows storageIconRows;
+    private readonly List<StorageTooltipIconEntry> communityResourceRows =
+        new List<StorageTooltipIconEntry>();
+    private readonly Dictionary<ResourceType, Sprite> resourceIconCache =
+        new Dictionary<ResourceType, Sprite>();
+    private bool loggedMissingIconManager;
 
     protected override void Awake()
     {
@@ -27,14 +27,6 @@ public class ResourceHoverTooltip : HoverTooltip
                 this);
             return;
         }
-
-        rootRect = transform as RectTransform;
-        nameRect = nameText.rectTransform;
-        amountRect = amountText.rectTransform;
-        originalRootSize = rootRect != null ? rootRect.sizeDelta : Vector2.zero;
-        originalNamePosition = nameRect.anchoredPosition;
-        originalAmountPosition = amountRect.anchoredPosition;
-        originalAmountSize = amountRect.sizeDelta;
     }
 
     public void SetResource(ResourceObject resourceObject)
@@ -52,6 +44,7 @@ public class ResourceHoverTooltip : HoverTooltip
 
         if (amountText != null)
         {
+            communityResourceRows.Clear();
             StringBuilder amountLines = new StringBuilder();
             foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
             {
@@ -67,7 +60,7 @@ public class ResourceHoverTooltip : HoverTooltip
             }
 
             amountText.text = amountLines.ToString();
-            ResizeForAmountText();
+            ResizeForAmountText(communityResourceRows);
         }
     }
 
@@ -86,6 +79,7 @@ public class ResourceHoverTooltip : HoverTooltip
 
         if (amountText != null)
         {
+            communityResourceRows.Clear();
             StringBuilder amountLines = new StringBuilder();
             foreach (ResourceType resourceType in Enum.GetValues(typeof(ResourceType)))
             {
@@ -95,49 +89,78 @@ public class ResourceHoverTooltip : HoverTooltip
                     continue;
                 }
 
-                if (amountLines.Length > 0)
-                {
-                    amountLines.AppendLine();
-                }
-
-                amountLines.Append(resourceType);
-                amountLines.Append(": ");
-                amountLines.Append(amount);
+                communityResourceRows.Add(new StorageTooltipIconEntry(
+                    resourceType + ": " + amount,
+                    GetResourceIcon(resourceType)));
             }
 
-            if (amountLines.Length == 0)
+            if (communityResourceRows.Count == 0)
             {
                 amountLines.Append("Empty");
+                amountLines.AppendLine();
             }
 
-            amountLines.AppendLine();
             amountLines.Append("Capacity: ");
             amountLines.Append(storage.GetTotalAmount());
             amountLines.Append(" / ");
             amountLines.Append(storage.Capacity);
             amountText.text = amountLines.ToString();
-            ResizeForAmountText();
+            ResizeForAmountText(communityResourceRows);
         }
     }
 
-    private void ResizeForAmountText()
+    private Sprite GetResourceIcon(ResourceType resourceType)
     {
-        if (rootRect == null || nameRect == null || amountRect == null)
+        UIManager uiManager = UIManager.Instance;
+        if (uiManager == null)
+        {
+            if (!loggedMissingIconManager)
+            {
+                Debug.LogError(
+                    "Community storage icons require an active UIManager.",
+                    this);
+                loggedMissingIconManager = true;
+            }
+
+            return null;
+        }
+
+        if (!resourceIconCache.TryGetValue(resourceType, out Sprite icon))
+        {
+            icon = uiManager.GetResourceIcon(resourceType);
+            resourceIconCache.Add(resourceType, icon);
+        }
+
+        return icon;
+    }
+
+    private void ResizeForAmountText(IList<StorageTooltipIconEntry> itemRows)
+    {
+        if (nameText == null || amountText == null)
         {
             return;
         }
 
-        float preferredHeight = amountText.GetPreferredValues(
+        float contentWidth = amountText.rectTransform.sizeDelta.x;
+        float summaryHeight = amountText.GetPreferredValues(
             amountText.text,
-            originalAmountSize.x,
+            contentWidth,
             0f).y;
-        float amountHeight = Mathf.Max(originalAmountSize.y, preferredHeight);
-        float addedHeight = amountHeight - originalAmountSize.y;
-        rootRect.sizeDelta = new Vector2(
-            originalRootSize.x,
-            originalRootSize.y + addedHeight);
-        nameRect.anchoredPosition = originalNamePosition + Vector2.up * (addedHeight * 0.5f);
-        amountRect.anchoredPosition = originalAmountPosition + Vector2.down * (addedHeight * 0.5f);
-        amountRect.sizeDelta = new Vector2(originalAmountSize.x, amountHeight);
+        float rowHeight = StorageTooltipIconRows.GetRowHeight(amountText);
+        float rowsTopOffset = summaryHeight
+            + (itemRows.Count > 0 ? StorageTooltipIconRows.RowGap : 0f);
+        float contentHeight = rowsTopOffset + itemRows.Count * rowHeight;
+        ResizeToFit(nameText, amountText, contentHeight);
+
+        if (storageIconRows == null)
+        {
+            storageIconRows = amountText.GetComponent<StorageTooltipIconRows>();
+            if (storageIconRows == null)
+            {
+                storageIconRows = amountText.gameObject.AddComponent<StorageTooltipIconRows>();
+            }
+        }
+
+        storageIconRows.SetRows(amountText, itemRows, rowsTopOffset, rowHeight);
     }
 }

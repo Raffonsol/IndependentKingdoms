@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -8,13 +9,12 @@ public class HouseHoverTooltip : HoverTooltip
     [SerializeField] private TMP_Text nameText;
     [SerializeField] private TMP_Text detailsText;
 
-    private RectTransform rootRect;
-    private RectTransform nameRect;
-    private RectTransform detailsRect;
-    private Vector2 originalRootSize;
-    private Vector2 originalNamePosition;
-    private Vector2 originalDetailsPosition;
-    private Vector2 originalDetailsSize;
+    private StorageTooltipIconRows storageIconRows;
+    private readonly List<StorageTooltipIconEntry> storedItemRows =
+        new List<StorageTooltipIconEntry>();
+    private readonly Dictionary<VillagerItemType, Sprite> itemIconCache =
+        new Dictionary<VillagerItemType, Sprite>();
+    private bool loggedMissingIconManager;
 
     protected override void Awake()
     {
@@ -27,14 +27,6 @@ public class HouseHoverTooltip : HoverTooltip
                 this);
             return;
         }
-
-        rootRect = transform as RectTransform;
-        nameRect = nameText.rectTransform;
-        detailsRect = detailsText.rectTransform;
-        originalRootSize = rootRect != null ? rootRect.sizeDelta : Vector2.zero;
-        originalNamePosition = nameRect.anchoredPosition;
-        originalDetailsPosition = detailsRect.anchoredPosition;
-        originalDetailsSize = detailsRect.sizeDelta;
     }
 
     public void SetHouse(HouseWorkplace house)
@@ -83,6 +75,7 @@ public class HouseHoverTooltip : HoverTooltip
         details.Append(" / ");
         details.Append(house.Capacity);
 
+        storedItemRows.Clear();
         bool hasStoredItems = false;
         foreach (VillagerItemType itemType in Enum.GetValues(typeof(VillagerItemType)))
         {
@@ -92,10 +85,10 @@ public class HouseHoverTooltip : HoverTooltip
                 continue;
             }
 
-            details.AppendLine();
-            details.Append(itemType);
-            details.Append(": ");
-            details.Append(amount);
+            Sprite icon = GetItemIcon(itemType);
+            storedItemRows.Add(new StorageTooltipIconEntry(
+                itemType + ": " + amount,
+                icon));
             hasStoredItems = true;
         }
 
@@ -106,7 +99,32 @@ public class HouseHoverTooltip : HoverTooltip
         }
 
         detailsText.text = details.ToString();
-        ResizeForDetailsText();
+        ResizeForDetailsText(storedItemRows);
+    }
+
+    private Sprite GetItemIcon(VillagerItemType itemType)
+    {
+        UIManager uiManager = UIManager.Instance;
+        if (uiManager == null)
+        {
+            if (!loggedMissingIconManager)
+            {
+                Debug.LogError(
+                    "House storage icons require an active UIManager.",
+                    this);
+                loggedMissingIconManager = true;
+            }
+
+            return null;
+        }
+
+        if (!itemIconCache.TryGetValue(itemType, out Sprite icon))
+        {
+            icon = uiManager.GetItemIcon(itemType);
+            itemIconCache.Add(itemType, icon);
+        }
+
+        return icon;
     }
 
     private static string GetVillagerName(Villager villager)
@@ -120,26 +138,33 @@ public class HouseHoverTooltip : HoverTooltip
         return villager.Person.name;
     }
 
-    private void ResizeForDetailsText()
+    private void ResizeForDetailsText(IList<StorageTooltipIconEntry> itemRows)
     {
-        if (rootRect == null || nameRect == null || detailsRect == null)
+        if (nameText == null || detailsText == null)
         {
             return;
         }
 
-        float detailsHeight = Mathf.Max(
-            originalDetailsSize.y,
-            detailsText.GetPreferredValues(
-                detailsText.text,
-                originalDetailsSize.x,
-                0f).y);
-        float addedHeight = detailsHeight - originalDetailsSize.y;
-        rootRect.sizeDelta = new Vector2(
-            originalRootSize.x,
-            originalRootSize.y + addedHeight);
-        nameRect.anchoredPosition = originalNamePosition + Vector2.up * (addedHeight * 0.5f);
-        detailsRect.anchoredPosition =
-            originalDetailsPosition + Vector2.down * (addedHeight * 0.5f);
-        detailsRect.sizeDelta = new Vector2(originalDetailsSize.x, detailsHeight);
+        float contentWidth = detailsText.rectTransform.sizeDelta.x;
+        float summaryHeight = detailsText.GetPreferredValues(
+            detailsText.text,
+            contentWidth,
+            0f).y;
+        float rowHeight = StorageTooltipIconRows.GetRowHeight(detailsText);
+        float rowsTopOffset = summaryHeight
+            + (itemRows.Count > 0 ? StorageTooltipIconRows.RowGap : 0f);
+        float contentHeight = rowsTopOffset + itemRows.Count * rowHeight;
+        ResizeToFit(nameText, detailsText, contentHeight);
+
+        if (storageIconRows == null)
+        {
+            storageIconRows = detailsText.GetComponent<StorageTooltipIconRows>();
+            if (storageIconRows == null)
+            {
+                storageIconRows = detailsText.gameObject.AddComponent<StorageTooltipIconRows>();
+            }
+        }
+
+        storageIconRows.SetRows(detailsText, itemRows, rowsTopOffset, rowHeight);
     }
 }
