@@ -71,6 +71,16 @@ public class HouseWorkplace : MonoBehaviour
         get { return productionItemType; }
     }
 
+    public float ProductionProgressSeconds
+    {
+        get { return productionProgressSeconds; }
+    }
+
+    public float ProductionDurationSeconds
+    {
+        get { return productionDurationSeconds; }
+    }
+
     public float ProductionProgress
     {
         get
@@ -192,13 +202,16 @@ public class HouseWorkplace : MonoBehaviour
             return;
         }
 
-        if (!hasProductionProgress
-            || productionItemType != itemType
-            || !Mathf.Approximately(productionDurationSeconds, durationSeconds))
+        if (!hasProductionProgress || productionItemType != itemType)
         {
             hasProductionProgress = true;
             productionItemType = itemType;
             productionProgressSeconds = 0f;
+            productionDurationSeconds = durationSeconds;
+        }
+        else if (!Mathf.Approximately(productionDurationSeconds, durationSeconds))
+        {
+            productionProgressSeconds = ProductionProgress * durationSeconds;
             productionDurationSeconds = durationSeconds;
         }
 
@@ -213,6 +226,31 @@ public class HouseWorkplace : MonoBehaviour
         productionProgressSeconds = Mathf.Min(
             productionDurationSeconds,
             productionProgressSeconds + deltaTime);
+    }
+
+    public bool RestoreProductionProgress(
+        VillagerItemType itemType,
+        float durationSeconds,
+        float progressSeconds)
+    {
+        if (!System.Enum.IsDefined(typeof(VillagerItemType), itemType)
+            || durationSeconds <= 0f
+            || float.IsNaN(durationSeconds)
+            || float.IsInfinity(durationSeconds)
+            || progressSeconds < 0f
+            || progressSeconds > durationSeconds
+            || float.IsNaN(progressSeconds)
+            || float.IsInfinity(progressSeconds))
+        {
+            Debug.LogError("Cannot restore house production with invalid progress data.", this);
+            return false;
+        }
+
+        hasProductionProgress = true;
+        productionItemType = itemType;
+        productionDurationSeconds = durationSeconds;
+        productionProgressSeconds = progressSeconds;
+        return true;
     }
 
     public bool IsProductionComplete(VillagerItemType itemType)

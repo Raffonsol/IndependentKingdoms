@@ -7,6 +7,7 @@ public class ResourceObject : MonoBehaviour
     private sealed class ResourceStock
     {
         public int amount;
+        public int maximumAmount;
         public int bareHandAmount;
         public int bareHandLimit;
         public int regenerationLimit;
@@ -223,6 +224,9 @@ public class ResourceObject : MonoBehaviour
         ResourceStock stock = new ResourceStock
         {
             amount = amount,
+            maximumAmount = definition.resourceRegenerationLimit > 0
+                ? definition.resourceRegenerationLimit
+                : definition.fullCutAmount,
             bareHandAmount = Mathf.Min(definition.bareHandAmount, amount),
             bareHandLimit = definition.bareHandAmount,
             regenerationLimit = definition.resourceRegenerationLimit,
@@ -330,6 +334,31 @@ public class ResourceObject : MonoBehaviour
         return resourceStocks.TryGetValue(requestedType, out ResourceStock stock)
             ? stock.amount
             : 0;
+    }
+
+    public int GetBareHandAmount(ResourceType requestedType)
+    {
+        return resourceStocks.TryGetValue(requestedType, out ResourceStock stock)
+            ? stock.bareHandAmount
+            : 0;
+    }
+
+    public bool TryRestoreAmounts(ResourceType requestedType, int amount, int bareHandAmount)
+    {
+        if (amount < 0
+            || bareHandAmount < 0
+            || bareHandAmount > amount
+            || !resourceStocks.TryGetValue(requestedType, out ResourceStock stock)
+            || amount > stock.maximumAmount
+            || bareHandAmount > stock.bareHandLimit)
+        {
+            return false;
+        }
+
+        stock.amount = amount;
+        stock.bareHandAmount = bareHandAmount;
+        stock.regenerationRemainder = 0f;
+        return true;
     }
 
     public Vector2Int GetInteractionOffset(ResourceType requestedType)

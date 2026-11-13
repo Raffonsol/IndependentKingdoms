@@ -187,6 +187,12 @@ public class Player : MonoBehaviour
         return true;
     }
 
+    public static bool CanRestorePerson(GameSavePerson savedPerson)
+    {
+        return TryCreatePerson(savedPerson, out Person person)
+            && TryFindBodyForPerson(person, GameData.Instance.bodies, out _);
+    }
+
     public bool TryGetResourceAmount(ResourceType resourceType, out int amount)
     {
         if (resources != null)
@@ -241,6 +247,93 @@ public class Player : MonoBehaviour
 
         Debug.LogError("Cannot add resources because " + resourceType + " is not initialized.", this);
         return false;
+    }
+
+    public bool TrySetResourceAmount(ResourceType resourceType, int amount)
+    {
+        if (amount < 0
+            || resources == null
+            || GameData.Instance.IsCommunityStorageResource(resourceType))
+        {
+            return false;
+        }
+
+        foreach (ResourceRecord resource in resources)
+        {
+            if (resource != null && resource.type == resourceType)
+            {
+                resource.amount = amount;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool RestoreSavedGame(GameSaveSnapshot snapshot)
+    {
+        if (snapshot == null || snapshot.playerResources == null || snapshot.villagers == null)
+        {
+            Debug.LogError("Cannot restore a game with missing player or villager data.", this);
+            return false;
+        }
+
+        Person[] savedPeople = new Person[snapshot.villagers.Length];
+        Body[] savedBodies = new Body[snapshot.villagers.Length];
+        for (int index = 0; index < snapshot.villagers.Length; index++)
+        {
+            GameSaveVillager savedVillager = snapshot.villagers[index];
+            if (savedVillager == null
+                || !TryCreatePerson(savedVillager.person, out Person person)
+                || !TryFindBodyForPerson(person, bodies, out Body body))
+            {
+                Debug.LogError("A saved villager contains invalid identity or appearance data.", this);
+                return false;
+            }
+
+            savedPeople[index] = person;
+            savedBodies[index] = body;
+        }
+
+        foreach (VillagerRecord record in Villagers)
+        {
+            if (record != null && record.Villager != null)
+            {
+                Destroy(record.Villager.gameObject);
+            }
+        }
+        Villagers.Clear();
+
+        foreach (GameSaveResourceAmount savedResource in snapshot.playerResources)
+        {
+            if (savedResource == null
+                || savedResource.amount < 0
+                || !Enum.TryParse(savedResource.resourceType, out ResourceType resourceType)
+                || !Enum.IsDefined(typeof(ResourceType), resourceType)
+                || !TrySetResourceAmount(resourceType, savedResource.amount))
+            {
+                Debug.LogError("A saved player resource entry is invalid.", this);
+                return false;
+            }
+        }
+
+        for (int index = 0; index < snapshot.villagers.Length; index++)
+        {
+            VillagerRecord record = CreateVillager(savedBodies[index], savedPeople[index]);
+            if (record == null)
+            {
+                Debug.LogError("Could not recreate saved villager '" + savedPeople[index].name + "'.", this);
+                return false;
+            }
+
+            RegisterVillager(record.person, record.Villager);
+            if (!record.Villager.RestoreSavedState(snapshot.villagers[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public bool TrySpendResourceCosts(ResourceCost[] costs)
@@ -441,27 +534,53 @@ public class Player : MonoBehaviour
             : eligibleBodies[UnityEngine.Random.Range(0, eligibleBodies.Count)];
     }
 
-    private VillagerRecord CreateVillager(Body body)
+    private VillagerRecord CreateVillager(Body body, Person restoredPerson = null)
     {
         GameObject bodyObject = Instantiate(baseBodyPrefab, transform, false);
         Transform bodyTransform = bodyObject.transform;
-        string skinColorCode = SelectRandomColorCode(characterSettings.skinColorCodes);
-        string hairColorCode = SelectRandomColorCode(characterSettings.hairColorCodes);
-        string eyeColorCode = SelectRandomColorCode(characterSettings.eyeColorCodes);
-        string clothingTopColorCode = SelectRandomColorCode(characterSettings.clothingTopColorCodes);
-        string clothingBottomColorCode = SelectRandomColorCode(characterSettings.clothingBottomColorCodes);
-        string leggingColorCode = SelectRandomColorCode(characterSettings.leggingColorCodes);
-        string bootColorCode = SelectRandomColorCode(characterSettings.bootColorCodes);
-        Sprite faceSprite = SelectRandomSprite(body.faceSprite);
-        Sprite earSprite = SelectRandomSprite(body.earSprite);
-        Sprite hairSprite = SelectRandomSprite(body.hairSprite);
-        Sprite clothingTopSprite = SelectRandomSprite(body.clothingTopSprite);
-        Sprite clothingBottomSprite = SelectRandomSprite(body.clothingBottomSprite);
-        Sprite leggingSprite = SelectRandomSprite(body.leggingSprite);
-        Sprite bootSprite = SelectRandomSprite(body.bootSprite);
+        bool isRestoring = restoredPerson != null;
+        string skinColorCode = isRestoring ? restoredPerson.skinColor : SelectRandomColorCode(characterSettings.skinColorCodes);
+        string hairColorCode = isRestoring ? restoredPerson.hairColor : SelectRandomColorCode(characterSettings.hairColorCodes);
+        string eyeColorCode = isRestoring ? restoredPerson.eyeColor : SelectRandomColorCode(characterSettings.eyeColorCodes);
+        string clothingTopColorCode = isRestoring ? restoredPerson.clothingTopColor : SelectRandomColorCode(characterSettings.clothingTopColorCodes);
+        string clothingBottomColorCode = isRestoring ? restoredPerson.clothingBottomColor : SelectRandomColorCode(characterSettings.clothingBottomColorCodes);
+        string leggingColorCode = isRestoring ? restoredPerson.leggingColor : SelectRandomColorCode(characterSettings.leggingColorCodes);
+        string bootColorCode = isRestoring ? restoredPerson.bootColor : SelectRandomColorCode(characterSettings.bootColorCodes);
+        Sprite faceSprite = isRestoring
+            ? FindSpriteByName(body.faceSprite, restoredPerson.faceAssetName)
+            : SelectRandomSprite(body.faceSprite);
+        Sprite earSprite = isRestoring
+            ? FindSpriteByName(body.earSprite, restoredPerson.earAssetName)
+            : SelectRandomSprite(body.earSprite);
+        Sprite hairSprite = isRestoring
+            ? FindSpriteByName(body.hairSprite, restoredPerson.hairAssetName)
+            : SelectRandomSprite(body.hairSprite);
+        Sprite clothingTopSprite = isRestoring
+            ? FindSpriteByName(body.clothingTopSprite, restoredPerson.baseClothingTopAssetName)
+            : SelectRandomSprite(body.clothingTopSprite);
+        Sprite clothingBottomSprite = isRestoring
+            ? FindSpriteByName(body.clothingBottomSprite, restoredPerson.baseClothingBottomAssetName)
+            : SelectRandomSprite(body.clothingBottomSprite);
+        Sprite leggingSprite = isRestoring
+            ? FindSpriteByName(body.leggingSprite, restoredPerson.baseLeggingAssetName)
+            : SelectRandomSprite(body.leggingSprite);
+        Sprite bootSprite = isRestoring
+            ? FindSpriteByName(body.bootSprite, restoredPerson.baseBootAssetName)
+            : SelectRandomSprite(body.bootSprite);
         Sprite leftSleeveSprite;
         Sprite rightSleeveSprite;
-        if (clothingTopSprite == null || clothingTopSprite.name.StartsWith("none", StringComparison.Ordinal))
+        if (isRestoring)
+        {
+            leftSleeveSprite = FindSpriteByName(body.leftSleeveSprite, restoredPerson.baseSleeveAssetName);
+            rightSleeveSprite = clothingTopSprite == null
+                || clothingTopSprite.name.StartsWith("none", StringComparison.Ordinal)
+                ? FindNoneSleeveSprite(body.rightSleeveSprite, body.name, "rightSleeveSprite")
+                : SelectMatchingRightSleeveSprite(
+                    leftSleeveSprite,
+                    body.rightSleeveSprite,
+                    body.name);
+        }
+        else if (clothingTopSprite == null || clothingTopSprite.name.StartsWith("none", StringComparison.Ordinal))
         {
             leftSleeveSprite = FindNoneSleeveSprite(body.leftSleeveSprite, body.name, "leftSleeveSprite");
             rightSleeveSprite = FindNoneSleeveSprite(body.rightSleeveSprite, body.name, "rightSleeveSprite");
@@ -510,7 +629,7 @@ public class Player : MonoBehaviour
         {
             villager.ConfigureGatheringAnimation(rightArm.transform);
         }
-        Person person = new Person
+        Person person = restoredPerson ?? new Person
         {
             isMale = body.isMale,
             reactionTime = UnityEngine.Random.Range(
@@ -536,14 +655,134 @@ public class Player : MonoBehaviour
 
         Transform hoverAnchor = ConfigureVillagerHoverTarget(bodyObject.transform);
         villager.ConfigureIdentity(person, hoverAnchor);
-        VillagerNameGenerator nameGenerator = bodyObject.AddComponent<VillagerNameGenerator>();
-        if (!nameGenerator.TryGenerateName(person))
+        if (isRestoring)
         {
-            Destroy(bodyObject);
-            return null;
+            if (string.IsNullOrWhiteSpace(person.name))
+            {
+                Debug.LogError("A saved villager is missing its name.", bodyObject);
+                Destroy(bodyObject);
+                return null;
+            }
+        }
+        else
+        {
+            VillagerNameGenerator nameGenerator = bodyObject.AddComponent<VillagerNameGenerator>();
+            if (!nameGenerator.TryGenerateName(person))
+            {
+                Destroy(bodyObject);
+                return null;
+            }
         }
 
         return new VillagerRecord(person, villager);
+    }
+
+    private static bool TryCreatePerson(GameSavePerson savedPerson, out Person person)
+    {
+        person = null;
+        if (savedPerson == null
+            || savedPerson.personalityTypes == null
+            || string.IsNullOrWhiteSpace(savedPerson.name)
+            || savedPerson.reactionTime < 0f
+            || float.IsNaN(savedPerson.reactionTime)
+            || float.IsInfinity(savedPerson.reactionTime))
+        {
+            return false;
+        }
+
+        VillagerPersonalityType[] personalityTypes =
+            new VillagerPersonalityType[savedPerson.personalityTypes.Length];
+        for (int index = 0; index < personalityTypes.Length; index++)
+        {
+            if (!Enum.TryParse(savedPerson.personalityTypes[index], out personalityTypes[index])
+                || !Enum.IsDefined(typeof(VillagerPersonalityType), personalityTypes[index]))
+            {
+                return false;
+            }
+        }
+
+        person = new Person
+        {
+            name = savedPerson.name,
+            familyName = savedPerson.familyName,
+            age = savedPerson.age,
+            isMale = savedPerson.isMale,
+            reactionTime = savedPerson.reactionTime,
+            personalityTypes = personalityTypes,
+            skinColor = savedPerson.skinColor,
+            hairColor = savedPerson.hairColor,
+            eyeColor = savedPerson.eyeColor,
+            clothingTopColor = savedPerson.clothingTopColor,
+            clothingBottomColor = savedPerson.clothingBottomColor,
+            leggingColor = savedPerson.leggingColor,
+            bootColor = savedPerson.bootColor,
+            hairAssetName = savedPerson.hairAssetName,
+            faceAssetName = savedPerson.faceAssetName,
+            earAssetName = savedPerson.earAssetName,
+            baseClothingTopAssetName = savedPerson.baseClothingTopAssetName,
+            baseClothingBottomAssetName = savedPerson.baseClothingBottomAssetName,
+            baseLeggingAssetName = savedPerson.baseLeggingAssetName,
+            baseBootAssetName = savedPerson.baseBootAssetName,
+            baseSleeveAssetName = savedPerson.baseSleeveAssetName
+        };
+        return true;
+    }
+
+    private static bool TryFindBodyForPerson(
+        Person person,
+        Body[] availableBodies,
+        out Body matchedBody)
+    {
+        matchedBody = null;
+        if (person == null || availableBodies == null)
+        {
+            return false;
+        }
+
+        foreach (Body body in availableBodies)
+        {
+            if (body == null
+                || body.isMale != person.isMale
+                || !ContainsSprite(body.faceSprite, person.faceAssetName)
+                || !ContainsSprite(body.earSprite, person.earAssetName)
+                || !ContainsSprite(body.hairSprite, person.hairAssetName)
+                || !ContainsSprite(body.clothingTopSprite, person.baseClothingTopAssetName)
+                || !ContainsSprite(body.clothingBottomSprite, person.baseClothingBottomAssetName)
+                || !ContainsSprite(body.leggingSprite, person.baseLeggingAssetName)
+                || !ContainsSprite(body.bootSprite, person.baseBootAssetName)
+                || !ContainsSprite(body.leftSleeveSprite, person.baseSleeveAssetName))
+            {
+                continue;
+            }
+
+            matchedBody = body;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsSprite(Sprite[] sprites, string spriteName)
+    {
+        return string.IsNullOrEmpty(spriteName) || FindSpriteByName(sprites, spriteName) != null;
+    }
+
+    private static Sprite FindSpriteByName(Sprite[] sprites, string spriteName)
+    {
+        if (sprites == null || string.IsNullOrEmpty(spriteName))
+        {
+            return null;
+        }
+
+        foreach (Sprite sprite in sprites)
+        {
+            if (sprite != null && string.Equals(sprite.name, spriteName, StringComparison.Ordinal))
+            {
+                return sprite;
+            }
+        }
+
+        return null;
     }
 
     private Vector2 ApplyGeneratedScale(Transform villagerTransform, bool isMale)

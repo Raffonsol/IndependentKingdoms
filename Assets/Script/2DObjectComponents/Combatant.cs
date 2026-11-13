@@ -199,6 +199,22 @@ public abstract class Combatant : Mover
         return true;
     }
 
+    internal bool RestoreHealth(float restoredHealth)
+    {
+        if (float.IsNaN(restoredHealth)
+            || float.IsInfinity(restoredHealth)
+            || restoredHealth <= 0f
+            || restoredHealth > MaximumHealth)
+        {
+            Debug.LogError("Cannot restore combatant health outside its valid range.", this);
+            return false;
+        }
+
+        health = restoredHealth;
+        IsAlive = true;
+        return true;
+    }
+
     public void ConfigureCombatAnimation(Transform combatantArm)
     {
         if (combatantArm == null)

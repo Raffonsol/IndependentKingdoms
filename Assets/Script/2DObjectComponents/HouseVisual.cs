@@ -87,6 +87,12 @@ public class HouseVisual : MonoBehaviour
         ClearVisualParts();
         ClearProgressParts();
         ClearYardVisual();
+        LineRenderer plotOutline = GetComponent<LineRenderer>();
+        if (plotOutline != null)
+        {
+            plotOutline.enabled = false;
+        }
+
         if (houseDefinition != definition || !hasHouseColors)
         {
             houseDefinition = definition;

@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class VillagerJobController : MonoBehaviour
 {
-    private enum WorkplaceStage
+    internal enum WorkplaceStage
     {
         None,
         GatheringMaterials,
@@ -38,6 +38,10 @@ public class VillagerJobController : MonoBehaviour
         new HashSet<ResourceObject>();
     private readonly Dictionary<ResourceType, int> jobInputStock =
         new Dictionary<ResourceType, int>();
+    private bool hasPendingProductionProgress;
+    private VillagerItemType pendingProductionItemType;
+    private float pendingProductionProgressSeconds;
+    private float pendingProductionDurationSeconds;
     private float foragingReactionTimer;
     private float foragingGatheringTimer;
     private float nextResourceSearchTime;
@@ -60,6 +64,46 @@ public class VillagerJobController : MonoBehaviour
     public JobType JobAssignment
     {
         get { return jobAssignment; }
+    }
+
+    internal GameObject WorkplaceHouse
+    {
+        get { return workplaceHouse; }
+    }
+
+    internal HousePlotRecord WorkplacePlot
+    {
+        get { return workplacePlot; }
+    }
+
+    internal HouseDefinition WorkplaceHouseDefinition
+    {
+        get { return workplaceHouseDefinition; }
+    }
+
+    internal bool IsSeparateWorkplace
+    {
+        get { return isSeparateWorkplace; }
+    }
+
+    internal bool IsBuildingNewWorkplaceHouse
+    {
+        get { return isBuildingNewWorkplaceHouse; }
+    }
+
+    internal string WorkplaceStageName
+    {
+        get { return workplaceStage.ToString(); }
+    }
+
+    internal float WorkplaceConstructionProgressSeconds
+    {
+        get { return workplaceConstructionTimer; }
+    }
+
+    internal float WorkplaceHammeringTimer
+    {
+        get { return workplaceHammeringTimer; }
     }
 
     public bool IsForagingForJob
@@ -113,6 +157,196 @@ public class VillagerJobController : MonoBehaviour
         houseBuildStageTwoColors = gameData.houseBuildStageTwoColors;
         jobAssignment = JobType.None;
         jobDefinition = null;
+    }
+
+    internal GameSaveAmount[] CaptureJobInputStock()
+    {
+        List<GameSaveAmount> savedStock = new List<GameSaveAmount>();
+        foreach (ResourceType resourceType in System.Enum.GetValues(typeof(ResourceType)))
+        {
+            int amount = GetJobInputStockAmount(resourceType);
+            if (amount > 0)
+            {
+                savedStock.Add(new GameSaveAmount
+                {
+                    type = resourceType.ToString(),
+                    amount = amount
+                });
+            }
+        }
+
+        return savedStock.ToArray();
+    }
+
+    internal bool TryCaptureProductionProgress(
+        out VillagerItemType itemType,
+        out float progressSeconds,
+        out float durationSeconds)
+    {
+        itemType = default(VillagerItemType);
+        progressSeconds = 0f;
+        durationSeconds = 0f;
+        if (hasPendingProductionProgress)
+        {
+            itemType = pendingProductionItemType;
+            progressSeconds = pendingProductionProgressSeconds;
+            durationSeconds = pendingProductionDurationSeconds;
+            return true;
+        }
+
+        if (workplaceHouse == null)
+        {
+            return false;
+        }
+
+        HouseWorkplace workplace = workplaceHouse.GetComponent<HouseWorkplace>();
+        if (workplace == null || !workplace.HasProductionProgress)
+        {
+            return false;
+        }
+
+        itemType = workplace.ProductionItemType;
+        progressSeconds = workplace.ProductionProgressSeconds;
+        durationSeconds = workplace.ProductionDurationSeconds;
+        return true;
+    }
+
+    internal bool RestoreSavedJobState(GameSaveVillager savedState)
+    {
+        if (savedState == null || savedState.jobInputStock == null)
+        {
+            Debug.LogError("Cannot restore job work from missing save data.", this);
+            return false;
+        }
+
+        jobInputStock.Clear();
+        foreach (GameSaveAmount savedAmount in savedState.jobInputStock)
+        {
+            if (savedAmount == null
+                || savedAmount.amount <= 0
+                || !System.Enum.TryParse(savedAmount.type, out ResourceType resourceType)
+                || !System.Enum.IsDefined(typeof(ResourceType), resourceType)
+                || jobInputStock.ContainsKey(resourceType))
+            {
+                Debug.LogError("A saved villager contains invalid job input stock.", this);
+                return false;
+            }
+
+            jobInputStock.Add(resourceType, savedAmount.amount);
+        }
+
+        hasPendingProductionProgress = false;
+        if (!savedState.hasJobProductionProgress)
+        {
+            return true;
+        }
+
+        if (jobDefinition == null
+            || jobDefinition.workType != JobWorkType.Production
+            || !System.Enum.TryParse(
+                savedState.jobProductionItemType,
+                out VillagerItemType savedItemType)
+            || !System.Enum.IsDefined(typeof(VillagerItemType), savedItemType)
+            || savedItemType != jobDefinition.outputItemType
+            || savedState.jobProductionDurationSeconds <= 0f
+            || float.IsNaN(savedState.jobProductionDurationSeconds)
+            || float.IsInfinity(savedState.jobProductionDurationSeconds)
+            || savedState.jobProductionProgressSeconds < 0f
+            || savedState.jobProductionProgressSeconds > savedState.jobProductionDurationSeconds
+            || float.IsNaN(savedState.jobProductionProgressSeconds)
+            || float.IsInfinity(savedState.jobProductionProgressSeconds))
+        {
+            Debug.LogError("A saved villager contains invalid production progress.", this);
+            return false;
+        }
+
+        hasPendingProductionProgress = true;
+        pendingProductionItemType = savedItemType;
+        pendingProductionProgressSeconds = savedState.jobProductionProgressSeconds;
+        pendingProductionDurationSeconds = savedState.jobProductionDurationSeconds;
+        return true;
+    }
+
+    internal bool RestoreSavedWorkplace(
+        HousePlotRecord plot,
+        GameObject houseObject,
+        HouseDefinition definition,
+        GameSaveVillager savedState)
+    {
+        if (plot == null
+            || houseObject == null
+            || definition == null
+            || savedState == null
+            || jobDefinition == null
+            || !jobDefinition.needsAnnex
+            || !System.Enum.TryParse(
+                savedState.jobWorkplaceStage,
+                out WorkplaceStage restoredStage)
+            || !System.Enum.IsDefined(typeof(WorkplaceStage), restoredStage)
+            || restoredStage == WorkplaceStage.None
+            || !IsFiniteNonnegative(savedState.jobWorkplaceConstructionProgressSeconds)
+            || !IsFiniteNonnegative(savedState.jobWorkplaceHammeringTimer))
+        {
+            Debug.LogError("Cannot restore a job workplace from invalid save data.", this);
+            return false;
+        }
+
+        HouseVisual houseVisual = houseObject.GetComponent<HouseVisual>();
+        if (houseVisual == null)
+        {
+            Debug.LogError("A saved job workplace requires a HouseVisual component.", houseObject);
+            return false;
+        }
+
+        workplaceHouse = houseObject;
+        workplacePlot = plot;
+        workplaceHouseDefinition = definition;
+        workplaceStage = restoredStage;
+        workplaceConstructionTimer = savedState.jobWorkplaceConstructionProgressSeconds;
+        workplaceHammeringTimer = savedState.jobWorkplaceHammeringTimer;
+        isSeparateWorkplace = savedState.jobWorkplaceIsSeparate;
+        isBuildingNewWorkplaceHouse = savedState.jobWorkplaceBuildingNewHouse;
+        workplaceProjectCosts = restoredStage == WorkplaceStage.GatheringMaterials
+            ? isBuildingNewWorkplaceHouse
+                ? CombineResourceCosts(houseSettings.baseHouseCosts, annexRenovationCosts)
+                : annexRenovationCosts
+            : null;
+
+        float duration = 0f;
+        VillagerBehaviorMode behavior = VillagerBehaviorMode.Idle;
+        switch (restoredStage)
+        {
+            case WorkplaceStage.BuildingHouseStageOne:
+                duration = houseSettings.firstConstructionDurationSeconds;
+                behavior = VillagerBehaviorMode.Building;
+                BeginConstructionWorkStep();
+                break;
+            case WorkplaceStage.HouseConstructionBreak:
+                duration = houseSettings.constructionBreakDurationSeconds;
+                break;
+            case WorkplaceStage.BuildingHouseStageTwo:
+                duration = houseSettings.secondConstructionDurationSeconds;
+                behavior = VillagerBehaviorMode.Building;
+                BeginConstructionWorkStep();
+                break;
+            case WorkplaceStage.RenovatingAnnex:
+                duration = houseSettings.secondConstructionDurationSeconds;
+                behavior = VillagerBehaviorMode.Building;
+                BeginConstructionWorkStep();
+                break;
+            case WorkplaceStage.GatheringMaterials:
+                villager.StopForagingMovement();
+                break;
+        }
+
+        if (duration > 0f)
+        {
+            villager.SetJobBehavior(
+                GetHomeAwareConstructionBehavior(behavior),
+                Mathf.Max(0.1f, duration - workplaceConstructionTimer));
+        }
+
+        return true;
     }
 
     public bool AssignJob(JobType job)
@@ -522,6 +756,21 @@ public class VillagerJobController : MonoBehaviour
             workMotionTimer = jobDefinition.workMotionIntervalSeconds;
         }
 
+        if (hasPendingProductionProgress)
+        {
+            if (pendingProductionItemType != jobDefinition.outputItemType
+                || !workplace.RestoreProductionProgress(
+                    pendingProductionItemType,
+                    pendingProductionDurationSeconds,
+                    pendingProductionProgressSeconds))
+            {
+                Debug.LogError("Could not resume the saved production operation.", villager);
+                return true;
+            }
+
+            hasPendingProductionProgress = false;
+        }
+
         workplace.AdvanceProduction(
             jobDefinition.outputItemType,
             jobDefinition.productionDurationSeconds,
@@ -638,7 +887,8 @@ public class VillagerJobController : MonoBehaviour
         }
 
         GameObject homeHouse = villager.HomeHouseObject;
-        if (homeHouse != null
+        if (villager.HousingState == VillagerHousingState.Housed
+            && homeHouse != null
             && villager.HomeHousePlot != null
             && mapManager.TryReserveWorkplaceAnnex(homeHouse, villager))
         {
@@ -1011,6 +1261,11 @@ public class VillagerJobController : MonoBehaviour
                 combinedCost.amount += cost.amount;
             }
         }
+    }
+
+    private static bool IsFiniteNonnegative(float value)
+    {
+        return value >= 0f && !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     internal void ReleaseWorkplace()

@@ -185,6 +185,12 @@ public class UIManager : MonoBehaviour
 
     private void Update()
     {
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            HandleEscapePressed();
+            return;
+        }
+
         if (!Input.GetMouseButtonDown(0)
             || (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
             || (MapManager.Instance != null && MapManager.Instance.IsRoadBuilding))
@@ -211,6 +217,49 @@ public class UIManager : MonoBehaviour
         {
             ShowVillagerDetails(villager);
         }
+    }
+
+    private void HandleEscapePressed()
+    {
+        if (panels == null)
+        {
+            Debug.LogError("Cannot handle Escape because no game panels are configured.", this);
+            return;
+        }
+
+        GameObject gameMenuPanel = null;
+        bool closedOpenPanel = false;
+        foreach (GameObject panel in panels)
+        {
+            if (panel == null)
+            {
+                continue;
+            }
+
+            if (panel.GetComponent<GamePanelController>() != null)
+            {
+                gameMenuPanel = panel;
+            }
+
+            if (panel.activeSelf)
+            {
+                panel.SetActive(false);
+                closedOpenPanel = true;
+            }
+        }
+
+        if (closedOpenPanel)
+        {
+            return;
+        }
+
+        if (gameMenuPanel == null)
+        {
+            Debug.LogError("Cannot open the Game Menu because it is not in the configured panel list.", this);
+            return;
+        }
+
+        gameMenuPanel.SetActive(true);
     }
 
     private void LateUpdate()

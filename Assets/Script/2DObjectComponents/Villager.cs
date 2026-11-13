@@ -64,6 +64,21 @@ public class Villager : Combatant
         get { return claimedSpaceObject; }
     }
 
+    internal HouseDefinition SelectedHouseDefinition
+    {
+        get { return selectedHouseDefinition; }
+    }
+
+    internal float ConstructionProgressSeconds
+    {
+        get { return constructionTimer; }
+    }
+
+    internal float ConstructionHammerTimer
+    {
+        get { return hammeringTimer; }
+    }
+
     internal bool IsAtHomeAnnexWorkPosition
     {
         get { return isAtHomeAnnexWorkPosition; }
@@ -230,6 +245,11 @@ public class Villager : Combatant
     private bool loggedMissingResourceHoldingIconManager;
     private ResourceType? resourceHoldingIconType;
     private bool isResourceHoldingPoseActive;
+    private GameSaveVillager pendingSavedState;
+    private HousePlotRecord pendingJobWorkplacePlot;
+    private GameObject pendingJobWorkplaceHouse;
+    private HouseDefinition pendingJobWorkplaceDefinition;
+    private GameSaveVillager pendingJobWorkplaceState;
 
     public IReadOnlyList<VillagerInventoryEntry> Inventory
     {
@@ -425,6 +445,315 @@ public class Villager : Combatant
 
         EnterBehavior(VillagerBehaviorMode.Wander, settings.idleBehaviorDuration);
         InitializeResourceHoldingVisual();
+        if (pendingSavedState != null)
+        {
+            GameSaveVillager savedState = pendingSavedState;
+            pendingSavedState = null;
+            ApplySavedState(savedState);
+        }
+
+        if (pendingJobWorkplaceHouse != null)
+        {
+            HousePlotRecord plot = pendingJobWorkplacePlot;
+            GameObject houseObject = pendingJobWorkplaceHouse;
+            HouseDefinition definition = pendingJobWorkplaceDefinition;
+            GameSaveVillager savedState = pendingJobWorkplaceState;
+            pendingJobWorkplacePlot = null;
+            pendingJobWorkplaceHouse = null;
+            pendingJobWorkplaceDefinition = null;
+            pendingJobWorkplaceState = null;
+            if (!jobController.RestoreSavedWorkplace(plot, houseObject, definition, savedState))
+            {
+                Debug.LogError("Could not restore a saved villager job workplace.", this);
+            }
+        }
+    }
+
+    internal bool RestoreSavedState(GameSaveVillager savedState)
+    {
+        if (savedState == null)
+        {
+            Debug.LogError("Cannot restore a villager from a missing save record.", this);
+            return false;
+        }
+
+        pendingSavedState = savedState;
+        if (settings == null || jobController == null)
+        {
+            return true;
+        }
+
+        pendingSavedState = null;
+        return ApplySavedState(savedState);
+    }
+
+    internal GameSaveAmount[] CaptureJobInputStock()
+    {
+        return jobController != null
+            ? jobController.CaptureJobInputStock()
+            : new GameSaveAmount[0];
+    }
+
+    internal GameObject JobWorkplaceHouse
+    {
+        get { return jobController != null ? jobController.WorkplaceHouse : null; }
+    }
+
+    internal HousePlotRecord JobWorkplacePlot
+    {
+        get { return jobController != null ? jobController.WorkplacePlot : null; }
+    }
+
+    internal HouseDefinition JobWorkplaceDefinition
+    {
+        get { return jobController != null ? jobController.WorkplaceHouseDefinition : null; }
+    }
+
+    internal bool IsSeparateJobWorkplace
+    {
+        get { return jobController != null && jobController.IsSeparateWorkplace; }
+    }
+
+    internal bool IsBuildingNewJobWorkplaceHouse
+    {
+        get { return jobController != null && jobController.IsBuildingNewWorkplaceHouse; }
+    }
+
+    internal bool RestoreJobWorkplace(
+        HousePlotRecord plot,
+        GameObject houseObject,
+        HouseDefinition definition,
+        GameSaveVillager savedState)
+    {
+        if (plot == null || houseObject == null || definition == null || savedState == null)
+        {
+            Debug.LogError("Cannot restore a villager job workplace without complete save data.", this);
+            return false;
+        }
+
+        if (jobController == null)
+        {
+            pendingJobWorkplacePlot = plot;
+            pendingJobWorkplaceHouse = houseObject;
+            pendingJobWorkplaceDefinition = definition;
+            pendingJobWorkplaceState = savedState;
+            return true;
+        }
+
+        return jobController.RestoreSavedWorkplace(plot, houseObject, definition, savedState);
+    }
+
+    internal void CaptureJobProductionProgress(GameSaveVillager savedVillager)
+    {
+        if (savedVillager == null
+            || jobController == null
+            || !jobController.TryCaptureProductionProgress(
+                out VillagerItemType itemType,
+                out float progressSeconds,
+                out float durationSeconds))
+        {
+            return;
+        }
+
+        savedVillager.hasJobProductionProgress = true;
+        savedVillager.jobProductionItemType = itemType.ToString();
+        savedVillager.jobProductionProgressSeconds = progressSeconds;
+        savedVillager.jobProductionDurationSeconds = durationSeconds;
+    }
+
+    internal void CaptureJobWorkplaceState(GameSaveVillager savedVillager)
+    {
+        if (savedVillager == null || jobController == null || jobController.WorkplaceHouse == null)
+        {
+            return;
+        }
+
+        savedVillager.jobWorkplaceIsSeparate = jobController.IsSeparateWorkplace;
+        savedVillager.jobWorkplaceBuildingNewHouse = jobController.IsBuildingNewWorkplaceHouse;
+        savedVillager.jobWorkplaceStage = jobController.WorkplaceStageName;
+        savedVillager.jobWorkplaceConstructionProgressSeconds =
+            jobController.WorkplaceConstructionProgressSeconds;
+        savedVillager.jobWorkplaceHammeringTimer = jobController.WorkplaceHammeringTimer;
+    }
+
+    internal bool RestoreHome(
+        HousePlotRecord plot,
+        GameObject houseObject,
+        VillagerHousingState housingState,
+        float constructionProgressSeconds,
+        float constructionHammerTimer,
+        HouseDefinition definition)
+    {
+        if (plot == null || houseObject == null)
+        {
+            Debug.LogError("Cannot restore a villager home without its plot and house object.", this);
+            return false;
+        }
+
+        bool isUnderConstruction = IsHouseConstructionStarted(housingState);
+        if (housingState != VillagerHousingState.Housed && !isUnderConstruction)
+        {
+            Debug.LogError("Cannot restore an unsupported saved home state.", this);
+            return false;
+        }
+
+        if (definition == null)
+        {
+            Debug.LogError("Cannot restore a saved home without its house definition.", this);
+            return false;
+        }
+
+        housePlot = plot;
+        claimedSpaceObject = houseObject;
+        houseVisual = houseObject.GetComponent<HouseVisual>();
+        selectedHouseDefinition = definition;
+        HousingState = housingState;
+        constructionTimer = constructionProgressSeconds;
+        hammeringTimer = constructionHammerTimer;
+        StopMoving();
+        if (isUnderConstruction && settings != null)
+        {
+            HouseSettings restoredHouseSettings = GameData.Instance.houseSettings;
+            float duration = housingState == VillagerHousingState.BuildingHouseStageOne
+                ? restoredHouseSettings.firstConstructionDurationSeconds
+                : housingState == VillagerHousingState.HouseConstructionBreak
+                    ? restoredHouseSettings.constructionBreakDurationSeconds
+                    : restoredHouseSettings.secondConstructionDurationSeconds;
+            EnterBehavior(
+                VillagerBehaviorMode.WorkingOnHome,
+                Mathf.Max(0.1f, duration - constructionProgressSeconds));
+        }
+
+        return true;
+    }
+
+    private bool ApplySavedState(GameSaveVillager savedState)
+    {
+        if (!TryParseSavePosition(savedState.position, out Vector3 restoredPosition)
+            || !TryParseSavePosition(savedState.localScale, out Vector3 restoredScale)
+            || savedState.hunger < 0f
+            || savedState.hunger > MaximumHunger
+            || float.IsNaN(savedState.hunger)
+            || float.IsInfinity(savedState.hunger)
+            || savedState.fatigue < 0f
+            || savedState.fatigue > MaximumFatigue
+            || float.IsNaN(savedState.fatigue)
+            || float.IsInfinity(savedState.fatigue)
+            || !RestoreHealth(savedState.health))
+        {
+            Debug.LogError("A saved villager contains invalid position or vital-stat data.", this);
+            return false;
+        }
+
+        if (!System.Enum.TryParse(savedState.jobType, out JobType restoredJob)
+            || !System.Enum.IsDefined(typeof(JobType), restoredJob)
+            || !jobController.AssignJob(restoredJob))
+        {
+            Debug.LogError("Could not restore a saved villager job.", this);
+            return false;
+        }
+
+        if (!jobController.RestoreSavedJobState(savedState))
+        {
+            return false;
+        }
+
+        inventory.Clear();
+        resourceInventory.Clear();
+        if (savedState.itemInventory != null)
+        {
+            foreach (GameSaveAmount savedItem in savedState.itemInventory)
+            {
+                if (savedItem == null
+                    || savedItem.amount <= 0
+                    || !System.Enum.TryParse(savedItem.type, out VillagerItemType itemType)
+                    || !System.Enum.IsDefined(typeof(VillagerItemType), itemType)
+                    || !AddInventoryItem(itemType, savedItem.amount))
+                {
+                    Debug.LogError("A saved villager item stack is invalid.", this);
+                    return false;
+                }
+            }
+        }
+
+        if (savedState.resourceInventory != null)
+        {
+            foreach (GameSaveAmount savedResource in savedState.resourceInventory)
+            {
+                if (savedResource == null
+                    || savedResource.amount <= 0
+                    || !System.Enum.TryParse(savedResource.type, out ResourceType resourceType)
+                    || !System.Enum.IsDefined(typeof(ResourceType), resourceType)
+                    || !AddResourceInventory(resourceType, savedResource.amount))
+                {
+                    Debug.LogError("A saved villager resource stack is invalid.", this);
+                    return false;
+                }
+            }
+        }
+
+        if (!string.IsNullOrEmpty(savedState.equippedItem))
+        {
+            if (!System.Enum.TryParse(savedState.equippedItem, out VillagerItemType equippedItemType)
+                || !System.Enum.IsDefined(typeof(VillagerItemType), equippedItemType)
+                || !EquipItem(equippedItemType))
+            {
+                Debug.LogError("Could not restore a villager's equipped item.", this);
+                return false;
+            }
+        }
+
+        Hunger = savedState.hunger;
+        Fatigue = savedState.fatigue;
+        transform.position = restoredPosition;
+        transform.localScale = restoredScale;
+        StopMoving();
+        if (!System.Enum.TryParse(savedState.housingState, out VillagerHousingState restoredHousingState)
+            || !System.Enum.IsDefined(typeof(VillagerHousingState), restoredHousingState))
+        {
+            Debug.LogError("A saved villager contains an invalid housing state.", this);
+            return false;
+        }
+
+        constructionTimer = savedState.constructionProgressSeconds;
+        hammeringTimer = savedState.constructionHammerTimer;
+        HousingState = restoredHousingState == VillagerHousingState.Housed
+            || IsHouseConstructionStarted(restoredHousingState)
+                ? restoredHousingState
+                : housePlot != null
+                    ? VillagerHousingState.Housed
+                    : VillagerHousingState.FindingRoad;
+        if (IsHouseConstructionStarted(HousingState))
+        {
+            float duration = HousingState == VillagerHousingState.BuildingHouseStageOne
+                ? houseSettings.firstConstructionDurationSeconds
+                : HousingState == VillagerHousingState.HouseConstructionBreak
+                    ? houseSettings.constructionBreakDurationSeconds
+                    : houseSettings.secondConstructionDurationSeconds;
+            EnterBehavior(
+                VillagerBehaviorMode.WorkingOnHome,
+                Mathf.Max(0.1f, duration - constructionTimer));
+        }
+
+        return true;
+    }
+
+    private static bool TryParseSavePosition(GameSavePosition savedPosition, out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (savedPosition == null
+            || float.IsNaN(savedPosition.x)
+            || float.IsNaN(savedPosition.y)
+            || float.IsNaN(savedPosition.z)
+            || float.IsInfinity(savedPosition.x)
+            || float.IsInfinity(savedPosition.y)
+            || float.IsInfinity(savedPosition.z))
+        {
+            return false;
+        }
+
+        position = new Vector3(savedPosition.x, savedPosition.y, savedPosition.z);
+        return true;
     }
 
     public bool AddInventoryItem(VillagerItemType itemType, int amount)

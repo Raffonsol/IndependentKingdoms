@@ -134,6 +134,12 @@
         {"type": "FullName","value": "Omadi",
             "worksForMen": true,"worksForWomen": false
         },
+        {"type": "FullName","value": "Kalam",
+            "worksForMen": true,"worksForWomen": false
+        },
+        {"type": "FullName","value": "Felisin",
+            "worksForMen": false,"worksForWomen": true
+        },
         {"type": "FullName","value": "Sylvanna",
             "worksForMen": false,"worksForWomen": true
         },

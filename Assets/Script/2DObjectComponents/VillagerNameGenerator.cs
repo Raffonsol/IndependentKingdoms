@@ -29,6 +29,11 @@ public class VillagerNameGenerator : MonoBehaviour
         }
 
         NamePart selectedPart = SelectRandomPart(eligibleParts);
+        while (selectedPart.type == NamePartType.FullName && UnityEngine.Random.value >= 0.3f)
+        {
+            selectedPart = SelectRandomPart(eligibleParts);
+        }
+
         string generatedName;
         switch (selectedPart.type)
         {

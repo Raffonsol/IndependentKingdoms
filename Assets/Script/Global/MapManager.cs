@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -22,6 +23,41 @@ public class MapManager : MonoBehaviour
     public static MapManager Instance
     {
         get { return instance; }
+    }
+
+    public Vector3[][] GetRoadKeyPointPaths()
+    {
+        Vector3[][] paths = new Vector3[roads.Count][];
+        for (int index = 0; index < roads.Count; index++)
+        {
+            List<Vector3> keyPoints = roads[index] != null
+                ? roads[index].keyPoints
+                : null;
+            paths[index] = keyPoints != null ? keyPoints.ToArray() : new Vector3[0];
+        }
+
+        return paths;
+    }
+
+    public ResourceObject[] GetRegisteredResourceObjects()
+    {
+        HashSet<ResourceObject> registeredObjects = new HashSet<ResourceObject>();
+        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        {
+            if (resourceObject != null)
+            {
+                registeredObjects.Add(resourceObject);
+            }
+        }
+
+        ResourceObject[] result = new ResourceObject[registeredObjects.Count];
+        registeredObjects.CopyTo(result);
+        return result;
+    }
+
+    public CommunityStorage[] GetCommunityStorages()
+    {
+        return communityStorages.ToArray();
     }
 
     private readonly List<Vector3> roadKeyPoints = new List<Vector3>();
@@ -77,6 +113,563 @@ public class MapManager : MonoBehaviour
     private void Start()
     {
         SpawnResourceObjects();
+        if (GameSaveManager.HasPendingLoad)
+        {
+            StartCoroutine(RestorePendingGameAfterInitialization());
+        }
+    }
+
+    private IEnumerator RestorePendingGameAfterInitialization()
+    {
+        yield return null;
+        if (!GameSaveManager.TryRestorePendingGame())
+        {
+            GameSaveManager.ClearPendingLoad();
+        }
+    }
+
+    public bool RestoreSavedWorld(GameSaveSnapshot snapshot)
+    {
+        if (snapshot == null
+            || snapshot.roads == null
+            || snapshot.resourceObjects == null
+            || snapshot.communityStorages == null)
+        {
+            Debug.LogError("Cannot restore a world with missing map data.", this);
+            return false;
+        }
+
+        ResourceObject[] existingResources = GetRegisteredResourceObjects();
+        foreach (ResourceObject resourceObject in existingResources)
+        {
+            RemoveResourceObjectWithoutYield(resourceObject);
+        }
+
+        roadKeyPoints.Clear();
+        roads.Clear();
+        roadCells.Clear();
+        resourceReservations.Clear();
+        claimedHouseCells.Clear();
+        communityStorageCells.Clear();
+        housePlotQueue.Clear();
+        claimedHousePlots.Clear();
+        claimedWorkplacePlots.Clear();
+        workplacePlotObjects.Clear();
+        startedWorkplacePlots.Clear();
+        claimedWorkplaceHouses.Clear();
+        completedHouseObjects.Clear();
+        availableHouses.Clear();
+        communityStorages.Clear();
+        communityStorageIconInstances.Clear();
+
+        if (!RestoreRoads(snapshot.roads)
+            || !RestoreResourceObjects(snapshot.resourceObjects)
+            || !RestoreCommunityStorages(snapshot.communityStorages))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    public bool TryRegisterSavedHouse(
+        Villager villager,
+        HousePlotRecord plot,
+        GameObject houseObject)
+    {
+        if (villager == null
+            || plot == null
+            || houseObject == null
+            || plot.dimensions.x <= 0
+            || plot.dimensions.y <= 0
+            || !IsHousePlotAvailable(plot.originCell, plot.dimensions))
+        {
+            Debug.LogError("Cannot register a saved house whose plot is invalid or occupied.", this);
+            return false;
+        }
+
+        HouseWorkplace workplace = GetOrCreateHouseWorkplace(houseObject);
+        if (workplace == null || !workplace.TrySetResident(villager))
+        {
+            Debug.LogError("Could not register the saved house resident.", houseObject);
+            return false;
+        }
+
+        for (int x = 0; x < plot.dimensions.x; x++)
+        {
+            for (int y = 0; y < plot.dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(plot.originCell.x + x, plot.originCell.y + y));
+            }
+        }
+
+        claimedHousePlots.Add(villager, plot);
+        completedHouseObjects[villager] = houseObject;
+        CreateHouseRoadConnection(plot);
+        return true;
+    }
+
+    public bool TryRegisterSavedHouseInProgress(
+        Villager villager,
+        HousePlotRecord plot,
+        GameObject houseObject)
+    {
+        if (villager == null
+            || plot == null
+            || houseObject == null
+            || plot.dimensions.x <= 0
+            || plot.dimensions.y <= 0
+            || claimedHousePlots.ContainsKey(villager)
+            || !IsHousePlotAvailable(plot.originCell, plot.dimensions))
+        {
+            Debug.LogError(
+                "Cannot register a saved house under construction whose plot is invalid or occupied.",
+                this);
+            return false;
+        }
+
+        for (int x = 0; x < plot.dimensions.x; x++)
+        {
+            for (int y = 0; y < plot.dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(
+                    plot.originCell.x + x,
+                    plot.originCell.y + y));
+            }
+        }
+
+        claimedHousePlots.Add(villager, plot);
+        NotifyHouseConstructionStarted(villager);
+        return true;
+    }
+
+    public bool TryRegisterSavedWorkplaceHouse(
+        Villager worker,
+        HousePlotRecord plot,
+        GameObject houseObject)
+    {
+        if (worker == null
+            || plot == null
+            || houseObject == null
+            || plot.dimensions.x <= 0
+            || plot.dimensions.y <= 0
+            || claimedWorkplaceHouses.ContainsKey(worker)
+            || !IsHousePlotAvailable(plot.originCell, plot.dimensions))
+        {
+            Debug.LogError(
+                "Cannot register a saved workplace whose plot is invalid or occupied.",
+                this);
+            return false;
+        }
+
+        HouseWorkplace workplace = GetOrCreateHouseWorkplace(houseObject);
+        if (workplace == null || !workplace.TryReserve(worker))
+        {
+            Debug.LogError("Could not reserve a saved workplace for its worker.", houseObject);
+            return false;
+        }
+
+        for (int x = 0; x < plot.dimensions.x; x++)
+        {
+            for (int y = 0; y < plot.dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(
+                    plot.originCell.x + x,
+                    plot.originCell.y + y));
+            }
+        }
+
+        claimedWorkplaceHouses.Add(worker, new AvailableHouseRecord
+        {
+            housePlot = plot,
+            houseObject = houseObject
+        });
+        CreateHouseRoadConnection(plot);
+        return true;
+    }
+
+    public bool TryRegisterSavedWorkplacePlot(
+        Villager worker,
+        HousePlotRecord plot,
+        GameObject houseObject,
+        bool constructionStarted)
+    {
+        if (worker == null
+            || plot == null
+            || houseObject == null
+            || plot.dimensions.x <= 0
+            || plot.dimensions.y <= 0
+            || claimedWorkplacePlots.ContainsKey(worker)
+            || !IsHousePlotAvailable(plot.originCell, plot.dimensions))
+        {
+            Debug.LogError(
+                "Cannot register a saved workplace plot whose location is invalid or occupied.",
+                this);
+            return false;
+        }
+
+        HouseWorkplace workplace = GetOrCreateHouseWorkplace(houseObject);
+        if (workplace == null || !workplace.TryReserve(worker))
+        {
+            Debug.LogError("Could not reserve a saved workplace plot for its worker.", houseObject);
+            return false;
+        }
+
+        for (int x = 0; x < plot.dimensions.x; x++)
+        {
+            for (int y = 0; y < plot.dimensions.y; y++)
+            {
+                claimedHouseCells.Add(new Vector2Int(
+                    plot.originCell.x + x,
+                    plot.originCell.y + y));
+            }
+        }
+
+        claimedWorkplacePlots.Add(worker, plot);
+        workplacePlotObjects.Add(worker, houseObject);
+        if (constructionStarted)
+        {
+            NotifyWorkplaceConstructionStarted(worker);
+        }
+
+        return true;
+    }
+
+    private bool RestoreRoads(GameSaveRoad[] savedRoads)
+    {
+        if (savedRoads.Length == 0)
+        {
+            return true;
+        }
+
+        GameOverlord gameOverlord = GameOverlord.Instance;
+        if (gameOverlord == null || gameOverlord.RoadTilePrefab == null)
+        {
+            Debug.LogError("Loading saved roads requires a road tile prefab.", this);
+            return false;
+        }
+
+        foreach (GameSaveRoad savedRoad in savedRoads)
+        {
+            if (savedRoad == null || savedRoad.keyPoints == null || savedRoad.keyPoints.Length < 2)
+            {
+                Debug.LogError("A saved road must contain at least two key points.", this);
+                return false;
+            }
+
+            List<Vector3> roadPath = new List<Vector3>();
+            foreach (GameSavePosition savedPoint in savedRoad.keyPoints)
+            {
+                if (!TryParseSavePosition(savedPoint, out Vector3 point))
+                {
+                    Debug.LogError("A saved road contains an invalid key point.", this);
+                    return false;
+                }
+
+                roadPath.Add(point);
+            }
+
+            HashSet<Vector2Int> cellsToAdd = new HashSet<Vector2Int>();
+            for (int index = 0; index < roadPath.Count - 1; index++)
+            {
+                List<Vector2Int> segmentCells = CreateGridCellPath(
+                    WorldPositionToGridCell(roadPath[index], settings.gridCellSize),
+                    WorldPositionToGridCell(roadPath[index + 1], settings.gridCellSize),
+                    false);
+                if (segmentCells.Count < 2)
+                {
+                    Debug.LogError("A saved road contains a degenerate segment.", this);
+                    return false;
+                }
+
+                foreach (Vector2Int cell in segmentCells)
+                {
+                    cellsToAdd.Add(cell);
+                }
+
+                PlaceRoadTilesAlongSegment(
+                    gameOverlord.RoadTilePrefab,
+                    roadPath[index],
+                    roadPath[index + 1]);
+            }
+
+            foreach (Vector3 point in roadPath)
+            {
+                if (!ContainsRoadKeyPoint(point))
+                {
+                    roadKeyPoints.Add(point);
+                }
+            }
+
+            foreach (Vector2Int cell in cellsToAdd)
+            {
+                roadCells.Add(cell);
+            }
+
+            roads.Add(new RoadRecord { keyPoints = roadPath });
+            RoadRevision++;
+        }
+
+        return true;
+    }
+
+    private bool RestoreResourceObjects(GameSaveResourceObject[] savedObjects)
+    {
+        foreach (GameSaveResourceObject savedObject in savedObjects)
+        {
+            if (savedObject == null
+                || !savedObject.hasGridCell
+                || savedObject.remainingResources == null
+                || !TryParseCell(savedObject.gridCell, out Vector2Int cell)
+                || !TryParseSavePosition(savedObject.position, out Vector3 position)
+                || roadCells.Contains(cell)
+                || resourceObjectsByCell.ContainsKey(cell))
+            {
+                Debug.LogError("A saved resource object contains invalid or overlapping placement data.", this);
+                return false;
+            }
+
+            ResourceObjectDefinition definition = FindResourceObjectDefinition(savedObject.definitionId);
+            GameObject prefab = definition != null ? GetResourceObjectPrefab(definition.id) : null;
+            if (definition == null || prefab == null)
+            {
+                Debug.LogError("Could not resolve saved resource object '" + savedObject.definitionId + "'.", this);
+                return false;
+            }
+
+            Quaternion rotation = savedObject.hasSavedTransform
+                ? Quaternion.Euler(0f, 0f, savedObject.rotationZ)
+                : Quaternion.identity;
+            Vector3 localScale = savedObject.hasSavedTransform
+                ? new Vector3(
+                    savedObject.localScale.x,
+                    savedObject.localScale.y,
+                    savedObject.localScale.z)
+                : Vector3.zero;
+            if (!TryCreateResourceObject(
+                    definition,
+                    prefab,
+                    position,
+                    rotation,
+                    savedObject.hasSavedTransform,
+                    localScale,
+                    1f,
+                    out ResourceObject resourceObject))
+            {
+                return false;
+            }
+
+            HashSet<ResourceType> restoredTypes = new HashSet<ResourceType>();
+            foreach (GameSaveResourceAmount savedAmount in savedObject.remainingResources)
+            {
+                if (savedAmount == null
+                    || !Enum.TryParse(savedAmount.resourceType, out ResourceType resourceType)
+                    || !Enum.IsDefined(typeof(ResourceType), resourceType)
+                    || !restoredTypes.Add(resourceType)
+                    || !resourceObject.TryRestoreAmounts(
+                        resourceType,
+                        savedAmount.amount,
+                        savedAmount.bareHandAmount))
+                {
+                    Debug.LogError(
+                        "A saved resource object contains an invalid remaining-resource amount.",
+                        resourceObject);
+                    Destroy(resourceObject.gameObject);
+                    return false;
+                }
+            }
+
+            if (restoredTypes.Count != resourceObject.AvailableResourceTypes.Count)
+            {
+                Debug.LogError(
+                    "A saved resource object is missing one or more resource stocks.",
+                    resourceObject);
+                Destroy(resourceObject.gameObject);
+                return false;
+            }
+
+            resourceObject.SetGridCell(cell);
+            resourceObjectsByCell.Add(cell, resourceObject);
+            PathfindingRevision++;
+            ResourceAvailabilityRevision++;
+        }
+
+        return true;
+    }
+
+    private bool RestoreCommunityStorages(GameSaveCommunityStorage[] savedStorages)
+    {
+        if (savedStorages.Length == 0)
+        {
+            return true;
+        }
+
+        GameOverlord gameOverlord = GameOverlord.Instance;
+        if (gameOverlord == null || gameOverlord.RoadTilePrefab == null)
+        {
+            Debug.LogError("Loading saved community storage requires a road tile prefab.", this);
+            return false;
+        }
+
+        SpriteRenderer roadTileRenderer =
+            gameOverlord.RoadTilePrefab.GetComponentInChildren<SpriteRenderer>();
+        if (roadTileRenderer != null)
+        {
+            communityStorageIconSortingLayerId = roadTileRenderer.sortingLayerID;
+            communityStorageIconSortingOrder = roadTileRenderer.sortingOrder + 1;
+        }
+
+        foreach (GameSaveCommunityStorage savedStorage in savedStorages)
+        {
+            if (savedStorage == null
+                || savedStorage.capacity <= 0
+                || savedStorage.resources == null
+                || !TryParseCell(savedStorage.originCell, out Vector2Int origin)
+                || !TryParseCell(savedStorage.dimensions, out Vector2Int dimensions)
+                || !TryParseCell(savedStorage.entranceCell, out Vector2Int entrance)
+                || !TryParseSavePosition(savedStorage.position, out Vector3 position)
+                || dimensions.x <= 0
+                || dimensions.y <= 0)
+            {
+                Debug.LogError("A saved community storage has invalid placement data.", this);
+                return false;
+            }
+
+            CommunityStorageRecord storageRecord = new CommunityStorageRecord
+            {
+                originCell = origin,
+                dimensions = dimensions,
+                entranceCell = entrance
+            };
+            GameObject storageObject = new GameObject("Community Storage");
+            storageObject.transform.SetParent(transform, false);
+            storageObject.transform.position = position;
+            CommunityStorage storage = storageObject.AddComponent<CommunityStorage>();
+            if (!storage.Initialize(storageRecord, savedStorage.capacity))
+            {
+                Destroy(storageObject);
+                return false;
+            }
+
+            BoxCollider2D storageCollider = storageObject.AddComponent<BoxCollider2D>();
+            storageCollider.isTrigger = true;
+            storageCollider.size = new Vector2(
+                dimensions.x * settings.gridCellSize,
+                dimensions.y * settings.gridCellSize);
+            communityStorages.Add(storage);
+            communityStorageIconInstances.Add(
+                storage,
+                new Dictionary<ResourceType, List<GameObject>>());
+            for (int x = 0; x < dimensions.x; x++)
+            {
+                for (int y = 0; y < dimensions.y; y++)
+                {
+                    Vector2Int cell = new Vector2Int(origin.x + x, origin.y + y);
+                    if (roadCells.Contains(cell)
+                        || resourceObjectsByCell.ContainsKey(cell)
+                        || !communityStorageCells.Add(cell))
+                    {
+                        Debug.LogError("Saved community storage overlaps an occupied map cell.", storageObject);
+                        return false;
+                    }
+                }
+            }
+
+            Vector3 bottomLeft = GridCellToWorldPosition(origin, settings.gridCellSize);
+            bottomLeft.x -= settings.gridCellSize * 0.5f;
+            bottomLeft.y -= settings.gridCellSize * 0.5f;
+            int tileCountX = Mathf.Max(
+                1,
+                Mathf.CeilToInt(dimensions.x * settings.gridCellSize / settings.roadTileSpacing));
+            int tileCountY = Mathf.Max(
+                1,
+                Mathf.CeilToInt(dimensions.y * settings.gridCellSize / settings.roadTileSpacing));
+            for (int x = 0; x < tileCountX; x++)
+            {
+                for (int y = 0; y < tileCountY; y++)
+                {
+                    Vector3 tilePosition = bottomLeft + new Vector3(
+                        (x + 0.5f) * dimensions.x * settings.gridCellSize / tileCountX,
+                        (y + 0.5f) * dimensions.y * settings.gridCellSize / tileCountY,
+                        0f);
+                    tilePosition.z = transform.position.z;
+                    Instantiate(
+                        gameOverlord.RoadTilePrefab,
+                        tilePosition,
+                        Quaternion.identity,
+                        storageObject.transform);
+                }
+            }
+
+            foreach (GameSaveResourceAmount savedAmount in savedStorage.resources)
+            {
+                if (savedAmount == null
+                    || savedAmount.amount <= 0
+                    || !Enum.TryParse(savedAmount.resourceType, out ResourceType resourceType)
+                    || !Enum.IsDefined(typeof(ResourceType), resourceType)
+                    || !GameData.Instance.IsCommunityStorageResource(resourceType)
+                    || !storage.TryDeposit(resourceType, savedAmount.amount, out int depositedAmount)
+                    || depositedAmount != savedAmount.amount)
+                {
+                    Debug.LogError("A saved community storage contains an invalid resource amount.", storageObject);
+                    return false;
+                }
+
+                RefreshCommunityStorageIcons(storage, resourceType);
+            }
+        }
+
+        PathfindingRevision++;
+        return true;
+    }
+
+    private ResourceObjectDefinition FindResourceObjectDefinition(string id)
+    {
+        ResourceObjectDefinition[] definitions = GameData.Instance.resourceObjectDefinitions;
+        if (definitions == null || string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        foreach (ResourceObjectDefinition definition in definitions)
+        {
+            if (definition != null && string.Equals(definition.id, id, StringComparison.Ordinal))
+            {
+                return definition;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryParseCell(GameSaveCell savedCell, out Vector2Int cell)
+    {
+        cell = Vector2Int.zero;
+        if (savedCell == null)
+        {
+            return false;
+        }
+
+        cell = new Vector2Int(savedCell.x, savedCell.y);
+        return true;
+    }
+
+    private static bool TryParseSavePosition(GameSavePosition savedPosition, out Vector3 position)
+    {
+        position = Vector3.zero;
+        if (savedPosition == null
+            || float.IsNaN(savedPosition.x)
+            || float.IsNaN(savedPosition.y)
+            || float.IsNaN(savedPosition.z)
+            || float.IsInfinity(savedPosition.x)
+            || float.IsInfinity(savedPosition.y)
+            || float.IsInfinity(savedPosition.z))
+        {
+            return false;
+        }
+
+        position = new Vector3(savedPosition.x, savedPosition.y, savedPosition.z);
+        return true;
     }
 
     public IReadOnlyList<Vector3> RoadKeyPoints
@@ -3319,31 +3912,16 @@ public class MapManager : MonoBehaviour
                 ? RandomRange(random, 0f, 360f)
                 : 0f;
             float scale = RandomRange(random, spawnSettings.scaleRange.x, spawnSettings.scaleRange.y);
-            GameObject resourceObjectInstance = Instantiate(
-                prefab,
-                cellPosition,
-                Quaternion.Euler(0f, 0f, rotation),
-                transform);
-            ResourceObject resourceObject = resourceObjectInstance.GetComponent<ResourceObject>();
-            if (resourceObject == null)
+            if (!TryCreateResourceObject(
+                    definition,
+                    prefab,
+                    cellPosition,
+                    Quaternion.Euler(0f, 0f, rotation),
+                    false,
+                    Vector3.zero,
+                    scale,
+                    out ResourceObject resourceObject))
             {
-                Debug.LogError(
-                    "Resource object prefab '" + definition.id + "' is missing ResourceObject.",
-                    resourceObjectInstance);
-                Destroy(resourceObjectInstance);
-                continue;
-            }
-
-            resourceObjectInstance.transform.localScale *= scale;
-            if (!ApplyResourceObjectVisualOffset(resourceObject, spawnSettings.visualOffset))
-            {
-                Destroy(resourceObjectInstance);
-                continue;
-            }
-
-            if (!resourceObject.Initialize(definition))
-            {
-                Destroy(resourceObjectInstance);
                 continue;
             }
 
@@ -3362,6 +3940,58 @@ public class MapManager : MonoBehaviour
                 + "' resource objects. Increase the map size or placement attempts, or reduce minimum spacing.",
                 this);
         }
+    }
+
+    private bool TryCreateResourceObject(
+        ResourceObjectDefinition definition,
+        GameObject prefab,
+        Vector3 position,
+        Quaternion rotation,
+        bool useSavedLocalScale,
+        Vector3 savedLocalScale,
+        float scaleMultiplier,
+        out ResourceObject resourceObject)
+    {
+        resourceObject = null;
+        GameObject resourceInstance = Instantiate(prefab, position, rotation, transform);
+        if (useSavedLocalScale)
+        {
+            resourceInstance.transform.localScale = savedLocalScale;
+        }
+        else
+        {
+            resourceInstance.transform.localScale *= scaleMultiplier;
+        }
+
+        resourceObject = resourceInstance.GetComponent<ResourceObject>();
+        if (resourceObject == null)
+        {
+            Debug.LogError(
+                "Resource object prefab '" + definition.id + "' is missing ResourceObject.",
+                resourceInstance);
+            Destroy(resourceInstance);
+            return false;
+        }
+
+        if (definition.spawnSettings != null
+            && !ApplyResourceObjectVisualOffset(resourceObject, definition.spawnSettings.visualOffset))
+        {
+            Destroy(resourceInstance);
+            resourceObject = null;
+            return false;
+        }
+
+        if (!resourceObject.Initialize(definition))
+        {
+            Debug.LogError(
+                "Could not initialize resource object '" + definition.id + "'.",
+                resourceInstance);
+            Destroy(resourceInstance);
+            resourceObject = null;
+            return false;
+        }
+
+        return true;
     }
 
     private GameObject GetResourceObjectPrefab(string id)
