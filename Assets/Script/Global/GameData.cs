@@ -1500,6 +1500,10 @@ public class GameData
                         || outputRecord.fullCutAmount < 0
                         || outputRecord.bareHandAmount < 0
                         || outputRecord.bareHandAmount > outputRecord.fullCutAmount
+                        || !IsFinite(outputRecord.bareHandShakeMagnitudeMultiplier)
+                        || outputRecord.bareHandShakeMagnitudeMultiplier < 0f
+                        || !IsFinite(outputRecord.toolShakeMagnitudeMultiplier)
+                        || outputRecord.toolShakeMagnitudeMultiplier < 0f
                         || outputRecord.resourceRegenerationPerSecond < 0f
                         || !IsFinite(outputRecord.resourceRegenerationPerSecond)
                         || outputRecord.resourceRegenerationLimit < 0
@@ -1547,8 +1551,11 @@ public class GameData
                         type = type,
                         primaryResourceType = outputPrimaryResourceType,
                         primaryResourceTypeWasExplicitlySet = hasOutputPrimaryResourceType,
+                        visualChildName = outputRecord.visualChildName,
                         fullCutAmount = outputRecord.fullCutAmount,
                         bareHandAmount = outputRecord.bareHandAmount,
+                        bareHandShakeMagnitudeMultiplier = outputRecord.bareHandShakeMagnitudeMultiplier,
+                        toolShakeMagnitudeMultiplier = outputRecord.toolShakeMagnitudeMultiplier,
                         interactionOffset = outputRecord.interactionOffset,
                         resourceRegenerationPerSecond = outputRecord.resourceRegenerationPerSecond,
                         resourceRegenerationLimit = outputRecord.resourceRegenerationLimit

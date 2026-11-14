@@ -915,8 +915,11 @@ public class ResourceOutputRecord
 {
     public string type;
     public string primaryResourceType;
+    public string visualChildName;
     public int fullCutAmount;
     public int bareHandAmount;
+    public float bareHandShakeMagnitudeMultiplier = 1f;
+    public float toolShakeMagnitudeMultiplier = 1f;
     public Vector2Int interactionOffset;
     public float resourceRegenerationPerSecond;
     public int resourceRegenerationLimit;
@@ -928,8 +931,11 @@ public class ResourceOutputDefinition
     public ResourceType type;
     public ResourceType primaryResourceType;
     public bool primaryResourceTypeWasExplicitlySet;
+    public string visualChildName;
     public int fullCutAmount;
     public int bareHandAmount;
+    public float bareHandShakeMagnitudeMultiplier;
+    public float toolShakeMagnitudeMultiplier;
     public Vector2Int interactionOffset;
     public float resourceRegenerationPerSecond;
     public int resourceRegenerationLimit;

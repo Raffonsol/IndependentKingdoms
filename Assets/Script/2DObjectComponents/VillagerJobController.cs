@@ -1521,13 +1521,15 @@ public class VillagerJobController : MonoBehaviour
             isForagerJob
                 ? jobDefinition.handMotionDurationSeconds
                 : settings.handMotionDurationSeconds);
-        foragingResource.PlayShake(
-            resourceSettings.shakeDurationSeconds,
-            resourceSettings.shakeMagnitude,
-            resourceSettings.shakeFrequency);
         bool hasRequiredToolForCurrentGather = requiresEquippedTool
             && villager.EquippedItem == jobDefinition.requiredEquippedItemType
             && villager.CanUseEquippedToolForResource(foragingResourceType);
+        foragingResource.PlayShake(
+            foragingResourceType,
+            hasRequiredToolForCurrentGather,
+            resourceSettings.shakeDurationSeconds,
+            resourceSettings.shakeMagnitude,
+            resourceSettings.shakeFrequency);
         if (mapManager.TryGatherResource(
                 villager,
                 foragingResource,

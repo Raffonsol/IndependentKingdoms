@@ -1204,6 +1204,8 @@ public class Villager : Combatant
 
         PlayArmMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
         gatheringResource.PlayShake(
+            resourceType,
+            hasAxe,
             resourceSettings.shakeDurationSeconds,
             resourceSettings.shakeMagnitude,
             resourceSettings.shakeFrequency);
@@ -2528,6 +2530,8 @@ public class Villager : Combatant
         PlayArmMotion(settings.handHitPositions, settings.handMotionDurationSeconds);
 
         gatheringResource.PlayShake(
+            missingCost.resourceType,
+            hasAxe,
             resourceSettings.shakeDurationSeconds,
             resourceSettings.shakeMagnitude,
             resourceSettings.shakeFrequency);

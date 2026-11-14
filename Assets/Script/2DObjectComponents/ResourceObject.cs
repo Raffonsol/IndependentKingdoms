@@ -13,6 +13,8 @@ public class ResourceObject : MonoBehaviour
         public int regenerationLimit;
         public float regenerationPerSecond;
         public float regenerationRemainder;
+        public float bareHandShakeMagnitudeMultiplier;
+        public float toolShakeMagnitudeMultiplier;
         public Vector2Int interactionOffset;
     }
 
@@ -29,6 +31,8 @@ public class ResourceObject : MonoBehaviour
 
     private readonly Dictionary<ResourceType, ResourceStock> resourceStocks =
         new Dictionary<ResourceType, ResourceStock>();
+    private readonly Dictionary<ResourceType, Transform> visualChildByResourceType =
+        new Dictionary<ResourceType, Transform>();
     private readonly List<ResourceType> availableResourceTypes = new List<ResourceType>();
     private ResourceType resourceType;
     private bool isConfigured;
@@ -181,6 +185,7 @@ public class ResourceObject : MonoBehaviour
 
         isConfigured = false;
         resourceStocks.Clear();
+        visualChildByResourceType.Clear();
         availableResourceTypes.Clear();
         DefinitionId = definition.id;
         resourceType = definition.outputs[0].type;
@@ -199,6 +204,7 @@ public class ResourceObject : MonoBehaviour
                     "Resource object definition '" + definition.id + "' has an invalid or duplicate output.",
                     this);
                 resourceStocks.Clear();
+                visualChildByResourceType.Clear();
                 availableResourceTypes.Clear();
                 return false;
             }
@@ -211,6 +217,7 @@ public class ResourceObject : MonoBehaviour
             AddResourceStock(output);
         }
 
+        UpdateConfiguredResourceVisualState();
         startingLocalPosition = visualRoot.localPosition;
         isConfigured = true;
         return true;
@@ -231,6 +238,8 @@ public class ResourceObject : MonoBehaviour
             bareHandLimit = definition.bareHandAmount,
             regenerationLimit = definition.resourceRegenerationLimit,
             regenerationPerSecond = definition.resourceRegenerationPerSecond,
+            bareHandShakeMagnitudeMultiplier = Mathf.Max(0f, definition.bareHandShakeMagnitudeMultiplier),
+            toolShakeMagnitudeMultiplier = Mathf.Max(0f, definition.toolShakeMagnitudeMultiplier),
             interactionOffset = definition.interactionOffset
         };
         if (definition.primaryResourceTypeWasExplicitlySet
@@ -238,8 +247,51 @@ public class ResourceObject : MonoBehaviour
         {
             PrimaryResourceType = definition.type;
         }
+
+        if (!string.IsNullOrWhiteSpace(definition.visualChildName))
+        {
+            Transform child = visualRoot != null
+                ? visualRoot.Find(definition.visualChildName)
+                : null;
+            if (child == null)
+            {
+                Debug.LogWarning(
+                    "Resource object '" + DefinitionId + "' is configured for resource '"
+                    + definition.type + "' but child '" + definition.visualChildName + "' was not found.",
+                    this);
+            }
+            else
+            {
+                visualChildByResourceType[definition.type] = child;
+            }
+        }
+
         resourceStocks.Add(definition.type, stock);
         availableResourceTypes.Add(definition.type);
+    }
+
+    private void UpdateConfiguredResourceVisualState()
+    {
+        foreach (KeyValuePair<ResourceType, Transform> entry in visualChildByResourceType)
+        {
+            if (entry.Value == null)
+            {
+                continue;
+            }
+
+            entry.Value.gameObject.SetActive(GetAmount(entry.Key) > 0);
+        }
+    }
+
+    private void UpdateResourceVisualState(ResourceType requestedType)
+    {
+        if (!visualChildByResourceType.TryGetValue(requestedType, out Transform child)
+            || child == null)
+        {
+            return;
+        }
+
+        child.gameObject.SetActive(GetAmount(requestedType) > 0);
     }
 
     private void RegenerateResources(float deltaTime)
@@ -250,8 +302,9 @@ public class ResourceObject : MonoBehaviour
         }
 
         bool restoredGatherableResource = false;
-        foreach (ResourceStock stock in resourceStocks.Values)
+        foreach (KeyValuePair<ResourceType, ResourceStock> stockEntry in resourceStocks)
         {
+            ResourceStock stock = stockEntry.Value;
             if (stock.regenerationPerSecond <= 0f
                 || stock.regenerationLimit <= 0
                 || stock.amount >= stock.regenerationLimit)
@@ -284,6 +337,8 @@ public class ResourceObject : MonoBehaviour
             {
                 restoredGatherableResource = true;
             }
+
+            UpdateResourceVisualState(stockEntry.Key);
         }
 
         if (restoredGatherableResource)
@@ -326,6 +381,7 @@ public class ResourceObject : MonoBehaviour
         int takenAmount = Mathf.Min(requestedAmount, maximumAmount);
         stock.amount -= takenAmount;
         stock.bareHandAmount = Mathf.Max(0, stock.bareHandAmount - takenAmount);
+        UpdateResourceVisualState(requestedType);
         return takenAmount;
     }
 
@@ -358,6 +414,7 @@ public class ResourceObject : MonoBehaviour
         stock.amount = amount;
         stock.bareHandAmount = bareHandAmount;
         stock.regenerationRemainder = 0f;
+        UpdateResourceVisualState(requestedType);
         return true;
     }
 
@@ -404,6 +461,25 @@ public class ResourceObject : MonoBehaviour
         activeShakeMagnitude = magnitude;
         activeShakeFrequency = frequency;
         shakeTimer = duration;
+    }
+
+    public void PlayShake(ResourceType requestedType, bool hasTool, float duration, float magnitude, float frequency)
+    {
+        if (!resourceStocks.TryGetValue(requestedType, out ResourceStock stock))
+        {
+            PlayShake(duration, magnitude, frequency);
+            return;
+        }
+
+        float magnitudeMultiplier = hasTool
+            ? stock.toolShakeMagnitudeMultiplier
+            : stock.bareHandShakeMagnitudeMultiplier;
+        if (magnitudeMultiplier <= 0f)
+        {
+            magnitudeMultiplier = 1f;
+        }
+
+        PlayShake(duration, magnitude * magnitudeMultiplier, frequency);
     }
 
     public void SetGridCell(Vector2Int gridCell)
