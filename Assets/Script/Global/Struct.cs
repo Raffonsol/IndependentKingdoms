@@ -11,7 +11,8 @@ public enum UIButtonAction
     Build,
     BuildRoad,
     TogglePanel,
-    Pause
+    Pause,
+    SummonVillager
 }
 
 public enum UIValueType
@@ -233,6 +234,7 @@ public class UISettings
 {
     public Vector2 defaultCursorHotspot;
     public Vector2 roadBuildCursorHotspot;
+    public Vector2 summonVillagerCursorHotspot;
     public float uiIconScaleOnWorld = 1f;
     public bool trackVillagers = true;
     public Vector2 villagerIndicatorSize = new Vector2(24f, 24f);
@@ -262,6 +264,7 @@ public class MapSettings
 public class PlayerSettings
 {
     public int initialVillagerCount = 8;
+    public int summonVillagerManaCost = 50;
     public float manaGainIntervalSeconds = 5f;
     public int manaGainAmount = 1;
     public ResourceInitialAmount[] initialResourceAmounts;
@@ -359,6 +362,7 @@ public class CommunityStorageSettings
 public class PlayerSettingsJson
 {
     public int initialVillagerCount = 8;
+    public int summonVillagerManaCost = 50;
     public float manaGainIntervalSeconds = 5f;
     public int manaGainAmount = 1;
     public ResourceInitialAmountRecord[] initialResourceAmounts;
@@ -384,6 +388,7 @@ public class VillagerSettings
     public VillagerScaleSettings villagerScaleSettings = new VillagerScaleSettings();
     public RequiredItemWaitInterruptibilitySettings requiredItemWaitInterruptibility =
         new RequiredItemWaitInterruptibilitySettings();
+    public int combatHelpCallRangeCells = 8;
     public float communityStorageOperationPriority = 20f;
     public float communityStoragePriorityPerItem = 1f;
     public float communityStorageSearchRetrySeconds = 5f;
@@ -458,6 +463,9 @@ public class CombatSettings
     public float attackWindupSeconds = 0.35f;
     public float attackRecoverySeconds = 0.65f;
     public float runningSpeed = 4f;
+    public float combatMovementSpeed = 0.6f;
+    public float combatMovementDistance = 0.2f;
+    public float combatMovementPeriodSeconds = 2f;
     public float monsterReactionTimeSeconds = 0.8f;
     public float detectionIntervalReactionTimeMultiplier = 1f;
     public int detectionRangeCells = 6;
@@ -758,7 +766,7 @@ public class VillagerBehaviorStage
 public enum VillagerPersonalityType
 {
     Angry, //Stops whatever they are doing when there is a chance to go for a fight
-    Coward, //Runs from fights
+    Coward, //Avoids starting fights but defends themselves when attacked
     Explorer, //More likely to go hunting/foraging
     Lazy, //Takes longer to start new actions/routines
     Helpful, //helps other villagers build their homes and upgrades

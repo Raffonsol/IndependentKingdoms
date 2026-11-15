@@ -103,6 +103,7 @@ public class MapManager : MonoBehaviour
     private Vector3 roadStartPoint;
     private Vector2 pointerDownPosition;
     private bool isRoadBuilding;
+    private bool isVillagerSummoning;
     private bool hasRoadStartPoint;
     private bool isTrackingClick;
     private bool loggedMissingCommunityStoragePrefab;
@@ -684,6 +685,11 @@ public class MapManager : MonoBehaviour
     public bool IsRoadBuilding
     {
         get { return isRoadBuilding; }
+    }
+
+    public bool IsWorldInteractionActive
+    {
+        get { return isRoadBuilding || isVillagerSummoning; }
     }
 
     public float GridCellSize
@@ -3716,18 +3722,19 @@ public class MapManager : MonoBehaviour
 
     private void Update()
     {
-        if (!isRoadBuilding)
+        if (!IsWorldInteractionActive)
         {
             return;
         }
 
         if (Input.GetKeyDown(KeyCode.Escape) || Input.GetMouseButtonDown(1))
         {
-            StopRoadBuilding();
+            StopWorldInteraction();
             return;
         }
 
-        if (TryGetMouseWorldPosition(Input.mousePosition, out Vector3 mouseWorldPosition))
+        if (isRoadBuilding
+            && TryGetMouseWorldPosition(Input.mousePosition, out Vector3 mouseWorldPosition))
         {
             UpdateRoadPreview(ResolveRoadEndpoint(mouseWorldPosition));
         }
@@ -3747,7 +3754,14 @@ public class MapManager : MonoBehaviour
 
             if (isClick && TryGetMouseWorldPosition(Input.mousePosition, out mouseWorldPosition))
             {
-                HandleRoadClick(ResolveRoadEndpoint(mouseWorldPosition), mouseWorldPosition);
+                if (isRoadBuilding)
+                {
+                    HandleRoadClick(ResolveRoadEndpoint(mouseWorldPosition), mouseWorldPosition);
+                }
+                else if (isVillagerSummoning)
+                {
+                    HandleVillagerSummoningClick(mouseWorldPosition);
+                }
             }
         }
     }
@@ -4053,7 +4067,7 @@ public class MapManager : MonoBehaviour
     {
         if (isRoadBuilding)
         {
-            StopRoadBuilding();
+            StopWorldInteraction();
             return;
         }
 
@@ -4102,10 +4116,98 @@ public class MapManager : MonoBehaviour
             return;
         }
 
+        if (isVillagerSummoning)
+        {
+            StopVillagerSummoning();
+        }
+
         isRoadBuilding = true;
         hasRoadStartPoint = false;
         isTrackingClick = false;
         uiManager.SetRoadBuildingCursor(true);
+    }
+
+    public void ToggleVillagerSummoning()
+    {
+        if (isVillagerSummoning)
+        {
+            StopWorldInteraction();
+            return;
+        }
+
+        StartVillagerSummoning();
+    }
+
+    private void StartVillagerSummoning()
+    {
+        UIManager uiManager = UIManager.Instance;
+        if (uiManager == null)
+        {
+            Debug.LogError("Villager summoning requires an active UIManager.", this);
+            return;
+        }
+
+        Player player = Player.Instance;
+        if (player == null)
+        {
+            Debug.LogError("Villager summoning requires an active Player.", this);
+            return;
+        }
+
+        if (!player.CanSummonVillager)
+        {
+            Debug.LogWarning(
+                "Villager summoning requires " + player.SummonVillagerManaCost + " Mana.",
+                this);
+            return;
+        }
+
+        if (settings.clickDragThresholdPixels < 0f)
+        {
+            Debug.LogError("Map settings contain an invalid click/drag threshold.", this);
+            return;
+        }
+
+        if (mapCamera == null)
+        {
+            mapCamera = UnityEngine.Camera.main;
+        }
+
+        if (mapCamera == null)
+        {
+            Debug.LogError("Villager summoning requires a MainCamera-tagged camera.", this);
+            return;
+        }
+
+        if (isRoadBuilding)
+        {
+            StopRoadBuilding();
+        }
+
+        isVillagerSummoning = true;
+        isTrackingClick = false;
+        uiManager.SetVillagerSummoningCursor(true);
+    }
+
+    private void HandleVillagerSummoningClick(Vector3 position)
+    {
+        Player player = Player.Instance;
+        if (player == null)
+        {
+            Debug.LogError("Villager summoning requires an active Player.", this);
+            StopWorldInteraction();
+            return;
+        }
+
+        if (!player.TrySummonVillager(position))
+        {
+            if (!player.CanSummonVillager)
+            {
+                Debug.LogWarning(
+                    "Villager summoning requires " + player.SummonVillagerManaCost + " Mana.",
+                    this);
+            }
+        }
     }
 
     private void HandleRoadClick(Vector3 endpoint, Vector3 mouseWorldPosition)
@@ -4832,9 +4934,25 @@ public class MapManager : MonoBehaviour
         }
     }
 
-    private void OnDisable()
+    private void StopVillagerSummoning()
+    {
+        isVillagerSummoning = false;
+        isTrackingClick = false;
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.SetVillagerSummoningCursor(false);
+        }
+    }
+
+    private void StopWorldInteraction()
     {
         StopRoadBuilding();
+        StopVillagerSummoning();
+    }
+
+    private void OnDisable()
+    {
+        StopWorldInteraction();
         if (instance == this)
         {
             instance = null;
@@ -4845,7 +4963,7 @@ public class MapManager : MonoBehaviour
     {
         if (instance == this)
         {
-            StopRoadBuilding();
+            StopWorldInteraction();
             instance = null;
         }
     }

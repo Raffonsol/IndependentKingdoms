@@ -25,6 +25,15 @@ public class UIButton : MonoBehaviour
         button.onClick.RemoveListener(HandleClick);
     }
 
+    private void Update()
+    {
+        if (buttonAction == UIButtonAction.SummonVillager)
+        {
+            Player player = Player.Instance;
+            button.interactable = player != null && player.CanSummonVillager;
+        }
+    }
+
     private void HandleClick()
     {
         if (UIManager.Instance == null)
@@ -40,6 +49,10 @@ public class UIButton : MonoBehaviour
         else if (buttonAction == UIButtonAction.BuildRoad)
         {
             UIManager.Instance.ToggleRoadBuilding();
+        }
+        else if (buttonAction == UIButtonAction.SummonVillager)
+        {
+            UIManager.Instance.ToggleVillagerSummoning();
         }
     }
 }

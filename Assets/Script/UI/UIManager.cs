@@ -24,6 +24,7 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Sprite[] itemIcons;
     [SerializeField] private Texture2D defaultCursorImage;
     [SerializeField] private Texture2D roadBuildCursorImage;
+    [SerializeField] private Texture2D summonVillagerCursorImage;
     [SerializeField] private GameObject roadEndpointPrefab;
     [SerializeField] private LineRenderer roadPreviewPrefab;
     [SerializeField] private Sprite villagerOffscreenIndicatorSprite;
@@ -193,7 +194,7 @@ public class UIManager : MonoBehaviour
 
         if (!Input.GetMouseButtonDown(0)
             || (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-            || (MapManager.Instance != null && MapManager.Instance.IsRoadBuilding))
+            || (MapManager.Instance != null && MapManager.Instance.IsWorldInteractionActive))
         {
             return;
         }
@@ -972,6 +973,17 @@ public class UIManager : MonoBehaviour
         MapManager.Instance.ToggleRoadBuilding();
     }
 
+    public void ToggleVillagerSummoning()
+    {
+        if (MapManager.Instance == null)
+        {
+            Debug.LogError("Cannot toggle villager summoning because no MapManager is active.", this);
+            return;
+        }
+
+        MapManager.Instance.ToggleVillagerSummoning();
+    }
+
     private bool TryGetPanel(int panelIndex, out GameObject panel)
     {
         panel = null;
@@ -1047,6 +1059,27 @@ public class UIManager : MonoBehaviour
         Vector2 hotspot = isRoadBuilding
             ? settings.roadBuildCursorHotspot
             : settings.defaultCursorHotspot;
+        SetCursor(cursorImage, hotspot);
+    }
+
+    public void SetVillagerSummoningCursor(bool isSummoning)
+    {
+        if (settings == null)
+        {
+            return;
+        }
+
+        Texture2D cursorImage = isSummoning && summonVillagerCursorImage != null
+            ? summonVillagerCursorImage
+            : defaultCursorImage;
+        Vector2 hotspot = isSummoning
+            ? settings.summonVillagerCursorHotspot
+            : settings.defaultCursorHotspot;
+        SetCursor(cursorImage, hotspot);
+    }
+
+    private static void SetCursor(Texture2D cursorImage, Vector2 hotspot)
+    {
         Cursor.SetCursor(cursorImage, hotspot, CursorMode.Auto);
         Cursor.visible = true;
     }

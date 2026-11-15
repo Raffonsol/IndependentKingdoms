@@ -1155,6 +1155,9 @@ public class GameData
             && IsFinitePositive(settings.attackWindupSeconds)
             && IsFiniteNonNegative(settings.attackRecoverySeconds)
             && IsFinitePositive(settings.runningSpeed)
+            && IsFinitePositive(settings.combatMovementSpeed)
+            && IsFinitePositive(settings.combatMovementDistance)
+            && IsFinitePositive(settings.combatMovementPeriodSeconds)
             && IsFiniteNonNegative(settings.monsterReactionTimeSeconds)
             && IsFinitePositive(settings.detectionIntervalReactionTimeMultiplier)
             && settings.detectionRangeCells > 0
@@ -1722,6 +1725,7 @@ public class GameData
                 playerSettings = new PlayerSettings
                 {
                     initialVillagerCount = jsonSettings.playerSettings.initialVillagerCount,
+                    summonVillagerManaCost = jsonSettings.playerSettings.summonVillagerManaCost,
                     manaGainIntervalSeconds = jsonSettings.playerSettings.manaGainIntervalSeconds,
                     manaGainAmount = jsonSettings.playerSettings.manaGainAmount,
                     initialResourceAmounts = initialResourceAmounts
@@ -1764,12 +1768,15 @@ public class GameData
             if (settings.uiSettings.villagerIndicatorSize.x <= 0f
                 || settings.uiSettings.villagerIndicatorSize.y <= 0f
                 || settings.uiSettings.villagerIndicatorEdgeInset < 0f
+                || !IsFiniteNonNegative(settings.uiSettings.summonVillagerCursorHotspot.x)
+                || !IsFiniteNonNegative(settings.uiSettings.summonVillagerCursorHotspot.y)
                 || !IsFinitePositive(settings.uiSettings.uiIconScaleOnWorld))
             {
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json must define a positive villagerIndicatorSize and uiIconScaleOnWorld, "
-                    + "and a non-negative villagerIndicatorEdgeInset.");
+                    + "a non-negative villagerIndicatorEdgeInset, and a finite non-negative "
+                    + "summonVillagerCursorHotspot.");
                 return new GameSettingsCollection();
             }
 
@@ -1793,6 +1800,14 @@ public class GameData
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json cannot have a negative initialVillagerCount. Using the default value of 8.");
                 settings.playerSettings.initialVillagerCount = 8;
+            }
+
+            if (settings.playerSettings.summonVillagerManaCost < 0)
+            {
+                Debug.LogError(
+                    "Settings at Resources/" + GameSettingsResourcePath
+                    + ".json must define a non-negative summonVillagerManaCost.");
+                return new GameSettingsCollection();
             }
 
             if (settings.houseSettings.defaultHouseDimensions.x <= 0
@@ -1843,6 +1858,7 @@ public class GameData
 
             VillagerSettings villagerSettings = settings.villagerSettings;
             if (villagerSettings.idleBehaviorDuration <= 0f
+                || villagerSettings.combatHelpCallRangeCells < 0
                 || villagerSettings.roadDetectionDistance < 0f
                 || villagerSettings.roadSearchDistance < villagerSettings.roadDetectionDistance
                 || villagerSettings.runningSpeed <= 0f
@@ -1913,7 +1929,7 @@ public class GameData
                 || !AreValidArmMotionPoints(villagerSettings.handHitPositions))
             {
                 Debug.LogError(
-                    "Villager settings contain invalid movement, fatigue, housing-search, "
+                    "Villager settings contain an invalid combat help-call range, movement, fatigue, housing-search, "
                     + "required-item wait priority/interruptibility, gathering, or resource-holding values.");
                 return new GameSettingsCollection();
             }
@@ -1934,12 +1950,15 @@ public class GameData
                 || combatSettings.attackWindupSeconds <= 0f
                 || combatSettings.attackRecoverySeconds < 0f
                 || combatSettings.runningSpeed <= 0f
+                || !IsFinitePositive(combatSettings.combatMovementSpeed)
+                || !IsFinitePositive(combatSettings.combatMovementDistance)
+                || !IsFinitePositive(combatSettings.combatMovementPeriodSeconds)
                 || combatSettings.monsterReactionTimeSeconds < 0f
                 || combatSettings.detectionIntervalReactionTimeMultiplier <= 0f
                 || combatSettings.detectionRangeCells <= 0
                 || !AreValidArmMotionPoints(combatSettings.attackHitPositions))
             {
-                Debug.LogError("Combat settings must define positive health, damage, range, windup, running speed, detection interval multiplier, and detection range; reaction time and recovery must be non-negative, and attack positions must be valid.");
+                Debug.LogError("Combat settings must define positive health, damage, ranges, attack and movement speeds, windup, movement period, detection interval multiplier, and detection range; movement distance must be positive, reaction time and recovery must be non-negative, and attack positions must be valid.");
                 return new GameSettingsCollection();
             }
 

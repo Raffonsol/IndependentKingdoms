@@ -10,7 +10,7 @@
       "type": "Coward",
       "chance": 30,
       "incompatibleWith": ["Angry", "Explorer"],
-      "description": "Runs from fights"
+      "description": "Does not join fights or attack detected enemies, but fights back when attacked"
     },
     {
       "type": "Explorer",

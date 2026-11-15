@@ -4,7 +4,9 @@ using UnityEngine;
 public abstract class Combatant : Mover
 {
     private static readonly List<Combatant> activeCombatants = new List<Combatant>();
+    private static int nextCombatantOrder;
 
+    private int combatantOrder;
     private int factionId;
 
     private CombatSettings combatSettings;
@@ -67,6 +69,7 @@ public abstract class Combatant : Mover
     protected override void Awake()
     {
         base.Awake();
+        combatantOrder = ++nextCombatantOrder;
         factionId = DefaultFactionId;
         combatSettings = GameData.Instance.combatSettings;
         if (combatSettings == null)
@@ -98,7 +101,7 @@ public abstract class Combatant : Mover
         activeCombatants.Remove(this);
     }
 
-    protected virtual void Update()
+    protected override void Update()
     {
         if (!IsAlive || combatSettings == null)
         {
@@ -120,7 +123,7 @@ public abstract class Combatant : Mover
             detectionTimer -= Time.deltaTime;
             if (detectionTimer <= 0f)
             {
-                currentTarget = FindEnemyInDetectionCone();
+                EngageTarget(FindEnemyInDetectionCone(), false);
                 detectionTimer = Mathf.Max(
                     Time.deltaTime,
                     DetectionReactionTime * combatSettings.detectionIntervalReactionTimeMultiplier);
@@ -143,21 +146,19 @@ public abstract class Combatant : Mover
 
         if (!IsCombatEngaged)
         {
-            SetMovementSpeed(RunningSpeed);
+            SetMovementSpeed(combatSettings.combatMovementSpeed);
         }
 
         IsCombatEngaged = true;
-        float distance = Vector2.Distance(transform.position, currentTarget.transform.position);
-        UpdateFacingFromDirection(currentTarget.transform.position - transform.position);
-        if (distance > combatSettings.attackRange)
+        MoveInCombat(currentTarget);
+        if (Vector2.Distance(transform.position, currentTarget.transform.position)
+            <= combatSettings.attackRange)
         {
-            ResetAttack();
-            MoveTo(currentTarget.transform.position, combatSettings.attackRange);
+            UpdateAttack(currentTarget);
         }
         else
         {
-            StopMoving();
-            UpdateAttack(currentTarget);
+            ResetAttack();
         }
 
         base.Update();
@@ -234,12 +235,22 @@ public abstract class Combatant : Mover
 
     public void TakeDamage(float amount)
     {
+        TakeDamage(amount, null);
+    }
+
+    private void TakeDamage(float amount, Combatant attacker)
+    {
         if (!IsAlive || amount <= 0f)
         {
             return;
         }
 
         health = Mathf.Max(0f, health - amount);
+        if (health > 0f && IsValidEnemy(attacker))
+        {
+            EngageTarget(attacker, true);
+        }
+
         if (health <= 0f)
         {
             Die();
@@ -260,6 +271,11 @@ public abstract class Combatant : Mover
 
     private Combatant FindEnemyInDetectionCone()
     {
+        if (IsCowardVillager)
+        {
+            return null;
+        }
+
         float gridCellSize = GameData.Instance.mapSettings.gridCellSize;
         if (gridCellSize <= 0f)
         {
@@ -308,6 +324,144 @@ public abstract class Combatant : Mover
         return detected;
     }
 
+    private void EngageTarget(Combatant target, bool prioritize)
+    {
+        if (!IsValidEnemy(target)
+            || (currentTarget != null && currentTarget != target && !prioritize))
+        {
+            return;
+        }
+
+        if (currentTarget == target)
+        {
+            return;
+        }
+
+        bool enteringCombat = !IsCombatEngaged;
+        currentTarget = target;
+        IsCombatEngaged = true;
+        SetMovementSpeed(combatSettings.combatMovementSpeed);
+        if (enteringCombat && this is Villager)
+        {
+            CallForHelp(target);
+        }
+    }
+
+    private bool IsValidEnemy(Combatant target)
+    {
+        return target != null
+            && target != this
+            && target.IsAlive
+            && target.isActiveAndEnabled
+            && target.factionId != factionId;
+    }
+
+    private void CallForHelp(Combatant enemy)
+    {
+        VillagerSettings settings = GameData.Instance.villagerSettings;
+        MapSettings mapSettings = GameData.Instance.mapSettings;
+        if (settings == null || mapSettings == null || mapSettings.gridCellSize <= 0f)
+        {
+            return;
+        }
+
+        float helpRange = settings.combatHelpCallRangeCells * mapSettings.gridCellSize;
+        for (int index = activeCombatants.Count - 1; index >= 0; index--)
+        {
+            Combatant nearby = activeCombatants[index];
+            if (nearby == null || !nearby.IsAlive || !nearby.isActiveAndEnabled)
+            {
+                activeCombatants.RemoveAt(index);
+                continue;
+            }
+
+            if (nearby == this
+                || nearby.factionId != factionId
+                || !(nearby is Villager)
+                || Vector2.Distance(transform.position, nearby.transform.position) > helpRange)
+            {
+                continue;
+            }
+
+            Villager nearbyVillager = (Villager)nearby;
+            if (!nearbyVillager.HasPersonality(VillagerPersonalityType.Coward))
+            {
+                nearby.EngageTarget(enemy, false);
+            }
+        }
+    }
+
+    private bool IsCowardVillager
+    {
+        get
+        {
+            Villager villager = this as Villager;
+            return villager != null
+                && villager.HasPersonality(VillagerPersonalityType.Coward);
+        }
+    }
+
+    private void MoveInCombat(Combatant target)
+    {
+        MapSettings mapSettings = GameData.Instance.mapSettings;
+        float gridCellSize = mapSettings != null ? mapSettings.gridCellSize : 0f;
+        if (gridCellSize <= 0f)
+        {
+            UpdateFacingFromDirection(target.transform.position - transform.position);
+            MoveTo(target.transform.position, combatSettings.attackRange);
+            return;
+        }
+
+        float rowCenter = Mathf.Floor(target.transform.position.y / gridCellSize) * gridCellSize
+            + gridCellSize * 0.5f;
+        float rowAlignmentTolerance = gridCellSize * 0.05f;
+        if (Mathf.Abs(transform.position.y - rowCenter) > rowAlignmentTolerance)
+        {
+            MoveTo(new Vector3(transform.position.x, rowCenter, transform.position.z));
+            UpdateFacingFromDirection(new Vector2(
+                target.transform.position.x - transform.position.x,
+                0f));
+            return;
+        }
+
+        float horizontalDirection = transform.position.x < target.transform.position.x
+            ? -1f
+            : 1f;
+        if (Mathf.Approximately(transform.position.x, target.transform.position.x))
+        {
+            horizontalDirection = combatantOrder < target.combatantOrder ? -1f : 1f;
+        }
+
+        float preferredDistance = Mathf.Min(
+            combatSettings.attackRange,
+            target.combatSettings.attackRange) * 0.4f;
+        float movementDistance = Mathf.Min(
+            combatSettings.combatMovementDistance,
+            preferredDistance * 0.2f);
+        float phase = Time.time * Mathf.PI * 2f / combatSettings.combatMovementPeriodSeconds;
+        if (combatantOrder > target.combatantOrder)
+        {
+            phase += Mathf.PI;
+        }
+
+        float horizontalOffset = Mathf.Sin(phase) * movementDistance;
+        float destinationX = target.transform.position.x
+            + horizontalDirection * (preferredDistance + horizontalOffset);
+        MapManager mapManager = MapManager.Instance;
+        if (mapManager != null)
+        {
+            Vector2 mapMinimum = (Vector2)mapManager.MapCenter - mapManager.MapSize * 0.5f;
+            Vector2 mapMaximum = (Vector2)mapManager.MapCenter + mapManager.MapSize * 0.5f;
+            float mapInset = gridCellSize * 0.5f;
+            destinationX = Mathf.Clamp(destinationX, mapMinimum.x + mapInset, mapMaximum.x - mapInset);
+        }
+
+        UpdateFacingFromDirection(new Vector2(
+            target.transform.position.x - transform.position.x,
+            0f));
+        MoveTo(new Vector3(destinationX, rowCenter, transform.position.z), 0.05f);
+    }
+
     private static Vector2Int WorldPositionToGridCell(Vector3 position, float gridCellSize)
     {
         return new Vector2Int(
@@ -341,7 +495,7 @@ public abstract class Combatant : Mover
                 && target.factionId != factionId
                 && Vector2.Distance(transform.position, target.transform.position) <= combatSettings.attackRange)
             {
-                target.TakeDamage(combatSettings.attackDamage);
+                target.TakeDamage(combatSettings.attackDamage, this);
             }
 
             attackRecoveryTimer = combatSettings.attackRecoverySeconds;

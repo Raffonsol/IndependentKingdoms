@@ -18,6 +18,25 @@ public class Player : MonoBehaviour
         get { return claimedSpacePrefab != null; }
     }
 
+    public int SummonVillagerManaCost
+    {
+        get
+        {
+            PlayerSettings settings = GameData.Instance.playerSettings;
+            return settings != null ? settings.summonVillagerManaCost : -1;
+        }
+    }
+
+    public bool CanSummonVillager
+    {
+        get
+        {
+            return SummonVillagerManaCost >= 0
+                && TryGetResourceAmount(ResourceType.Mana, out int manaAmount)
+                && manaAmount >= SummonVillagerManaCost;
+        }
+    }
+
     [NonSerialized] public ResourceRecord[] resources;
     public List<VillagerRecord> Villagers { get; private set; } = new List<VillagerRecord>();
 
@@ -268,6 +287,55 @@ public class Player : MonoBehaviour
         }
 
         return false;
+    }
+
+    public bool TrySummonVillager(Vector3 position)
+    {
+        if (!CanSummonVillager)
+        {
+            return false;
+        }
+
+        if (bodies == null || bodies.Length == 0
+            || characterSettings == null
+            || villagerPersonalityValues == null
+            || villagerPersonalityValues.Length != Enum.GetValues(typeof(VillagerPersonalityType)).Length
+            || baseBodyPrefab == null
+            || baseBodyPrefab.GetComponent<Villager>() == null)
+        {
+            Debug.LogError("Player is missing configuration required to summon a villager.", this);
+            return false;
+        }
+
+        Body body = SelectBodyForInitialVillager();
+        if (body == null)
+        {
+            Debug.LogError("No body is available for summoning a villager.", this);
+            return false;
+        }
+
+        VillagerRecord villagerRecord = CreateVillager(body);
+        if (villagerRecord == null)
+        {
+            return false;
+        }
+
+        villagerRecord.Villager.transform.position = position;
+        if (!TrySpendResourceCosts(new[]
+        {
+            new ResourceCost
+            {
+                resourceType = ResourceType.Mana,
+                amount = SummonVillagerManaCost
+            }
+        }))
+        {
+            Destroy(villagerRecord.Villager.gameObject);
+            return false;
+        }
+
+        RegisterVillager(villagerRecord.person, villagerRecord.Villager);
+        return true;
     }
 
     public bool RestoreSavedGame(GameSaveSnapshot snapshot)

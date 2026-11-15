@@ -10,6 +10,7 @@ public class HouseVisual : MonoBehaviour
     private const int RenovationProgressSortingOrder = 200;
     private const int FirstConstructionStageSortingOrder = 30;
     private const string HouseSortingLayer = "Everything";
+    private const string AnnexRoofSortingLayer = "HighObjects";
     private const string FirstConstructionStageSortingLayer = "Ground";
     private const string YardSortingLayer = "Ground";
     private const float SpriteDepthOffset = -0.01f;
@@ -176,9 +177,10 @@ public class HouseVisual : MonoBehaviour
             roofColor,
             houseFootprintWidth,
             RoofPartSortingOrder,
-            HouseSortingLayer,
+            AnnexRoofSortingLayer,
             visualParts,
-            houseDefinition.visualOffset);
+            houseDefinition.visualOffset,
+            useSortingGroup: false);
         HasAnnex = true;
     }
 
@@ -313,7 +315,8 @@ public class HouseVisual : MonoBehaviour
         int sortingOrder,
         string sortingLayerName,
         List<GameObject> destination,
-        Vector2 visualOffset)
+        Vector2 visualOffset,
+        bool useSortingGroup = true)
     {
         if (sprite == null || sprite.texture == null || sprite.texture.width <= 0)
         {
@@ -325,14 +328,20 @@ public class HouseVisual : MonoBehaviour
         Vector2 pixelPosition = sprite.rect.position + sprite.pivot;
         pixelPosition -= new Vector2(sprite.texture.width, sprite.texture.height) * 0.5f;
 
-        if (sortingAnchor == null || sortingAnchor.VisualRoot == null)
+        Transform visualParent = transform;
+        if (useSortingGroup)
         {
-            Debug.LogError("Cannot create house visuals without a configured sorting anchor.", this);
-            return;
+            if (sortingAnchor == null || sortingAnchor.VisualRoot == null)
+            {
+                Debug.LogError("Cannot create house visuals without a configured sorting anchor.", this);
+                return;
+            }
+
+            visualParent = sortingAnchor.VisualRoot;
         }
 
         GameObject part = new GameObject(sprite.name);
-        part.transform.SetParent(sortingAnchor.VisualRoot, false);
+        part.transform.SetParent(visualParent, false);
         part.transform.localPosition = new Vector3(
             pixelPosition.x * pixelsToWorld + visualOffset.x,
             pixelPosition.y * pixelsToWorld + visualOffset.y,

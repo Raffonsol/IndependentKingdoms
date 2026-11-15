@@ -2,6 +2,7 @@
     "uiSettings": {
         "defaultCursorHotspot": { "x": 0, "y": 0 },
         "roadBuildCursorHotspot": { "x": 0, "y": 0 },
+        "summonVillagerCursorHotspot": { "x": 0, "y": 0 },
         "uiIconScaleOnWorld": 3,
         "trackVillagers": true,
         "villagerIndicatorSize": { "x": 24, "y": 24 },
@@ -25,6 +26,7 @@
     },
     "playerSettings": {
         "initialVillagerCount": 8,
+        "summonVillagerManaCost": 50,
         "manaGainIntervalSeconds": 5,
         "manaGainAmount": 1,
         "initialResourceAmounts": [
@@ -73,6 +75,7 @@
                 "maximum": { "x": 1.2, "y": 1.2 }
             }
         },
+        "combatHelpCallRangeCells": 8,
         "communityStorageOperationPriority": 20,
         "communityStoragePriorityPerItem": 3,
         "communityStorageSearchRetrySeconds": 5,
@@ -135,6 +138,9 @@
         "attackWindupSeconds": 0.35,
         "attackRecoverySeconds": 0.65,
         "runningSpeed": 4,
+        "combatMovementSpeed": 0.6,
+        "combatMovementDistance": 0.2,
+        "combatMovementPeriodSeconds": 2,
         "monsterReactionTimeSeconds": 0.8,
         "detectionIntervalReactionTimeMultiplier": 1,
         "detectionRangeCells": 6,
