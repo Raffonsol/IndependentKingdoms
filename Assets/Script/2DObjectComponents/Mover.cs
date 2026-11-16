@@ -29,6 +29,7 @@ public class Mover : MonoBehaviour
     private bool hasPathRequest;
     private bool loggedMissingMapManagerForPathfinding;
     private bool loggedMissingRecoveryCell;
+    private bool movementAnimationSuppressed;
     private Quaternion[] legStartingRotations;
     private Vector3[] legPivotLocalOffsets;
     private Vector3 torsoStartingLocalPosition;
@@ -83,6 +84,18 @@ public class Mover : MonoBehaviour
         get { return movementDirection.sqrMagnitude > 0f; }
     }
 
+    protected bool HasSettledMovement
+    {
+        get
+        {
+            return !IsMoving
+                && (!hasPathRequest
+                    || pathCompleted
+                    || Vector2.Distance(transform.position, requestedDestination)
+                        <= requestedArrivalDistance + 0.0001f);
+        }
+    }
+
     protected virtual void Awake()
     {
         defaultMovementSpeed = movementSpeed;
@@ -133,6 +146,17 @@ public class Mover : MonoBehaviour
 
     private void UpdateMovementAnimation()
     {
+        if (movementAnimationSuppressed)
+        {
+            ResetLegs();
+            if (torso != null)
+            {
+                torso.transform.localPosition = torsoStartingLocalPosition;
+            }
+
+            return;
+        }
+
         if (movementDirection.sqrMagnitude > 0f && movementSpeed > 0f)
         {
             AnimateLegs();
@@ -428,6 +452,20 @@ public class Mover : MonoBehaviour
         pathWaypoints.Clear();
         nextWaypointIndex = 0;
         movementDirection = Vector2.zero;
+    }
+
+    protected void SetMovementAnimationSuppressed(bool suppressed)
+    {
+        movementAnimationSuppressed = suppressed;
+        if (suppressed)
+        {
+            movementDirection = Vector2.zero;
+            ResetLegs();
+            if (torso != null)
+            {
+                torso.transform.localPosition = torsoStartingLocalPosition;
+            }
+        }
     }
 
     protected void MoveTo(Vector3 targetPosition)

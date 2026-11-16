@@ -8,7 +8,8 @@ public class VillagerBrain : MonoBehaviour
         Food,
         Productive,
         CommunityStorage,
-        ConstructionAssistance
+        ConstructionAssistance,
+        Loot
     }
 
     private Villager villager;
@@ -144,6 +145,22 @@ public class VillagerBrain : MonoBehaviour
                 productivePriority - 1f);
         }
 
+        float lootPriority = float.NegativeInfinity;
+        bool isCriticalFatigueRest = villager.IsRestingFromWork
+            || (villager.HasHome
+                && villager.Fatigue >= settings.homeRestStartFatigueThreshold);
+        if (!isCriticalFatigueRest
+            && mapManager != null
+            && mapManager.TryGetNearestDroppedLoot(
+                villager,
+                out DroppedLoot ignoredLoot,
+                out bool preferredForVillager))
+        {
+            lootPriority = preferredForVillager
+                ? settings.preferredLootPickupOperationPriority
+                : settings.lootPickupOperationPriority;
+        }
+
         Operation firstOperation = Operation.Housing;
         float firstPriority = housingPriority;
         Operation secondOperation = Operation.Food;
@@ -154,6 +171,13 @@ public class VillagerBrain : MonoBehaviour
         float fourthPriority = communityStoragePriority;
         Operation fifthOperation = Operation.ConstructionAssistance;
         float fifthPriority = constructionAssistancePriority;
+        Operation sixthOperation = Operation.Loot;
+        float sixthPriority = lootPriority;
+        OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
+        OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
+        OrderByPriority(ref thirdOperation, ref thirdPriority, ref fourthOperation, ref fourthPriority);
+        OrderByPriority(ref fourthOperation, ref fourthPriority, ref fifthOperation, ref fifthPriority);
+        OrderByPriority(ref fifthOperation, ref fifthPriority, ref sixthOperation, ref sixthPriority);
         OrderByPriority(ref firstOperation, ref firstPriority, ref secondOperation, ref secondPriority);
         OrderByPriority(ref secondOperation, ref secondPriority, ref thirdOperation, ref thirdPriority);
         OrderByPriority(ref thirdOperation, ref thirdPriority, ref fourthOperation, ref fourthPriority);
@@ -193,6 +217,12 @@ public class VillagerBrain : MonoBehaviour
             || TryRunPrioritizedOperation(
                 fifthOperation,
                 fifthPriority,
+                housingAvailable,
+                foodAvailable,
+                out selectedOperation)
+            || TryRunPrioritizedOperation(
+                sixthOperation,
+                sixthPriority,
                 housingAvailable,
                 foodAvailable,
                 out selectedOperation))
@@ -265,6 +295,8 @@ public class VillagerBrain : MonoBehaviour
                 return villager.TryRunCommunityStorageOperation();
             case Operation.ConstructionAssistance:
                 return villager.TryRunConstructionAssistance();
+            case Operation.Loot:
+                return villager.TryRunLootPickupOperation();
             default:
                 Debug.LogError("VillagerBrain received an unsupported operation.", this);
                 return false;

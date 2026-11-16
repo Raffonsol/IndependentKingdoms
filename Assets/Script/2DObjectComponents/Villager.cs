@@ -1005,6 +1005,37 @@ public class Villager : Combatant
         return true;
     }
 
+    internal bool TryRunLootPickupOperation()
+    {
+        MapManager mapManager = MapManager.Instance;
+        DroppedLootSettings lootSettings = GameData.Instance.droppedLootSettings;
+        if (mapManager == null
+            || lootSettings == null
+            || !mapManager.TryGetNearestDroppedLoot(
+                this,
+                out DroppedLoot loot,
+                out _))
+        {
+            return false;
+        }
+
+        ClearNoWorkBehavior();
+        if (Vector2.Distance(transform.position, loot.transform.position)
+            > lootSettings.pickupDistance)
+        {
+            MoveTo(loot.transform.position, lootSettings.pickupDistance);
+            return true;
+        }
+
+        StopMoving();
+        return loot.TryCollect(this);
+    }
+
+    internal bool TryAddDroppedResource(ResourceType resourceType)
+    {
+        return AddResourceInventory(resourceType, 1);
+    }
+
     internal void ApplyNoWorkDecision(bool stayHome)
     {
         // A work-fatigue rest must persist until the lower recovery threshold; do not reuse
@@ -1383,7 +1414,7 @@ public class Villager : Combatant
             jobController.UpdateRequiredItemAvailability();
         }
 
-        if (IsCombatEngaged)
+        if (IsCombatEngaged || IsAttackPositionLocked)
         {
             if (jobController != null)
             {
@@ -1415,6 +1446,12 @@ public class Villager : Combatant
             }
 
             if (ShouldFinishFoodSeeking())
+            {
+                FinishFoodSeeking();
+            }
+            else if (!isEmergencyFoodSeeking
+                && !isRestingFromWork
+                && HasPreferredDroppedLootNearby())
             {
                 FinishFoodSeeking();
             }
@@ -1938,7 +1975,11 @@ public class Villager : Combatant
                 SetFoodSeekingBehavior(VillagerBehaviorMode.Foraging);
                 break;
             case FoodSeekingStage.Foraging:
-                jobController.UpdateEmergencyFoodSearch();
+                if (!TryCollectDroppedFood())
+                {
+                    jobController.UpdateEmergencyFoodSearch();
+                }
+
                 break;
             default:
                 Debug.LogError("Villager has an unsupported food-seeking stage.", this);
@@ -1956,6 +1997,38 @@ public class Villager : Combatant
         }
 
         Hunger = Mathf.Max(0f, Hunger - settings.hungerRestoredPerFoodUnit);
+        return true;
+    }
+
+    private bool TryCollectDroppedFood()
+    {
+        MapManager mapManager = MapManager.Instance;
+        DroppedLootSettings lootSettings = GameData.Instance.droppedLootSettings;
+        if (mapManager == null
+            || lootSettings == null
+            || !mapManager.TryGetNearestDroppedLoot(
+                this,
+                out DroppedLoot foodLoot,
+                out _,
+                ResourceType.Food))
+        {
+            return false;
+        }
+
+        if (Vector2.Distance(transform.position, foodLoot.transform.position)
+            > lootSettings.pickupDistance)
+        {
+            MoveTo(foodLoot.transform.position, lootSettings.pickupDistance);
+            return true;
+        }
+
+        StopMoving();
+        if (!foodLoot.TryCollect(this))
+        {
+            return false;
+        }
+
+        foodSeekingStage = FoodSeekingStage.CheckInventory;
         return true;
     }
 
@@ -2274,6 +2347,17 @@ public class Villager : Combatant
         currentBehavior = behaviorBeforeFoodSeeking;
         behaviorTimer = behaviorTimerBeforeFoodSeeking;
         behaviorBeforeFoodSeeking = null;
+    }
+
+    private bool HasPreferredDroppedLootNearby()
+    {
+        MapManager mapManager = MapManager.Instance;
+        return mapManager != null
+            && mapManager.TryGetNearestDroppedLoot(
+                this,
+                out DroppedLoot ignoredLoot,
+                out bool preferredForVillager)
+            && preferredForVillager;
     }
 
     private void UpdateFindingRoad()
@@ -2938,10 +3022,24 @@ public class Villager : Combatant
         }
     }
 
-    protected override void OnDeath()
+    protected override void OnDeath(Combatant killer)
     {
         StopConstructionAssistance();
         MapManager mapManager = MapManager.Instance;
+        if (inventory.Count > 0 || resourceInventory.Count > 0)
+        {
+            if (mapManager == null)
+            {
+                Debug.LogError(
+                    "Dropping villager inventory requires an active MapManager.",
+                    this);
+            }
+            else
+            {
+                DropInventoryAtDeath(mapManager);
+            }
+        }
+
         if (claimedSpaceObject != null)
         {
             HouseConstructionSite constructionSite =
@@ -2971,6 +3069,39 @@ public class Villager : Combatant
         if (player != null)
         {
             player.UnregisterVillager(this);
+        }
+    }
+
+    private void DropInventoryAtDeath(MapManager mapManager)
+    {
+        foreach (VillagerInventoryEntry entry in inventory)
+        {
+            for (int index = 0; index < entry.amount; index++)
+            {
+                if (!mapManager.SpawnDroppedItem(transform.position, entry.itemType))
+                {
+                    Debug.LogError(
+                        "Could not drop the complete item inventory for the dead villager.",
+                        this);
+                    return;
+                }
+            }
+        }
+
+        foreach (VillagerResourceEntry entry in resourceInventory)
+        {
+            for (int index = 0; index < entry.amount; index++)
+            {
+                if (!mapManager.SpawnDroppedResource(
+                        transform.position,
+                        entry.resourceType))
+                {
+                    Debug.LogError(
+                        "Could not drop the complete resource inventory for the dead villager.",
+                        this);
+                    return;
+                }
+            }
         }
     }
 

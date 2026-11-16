@@ -255,4 +255,100 @@ public class MonsterManager : MonoBehaviour
             }
         }
     }
+
+    public bool RestoreSavedMonsters(GameSaveMonster[] savedMonsters)
+    {
+        if (savedMonsters == null
+            || monsterPrefab == null
+            || definitions == null
+            || definitions.Length == 0
+            || spawnSettings == null)
+        {
+            Debug.LogError(
+                "Cannot restore monsters without saved data, a Monster prefab, and valid definitions.",
+                this);
+            return false;
+        }
+
+        List<Monster> restoredMonsters = new List<Monster>();
+        foreach (GameSaveMonster savedMonster in savedMonsters)
+        {
+            MonsterDefinition definition = savedMonster != null
+                ? FindDefinition(savedMonster.definitionId)
+                : null;
+            if (savedMonster == null
+                || savedMonster.position == null
+                || definition == null
+                || definition.combatSettings == null)
+            {
+                Debug.LogError("A saved monster could not be resolved to a valid monster definition.", this);
+                DestroyRestoredMonsters(restoredMonsters);
+                return false;
+            }
+
+            Vector3 position = new Vector3(
+                savedMonster.position.x,
+                savedMonster.position.y,
+                savedMonster.position.z);
+            GameObject monsterObject = Instantiate(monsterPrefab, position, Quaternion.identity);
+            Monster monster = monsterObject.GetComponent<Monster>();
+            if (monster == null
+                || !monster.Configure(definition)
+                || !monster.SetFaction(savedMonster.factionId)
+                || !monster.RestoreHealth(savedMonster.health))
+            {
+                Debug.LogError(
+                    "Could not restore a saved monster using definition '" + definition.id + "'.",
+                    monsterObject);
+                Destroy(monsterObject);
+                DestroyRestoredMonsters(restoredMonsters);
+                return false;
+            }
+
+            monster.transform.position = position;
+            restoredMonsters.Add(monster);
+        }
+
+        foreach (Monster existingMonster in spawnedMonsters)
+        {
+            if (existingMonster != null)
+            {
+                Destroy(existingMonster.gameObject);
+            }
+        }
+
+        spawnedMonsters.Clear();
+        spawnedMonsters.AddRange(restoredMonsters);
+        spawnTimer = spawnSettings.spawnIntervalSeconds;
+        return true;
+    }
+
+    private MonsterDefinition FindDefinition(string definitionId)
+    {
+        if (string.IsNullOrWhiteSpace(definitionId))
+        {
+            return null;
+        }
+
+        foreach (MonsterDefinition definition in definitions)
+        {
+            if (definition != null && definition.id == definitionId)
+            {
+                return definition;
+            }
+        }
+
+        return null;
+    }
+
+    private static void DestroyRestoredMonsters(List<Monster> monsters)
+    {
+        foreach (Monster monster in monsters)
+        {
+            if (monster != null)
+            {
+                Destroy(monster.gameObject);
+            }
+        }
+    }
 }

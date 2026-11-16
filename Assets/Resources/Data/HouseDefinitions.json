@@ -28,7 +28,7 @@
             "visualScale": 1.5,
             "visualOffset": { "x": 1, "y": 8 },
             "sortingAnchorOffset": { "x": 0, "y": 0 },
-            "annexWorkPositionOffset": { "x": 2, "y": -10 },
+            "annexWorkPositionOffset": { "x": 2, "y": -10.5 },
             "yardSprites": ["b1_yard0"],
             "yardColorCodes": ["#795727"],
             "baseSprites": ["b1_base0"],

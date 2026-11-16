@@ -181,7 +181,8 @@ public class MonsterDefinitionRecord
     public Vector2 rightBackLegOffset;
     public Vector2 shadowSize = new Vector2(1.4f, 0.6f);
     public Vector2 shadowOffset;
-    public CombatSettings combatSettings = new CombatSettings();
+    public MonsterCombatSettingsRecord combatSettings = new MonsterCombatSettingsRecord();
+    public MonsterLootDropRecord[] deathDrops;
 }
 
 [Serializable]
@@ -204,6 +205,87 @@ public class MonsterDefinition
     public Vector2 shadowSize = new Vector2(1.4f, 0.6f);
     public Vector2 shadowOffset;
     public CombatSettings combatSettings;
+    public MonsterAttackFrame[] attackAnimationFrames;
+    public MonsterLootDropDefinition[] deathDrops;
+}
+
+[Serializable]
+public class MonsterLootDropRecord
+{
+    public string resourceType;
+    public string itemType;
+    public int minimumAmount;
+    public int maximumAmount;
+}
+
+[Serializable]
+public class MonsterLootDropDefinition
+{
+    public bool isResource;
+    public ResourceType resourceType;
+    public VillagerItemType itemType;
+    public int minimumAmount;
+    public int maximumAmount;
+}
+
+public enum DroppedLootType
+{
+    Resource,
+    Item
+}
+
+[Serializable]
+public class MonsterCombatSettingsRecord
+{
+    public float maximumHealth = 100f;
+    public float attackDamage = 10f;
+    public float attackRange = 1.5f;
+    public float attackWindupSeconds = 0.35f;
+    public float attackRecoverySeconds = 0.65f;
+    public float attackCooldownSeconds = 0.5f;
+    public float runningSpeed = 4f;
+    public float monsterReactionTimeSeconds = 0.8f;
+    public float detectionIntervalReactionTimeMultiplier = 1f;
+    public int detectionRangeCells = 6;
+    public int knockbackCells;
+    // Despite the legacy name, these are ordered animation frames.
+    public MonsterAttackFrameRecord[] attackHitPositions;
+}
+
+[Serializable]
+public class MonsterAttackFrameRecord
+{
+    public MonsterAttackPartRecord[] bodyParts;
+}
+
+[Serializable]
+public class MonsterAttackPartRecord
+{
+    public string name;
+    public ArmMotionPoint position;
+    public string flipOnAxis;
+}
+
+[Serializable]
+public class MonsterAttackFrame
+{
+    public MonsterAttackPart[] bodyParts;
+}
+
+[Serializable]
+public class MonsterAttackPart
+{
+    public string name;
+    public Vector3 position;
+    public bool hasPosition;
+    public MonsterAttackFlipAxis flipOnAxis;
+}
+
+public enum MonsterAttackFlipAxis
+{
+    None,
+    X,
+    Y
 }
 
 [Serializable]
@@ -240,6 +322,11 @@ public class UISettings
     public Vector2 villagerIndicatorSize = new Vector2(24f, 24f);
     public float villagerIndicatorEdgeInset = 48f;
     public Vector2 hoverTooltipWorldOffset = new Vector2(0f, -2f);
+    public Vector2 damagePopupWorldOffset = new Vector2(0f, 0.8f);
+    public float damagePopupRiseSpeedPixelsPerSecond = 36f;
+    public float damagePopupDurationSeconds = 0.9f;
+    public float damagePopupFontSize = 24f;
+    public Color damagePopupColor = Color.red;
 }
 
 [Serializable]
@@ -337,6 +424,7 @@ public class GameSettingsJsonCollection
     public PlayerSettingsJson playerSettings;
     public HouseSettingsJson houseSettings;
     public CommunityStorageSettingsJson communityStorageSettings;
+    public DroppedLootSettings droppedLootSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
@@ -419,6 +507,8 @@ public class VillagerSettings
     public float productiveOperationPriority = 80f;
     public float productiveOperationPriorityWhileMissingRequiredItem;
     public float helpfulConstructionOperationPriority = 150f;
+    public float lootPickupOperationPriority = 20f;
+    public float preferredLootPickupOperationPriority = 500f;
     public float foodResourceSearchRetrySeconds = 1f;
     public int housingSearchAttemptsBeforePause = 3;
     public float housingSearchRetrySeconds = 3f;
@@ -462,13 +552,14 @@ public class CombatSettings
     public float attackRange = 1.5f;
     public float attackWindupSeconds = 0.35f;
     public float attackRecoverySeconds = 0.65f;
+    public float attackCooldownSeconds = 0.5f;
+    public float combatSlotRetrySeconds = 0.75f;
     public float runningSpeed = 4f;
-    public float combatMovementSpeed = 0.6f;
-    public float combatMovementDistance = 0.2f;
-    public float combatMovementPeriodSeconds = 2f;
+    public float knockbackDurationPerCellSeconds = 0.3f;
     public float monsterReactionTimeSeconds = 0.8f;
     public float detectionIntervalReactionTimeMultiplier = 1f;
     public int detectionRangeCells = 6;
+    public int knockbackCells;
     public ArmMotionPoint[] attackHitPositions =
     {
         new ArmMotionPoint { x = 0.25f, y = 0.15f, z = 0f },
@@ -484,9 +575,17 @@ public class GameSettingsCollection
     public PlayerSettings playerSettings = new PlayerSettings();
     public HouseSettings houseSettings = new HouseSettings();
     public CommunityStorageSettings communityStorageSettings = new CommunityStorageSettings();
+    public DroppedLootSettings droppedLootSettings = new DroppedLootSettings();
     public VillagerSettings villagerSettings = new VillagerSettings();
     public ResourceSettings resourceSettings = new ResourceSettings();
     public CombatSettings combatSettings = new CombatSettings();
+}
+
+[Serializable]
+public class DroppedLootSettings
+{
+    public float lifetimeSeconds = 1200f;
+    public float pickupDistance = 0.35f;
 }
 
 public enum VillagerItemType

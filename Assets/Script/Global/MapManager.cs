@@ -60,6 +60,178 @@ public class MapManager : MonoBehaviour
         return communityStorages.ToArray();
     }
 
+    public bool TryGetNearestDroppedLoot(
+        Villager villager,
+        out DroppedLoot loot,
+        out bool preferredForVillager,
+        ResourceType? resourceType = null)
+    {
+        loot = null;
+        preferredForVillager = false;
+        if (villager == null)
+        {
+            return false;
+        }
+
+        float nearestDistanceSquared = float.PositiveInfinity;
+        float preferredDistanceSquared = float.PositiveInfinity;
+        DroppedLoot nearestLoot = null;
+        DroppedLoot preferredLoot = null;
+        foreach (DroppedLoot candidate in droppedLoot)
+        {
+            if (candidate == null
+                || !candidate.IsAvailable
+                || (resourceType.HasValue
+                    && (candidate.Type != DroppedLootType.Resource
+                        || candidate.ResourceType != resourceType.Value)))
+            {
+                continue;
+            }
+
+            float distanceSquared =
+                (candidate.transform.position - villager.transform.position).sqrMagnitude;
+            if (distanceSquared < nearestDistanceSquared)
+            {
+                nearestDistanceSquared = distanceSquared;
+                nearestLoot = candidate;
+            }
+
+            if (candidate.PreferredCollector == villager
+                && distanceSquared < preferredDistanceSquared)
+            {
+                preferredDistanceSquared = distanceSquared;
+                preferredLoot = candidate;
+            }
+        }
+
+        if (preferredLoot != null)
+        {
+            loot = preferredLoot;
+            preferredForVillager = true;
+            return true;
+        }
+
+        loot = nearestLoot;
+        return loot != null;
+    }
+
+    public bool SpawnDroppedResource(
+        Vector3 position,
+        ResourceType resourceType,
+        Villager preferredCollector = null)
+    {
+        return SpawnDroppedLoot(
+            position,
+            DroppedLootType.Resource,
+            resourceType,
+            default(VillagerItemType),
+            preferredCollector);
+    }
+
+    public bool SpawnDroppedItem(
+        Vector3 position,
+        VillagerItemType itemType,
+        Villager preferredCollector = null)
+    {
+        return SpawnDroppedLoot(
+            position,
+            DroppedLootType.Item,
+            default(ResourceType),
+            itemType,
+            preferredCollector);
+    }
+
+    internal void UnregisterDroppedLoot(DroppedLoot loot)
+    {
+        if (loot != null)
+        {
+            droppedLoot.Remove(loot);
+        }
+    }
+
+    private bool SpawnDroppedLoot(
+        Vector3 position,
+        DroppedLootType type,
+        ResourceType resourceType,
+        VillagerItemType itemType,
+        Villager preferredCollector)
+    {
+        if (settings == null || droppedLootSettings == null || settings.gridCellSize <= 0f)
+        {
+            Debug.LogError("Spawning dropped loot requires valid map and loot settings.", this);
+            return false;
+        }
+
+        UIManager uiManager = UIManager.Instance;
+        if (uiManager == null)
+        {
+            Debug.LogError("Spawning dropped loot requires an active UIManager.", this);
+            return false;
+        }
+
+        Sprite icon = type == DroppedLootType.Resource
+            ? uiManager.GetResourceIcon(resourceType)
+            : uiManager.GetItemIcon(itemType);
+        if (icon == null)
+        {
+            Debug.LogError("No world icon is configured for dropped " + type + ".", this);
+            return false;
+        }
+
+        GameOverlord gameOverlord = GameOverlord.Instance;
+        if (gameOverlord == null || gameOverlord.RoadTilePrefab == null)
+        {
+            Debug.LogError("Spawning dropped loot requires a road tile prefab.", this);
+            return false;
+        }
+
+        SpriteRenderer roadTileRenderer =
+            gameOverlord.RoadTilePrefab.GetComponentInChildren<SpriteRenderer>();
+        if (roadTileRenderer == null)
+        {
+            Debug.LogError(
+                "Spawning dropped loot requires a SpriteRenderer on the road tile prefab.",
+                this);
+            return false;
+        }
+
+        communityStorageIconSortingLayerId = roadTileRenderer.sortingLayerID;
+        communityStorageIconSortingOrder = roadTileRenderer.sortingOrder + 1;
+        float iconWidth = settings.gridCellSize * 0.35f
+            * GameData.Instance.uiSettings.uiIconScaleOnWorld;
+        float spriteWidth = icon.bounds.size.x;
+        float iconScale = spriteWidth > 0f ? iconWidth / spriteWidth : 1f;
+        Vector2 jitter = UnityEngine.Random.insideUnitCircle * settings.gridCellSize * 0.45f;
+        string lootName = type == DroppedLootType.Resource
+            ? resourceType.ToString()
+            : itemType.ToString();
+        GameObject lootObject = new GameObject("Dropped " + lootName);
+        lootObject.transform.position = new Vector3(
+            position.x + jitter.x,
+            position.y + jitter.y,
+            position.z);
+        lootObject.transform.localScale = Vector3.one * iconScale;
+        SpriteRenderer spriteRenderer = lootObject.AddComponent<SpriteRenderer>();
+        spriteRenderer.sprite = icon;
+        spriteRenderer.sortingLayerID = communityStorageIconSortingLayerId;
+        spriteRenderer.sortingOrder = communityStorageIconSortingOrder;
+        DroppedLoot newLoot = lootObject.AddComponent<DroppedLoot>();
+        if (!newLoot.Initialize(
+                this,
+                type,
+                resourceType,
+                itemType,
+                preferredCollector,
+                droppedLootSettings.lifetimeSeconds))
+        {
+            Destroy(lootObject);
+            return false;
+        }
+
+        droppedLoot.Add(newLoot);
+        return true;
+    }
+
     private readonly List<Vector3> roadKeyPoints = new List<Vector3>();
     private readonly List<RoadRecord> roads = new List<RoadRecord>();
     private readonly HashSet<Vector2Int> roadCells = new HashSet<Vector2Int>();
@@ -84,6 +256,7 @@ public class MapManager : MonoBehaviour
     private readonly List<AvailableHouseRecord> availableHouses =
         new List<AvailableHouseRecord>();
     private readonly List<CommunityStorage> communityStorages = new List<CommunityStorage>();
+    private readonly List<DroppedLoot> droppedLoot = new List<DroppedLoot>();
     private readonly List<HouseConstructionSite> activeConstructionSites =
         new List<HouseConstructionSite>();
     private readonly Dictionary<CommunityStorage, Dictionary<ResourceType, List<GameObject>>>
@@ -110,6 +283,7 @@ public class MapManager : MonoBehaviour
     private bool loggedMissingCommunityStorageIconManager;
     private int communityStorageIconSortingLayerId;
     private int communityStorageIconSortingOrder;
+    private DroppedLootSettings droppedLootSettings;
 
     private void Start()
     {
@@ -140,6 +314,7 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
+        ClearDroppedLoot();
         ResourceObject[] existingResources = GetRegisteredResourceObjects();
         foreach (ResourceObject resourceObject in existingResources)
         {
@@ -171,6 +346,19 @@ public class MapManager : MonoBehaviour
         }
 
         return true;
+    }
+
+    private void ClearDroppedLoot()
+    {
+        foreach (DroppedLoot loot in droppedLoot)
+        {
+            if (loot != null)
+            {
+                Destroy(loot.gameObject);
+            }
+        }
+
+        droppedLoot.Clear();
     }
 
     public bool TryRegisterSavedHouse(
@@ -1621,6 +1809,14 @@ public class MapManager : MonoBehaviour
     public bool IsCellOccupiedByHouse(Vector2Int cell)
     {
         return IsOccupiedByStartedHouse(cell);
+    }
+
+    public bool IsCellAvailableForMovement(Vector2Int cell)
+    {
+        return settings != null
+            && settings.gridCellSize > 0f
+            && IsCellInsideMap(cell)
+            && !IsCellBlocked(cell);
     }
 
     public bool TryGetNearestAvailableCellPosition(
@@ -3667,6 +3863,7 @@ public class MapManager : MonoBehaviour
         }
 
         instance = this;
+        droppedLoot.Clear();
         roadKeyPoints.Clear();
         roads.Clear();
         roadCells.Clear();
@@ -3691,6 +3888,7 @@ public class MapManager : MonoBehaviour
             ? gameData.houseSettings.storageCapacity
             : 0;
         communityStorageSettings = gameData.communityStorageSettings;
+        droppedLootSettings = gameData.droppedLootSettings;
         if (settings == null)
         {
             Debug.LogError("Map settings could not be loaded from GameData.", this);
@@ -3704,6 +3902,17 @@ public class MapManager : MonoBehaviour
         {
             Debug.LogError(
                 "Community storage settings must define a positive per-storage capacity and icon threshold.",
+                this);
+            enabled = false;
+            return;
+        }
+
+        if (droppedLootSettings == null
+            || droppedLootSettings.lifetimeSeconds <= 0f
+            || droppedLootSettings.pickupDistance <= 0f)
+        {
+            Debug.LogError(
+                "Dropped loot settings must define a positive lifetime and pickup distance.",
                 this);
             enabled = false;
             return;

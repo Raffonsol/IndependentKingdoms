@@ -6,6 +6,13 @@ using UnityEngine.UI;
 
 public class UIManager : MonoBehaviour
 {
+    private sealed class DamagePopupState
+    {
+        public RectTransform rectTransform;
+        public TextMeshProUGUI text;
+        public float elapsed;
+    }
+
     private static UIManager instance;
 
     public static UIManager Instance
@@ -41,14 +48,17 @@ public class UIManager : MonoBehaviour
 
     private UISettings settings;
     private UnityEngine.Camera villagerTrackingCamera;
-    private Canvas villagerIndicatorCanvas;
+    private Canvas uiCanvas;
     private readonly List<Image> villagerOffscreenIndicators = new List<Image>();
     private readonly List<Vector2> visibleIndicatorScreenPositions = new List<Vector2>();
+    private readonly List<DamagePopupState> damagePopups = new List<DamagePopupState>();
     private const int InitialResourceDisplayCount = 3;
     private bool loggedMissingVillagerIndicator;
     private bool loggedMissingVillagerCamera;
     private bool loggedMissingVillagerPlayer;
-    private bool loggedInvalidVillagerIndicatorCanvas;
+    private bool loggedInvalidUICanvas;
+    private bool loggedMissingDamagePopupCamera;
+    private bool loggedMissingDamagePopupFont;
 
     public GameObject RoadEndpointPrefab
     {
@@ -128,6 +138,99 @@ public class UIManager : MonoBehaviour
         }
 
         return icon;
+    }
+
+    public void ShowDamagePopup(Vector3 worldPosition, float damageAmount)
+    {
+        if (settings == null || damageAmount <= 0f || float.IsNaN(damageAmount)
+            || float.IsInfinity(damageAmount))
+        {
+            Debug.LogError("Cannot display damage without valid UI settings and a positive damage amount.", this);
+            return;
+        }
+
+        if (!TryGetUICanvas())
+        {
+            return;
+        }
+
+        UnityEngine.Camera worldCamera = UnityEngine.Camera.main;
+        if (worldCamera == null)
+        {
+            if (!loggedMissingDamagePopupCamera)
+            {
+                Debug.LogError("Damage popups require a camera tagged MainCamera.", this);
+                loggedMissingDamagePopupCamera = true;
+            }
+
+            return;
+        }
+
+        TMP_FontAsset font = TMP_Settings.defaultFontAsset;
+        if (font == null)
+        {
+            if (!loggedMissingDamagePopupFont)
+            {
+                Debug.LogError("Damage popups require a default TextMeshPro font asset.", this);
+                loggedMissingDamagePopupFont = true;
+            }
+
+            return;
+        }
+
+        Vector3 screenPosition = worldCamera.WorldToScreenPoint(
+            worldPosition + (Vector3)settings.damagePopupWorldOffset);
+        if (screenPosition.z <= 0f)
+        {
+            return;
+        }
+
+        RectTransform canvasRect = uiCanvas.transform as RectTransform;
+        if (canvasRect == null)
+        {
+            Debug.LogError("The UIManager Canvas must have a RectTransform for damage popups.", this);
+            return;
+        }
+
+        UnityEngine.Camera canvasCamera = uiCanvas.renderMode == RenderMode.ScreenSpaceOverlay
+            ? null
+            : uiCanvas.worldCamera != null ? uiCanvas.worldCamera : worldCamera;
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                canvasRect,
+                screenPosition,
+                canvasCamera,
+                out Vector2 canvasPosition))
+        {
+            return;
+        }
+
+        GameObject popupObject = new GameObject(
+            "DamagePopup",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(TextMeshProUGUI));
+        popupObject.transform.SetParent(uiCanvas.transform, false);
+
+        RectTransform popupRect = popupObject.GetComponent<RectTransform>();
+        popupRect.anchorMin = new Vector2(0.5f, 0.5f);
+        popupRect.anchorMax = new Vector2(0.5f, 0.5f);
+        popupRect.pivot = new Vector2(0.5f, 0.5f);
+        popupRect.sizeDelta = new Vector2(120f, 40f);
+        popupRect.anchoredPosition = canvasPosition;
+
+        TextMeshProUGUI popupText = popupObject.GetComponent<TextMeshProUGUI>();
+        popupText.font = font;
+        popupText.fontSize = settings.damagePopupFontSize;
+        popupText.alignment = TextAlignmentOptions.Center;
+        popupText.textWrappingMode = TextWrappingModes.NoWrap;
+        popupText.raycastTarget = false;
+        popupText.text = "-" + damageAmount.ToString("0.#");
+        popupText.color = settings.damagePopupColor;
+        damagePopups.Add(new DamagePopupState
+        {
+            rectTransform = popupRect,
+            text = popupText
+        });
     }
 
     private void Awake()
@@ -265,6 +368,7 @@ public class UIManager : MonoBehaviour
 
     private void LateUpdate()
     {
+        UpdateDamagePopups();
         visibleIndicatorScreenPositions.Clear();
         if (!settings.trackVillagers)
         {
@@ -650,12 +754,12 @@ public class UIManager : MonoBehaviour
         RectTransform parentRectTransform = indicator.transform.parent as RectTransform;
         if (canvas == null || parentRectTransform == null)
         {
-            if (!loggedInvalidVillagerIndicatorCanvas)
+            if (!loggedInvalidUICanvas)
             {
                 Debug.LogError(
                     "The villager off-screen indicator must be a UI Image under a Canvas.",
                     this);
-                loggedInvalidVillagerIndicatorCanvas = true;
+                loggedInvalidUICanvas = true;
             }
 
             return false;
@@ -698,7 +802,7 @@ public class UIManager : MonoBehaviour
             return false;
         }
 
-        if (!TryGetVillagerIndicatorCanvas())
+        if (!TryGetUICanvas())
         {
             return false;
         }
@@ -708,7 +812,7 @@ public class UIManager : MonoBehaviour
             typeof(RectTransform),
             typeof(CanvasRenderer),
             typeof(Image));
-        indicatorObject.transform.SetParent(villagerIndicatorCanvas.transform, false);
+        indicatorObject.transform.SetParent(uiCanvas.transform, false);
 
         RectTransform indicatorRectTransform = indicatorObject.GetComponent<RectTransform>();
         indicatorRectTransform.anchorMin = new Vector2(0.5f, 0.5f);
@@ -726,41 +830,70 @@ public class UIManager : MonoBehaviour
         return true;
     }
 
-    private bool TryGetVillagerIndicatorCanvas()
+    private bool TryGetUICanvas()
     {
-        if (villagerIndicatorCanvas == null)
+        if (uiCanvas == null)
         {
             Transform canvasTransform = transform.Find("Canvas");
             if (canvasTransform == null)
             {
-                if (!loggedInvalidVillagerIndicatorCanvas)
+                if (!loggedInvalidUICanvas)
                 {
                     Debug.LogError(
-                        "Villager tracking requires an immediate child named Canvas under the UIManager GameObject.",
+                        "The UIManager requires an immediate child named Canvas.",
                         this);
-                    loggedInvalidVillagerIndicatorCanvas = true;
+                    loggedInvalidUICanvas = true;
                 }
 
                 return false;
             }
 
-            villagerIndicatorCanvas = canvasTransform.GetComponent<Canvas>();
+            uiCanvas = canvasTransform.GetComponent<Canvas>();
         }
 
-        if (villagerIndicatorCanvas == null)
+        if (uiCanvas == null)
         {
-            if (!loggedInvalidVillagerIndicatorCanvas)
+            if (!loggedInvalidUICanvas)
             {
                 Debug.LogError(
                     "The immediate child named Canvas under the UIManager GameObject must have a Canvas component.",
                     this);
-                loggedInvalidVillagerIndicatorCanvas = true;
+                loggedInvalidUICanvas = true;
             }
 
             return false;
         }
 
         return true;
+    }
+
+    private void UpdateDamagePopups()
+    {
+        for (int index = damagePopups.Count - 1; index >= 0; index--)
+        {
+            DamagePopupState popup = damagePopups[index];
+            if (popup == null || popup.rectTransform == null || popup.text == null)
+            {
+                damagePopups.RemoveAt(index);
+                continue;
+            }
+
+            popup.elapsed += Time.deltaTime;
+            float progress = Mathf.Clamp01(
+                popup.elapsed / settings.damagePopupDurationSeconds);
+            popup.rectTransform.anchoredPosition += Vector2.up
+                * settings.damagePopupRiseSpeedPixelsPerSecond
+                * Time.deltaTime;
+            Color popupColor = settings.damagePopupColor;
+            popupColor.a *= 1f - progress;
+            popup.text.color = popupColor;
+
+            if (progress >= 1f)
+            {
+                Destroy(popup.text.gameObject);
+                damagePopups.RemoveAt(index);
+            }
+        }
     }
 
     private void HideUnusedVillagerIndicators(int firstHiddenIndex)

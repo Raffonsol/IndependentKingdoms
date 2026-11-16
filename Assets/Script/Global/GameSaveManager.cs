@@ -17,6 +17,7 @@ public class GameSaveSnapshot
     public GameSaveResourceObject[] resourceObjects;
     public GameSaveCommunityStorage[] communityStorages;
     public GameSaveRoad[] roads;
+    public GameSaveMonster[] monsters;
     [NonSerialized] public bool hasLegacyResourceTransforms;
 }
 
@@ -50,6 +51,15 @@ public class GameSaveVillager
     public GameSaveAmount[] itemInventory;
     public GameSaveAmount[] resourceInventory;
     public GameSaveHome home;
+}
+
+[Serializable]
+public class GameSaveMonster
+{
+    public string definitionId;
+    public GameSavePosition position;
+    public float health;
+    public int factionId;
 }
 
 [Serializable]
@@ -161,7 +171,7 @@ public class GameSaveCell
 
 public static class GameSaveManager
 {
-    private const int CurrentSaveVersion = 5;
+    private const int CurrentSaveVersion = 6;
     private const string SaveDirectoryName = "Saves";
     public const string DefaultSlotName = "default";
 
@@ -208,9 +218,11 @@ public static class GameSaveManager
 
         Player player = Player.Instance;
         MapManager mapManager = MapManager.Instance;
-        if (player == null || mapManager == null)
+        MonsterManager monsterManager = MonsterManager.Instance;
+        if (player == null || mapManager == null || monsterManager == null)
         {
-            Debug.LogError("Cannot load a game without an active Player and MapManager.");
+            Debug.LogError(
+                "Cannot load a game without active Player, MapManager, and MonsterManager components.");
             pendingSnapshot = null;
             return false;
         }
@@ -229,6 +241,12 @@ public static class GameSaveManager
             return false;
         }
 
+        if (!monsterManager.RestoreSavedMonsters(snapshot.monsters))
+        {
+            pendingSnapshot = null;
+            return false;
+        }
+
         pendingSnapshot = null;
         return true;
     }
@@ -238,9 +256,11 @@ public static class GameSaveManager
         snapshot = null;
         Player player = Player.Instance;
         MapManager mapManager = MapManager.Instance;
-        if (player == null || mapManager == null)
+        MonsterManager monsterManager = MonsterManager.Instance;
+        if (player == null || mapManager == null || monsterManager == null)
         {
-            Debug.LogError("Cannot capture a game save without an active Player and MapManager.");
+            Debug.LogError(
+                "Cannot capture a game save without active Player, MapManager, and MonsterManager components.");
             return false;
         }
 
@@ -252,13 +272,15 @@ public static class GameSaveManager
             villagers = CaptureVillagers(player),
             resourceObjects = CaptureResourceObjects(mapManager),
             communityStorages = CaptureCommunityStorages(mapManager),
-            roads = CaptureRoads(mapManager)
+            roads = CaptureRoads(mapManager),
+            monsters = CaptureMonsters(monsterManager)
         };
 
         if (capturedSnapshot.villagers == null
             || capturedSnapshot.resourceObjects == null
             || capturedSnapshot.communityStorages == null
-            || capturedSnapshot.roads == null)
+            || capturedSnapshot.roads == null
+            || capturedSnapshot.monsters == null)
         {
             return false;
         }
@@ -345,6 +367,13 @@ public static class GameSaveManager
                 && !UpgradeVersion4Snapshot(loadedSnapshot))
             {
                 Debug.LogError("Could not upgrade version 4 game save: " + slotName);
+                return false;
+            }
+
+            if (loadedSnapshot != null && loadedSnapshot.version == 5
+                && !UpgradeVersion5Snapshot(loadedSnapshot))
+            {
+                Debug.LogError("Could not upgrade version 5 game save: " + slotName);
                 return false;
             }
 
@@ -584,6 +613,13 @@ public static class GameSaveManager
         }
 
         snapshot.hasLegacyResourceTransforms = true;
+        snapshot.version = 5;
+        return true;
+    }
+
+    private static bool UpgradeVersion5Snapshot(GameSaveSnapshot snapshot)
+    {
+        snapshot.monsters = new GameSaveMonster[0];
         snapshot.version = CurrentSaveVersion;
         return true;
     }
@@ -1003,6 +1039,24 @@ public static class GameSaveManager
         return null;
     }
 
+    private static MonsterDefinition FindMonsterDefinition(MonsterDefinition[] definitions, string id)
+    {
+        if (definitions == null || string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        foreach (MonsterDefinition definition in definitions)
+        {
+            if (definition != null && string.Equals(definition.id, id, StringComparison.Ordinal))
+            {
+                return definition;
+            }
+        }
+
+        return null;
+    }
+
     private static ResourceCost[] ParseResourceCosts(GameSaveResourceAmount[] savedCosts)
     {
         if (savedCosts == null)
@@ -1101,6 +1155,36 @@ public static class GameSaveManager
         }
 
         return villagers.ToArray();
+    }
+
+    private static GameSaveMonster[] CaptureMonsters(MonsterManager monsterManager)
+    {
+        List<GameSaveMonster> monsters = new List<GameSaveMonster>();
+        foreach (Monster monster in monsterManager.Monsters)
+        {
+            if (monster == null || !monster.IsAlive)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(monster.DefinitionId))
+            {
+                Debug.LogError(
+                    "Cannot save monster " + monster.name + " because its definition ID is missing.",
+                    monster);
+                return null;
+            }
+
+            monsters.Add(new GameSaveMonster
+            {
+                definitionId = monster.DefinitionId,
+                position = CapturePosition(monster.transform.position),
+                health = monster.Health,
+                factionId = monster.FactionId
+            });
+        }
+
+        return monsters.ToArray();
     }
 
     private static GameSaveVillager CaptureVillager(Villager villager, int index)
@@ -1536,7 +1620,8 @@ public static class GameSaveManager
             || snapshot.villagers == null
             || snapshot.resourceObjects == null
             || snapshot.communityStorages == null
-            || snapshot.roads == null)
+            || snapshot.roads == null
+            || snapshot.monsters == null)
         {
             return false;
         }
@@ -1655,6 +1740,27 @@ public static class GameSaveManager
             }
 
             if (!IsValidSavedJobWorkplace(villager, jobType, gameData))
+            {
+                return false;
+            }
+        }
+
+        foreach (GameSaveMonster monster in snapshot.monsters)
+        {
+            if (monster == null
+                || string.IsNullOrWhiteSpace(monster.definitionId)
+                || !IsValidPosition(monster.position)
+                || !IsFinitePositive(monster.health)
+                || monster.factionId < 0)
+            {
+                return false;
+            }
+
+            MonsterDefinition definition =
+                FindMonsterDefinition(gameData.monsterDefinitions, monster.definitionId);
+            if (definition == null
+                || definition.combatSettings == null
+                || monster.health > definition.combatSettings.maximumHealth)
             {
                 return false;
             }

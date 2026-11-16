@@ -1,6 +1,6 @@
 {
     "spawnSettings": {
-        "spawnIntervalSeconds": 20,
+        "spawnIntervalSeconds": 10,
         "maximumTotalAmount": 28,
         "minimumVillagerDistance": 30,
         "spawnPositionAttemptsPerInterval": 100
@@ -9,7 +9,7 @@
         {
             "id": "Boar",
             "spawnWeight": 10,
-            "maximumAmount": 10,
+            "maximumAmount": 20,
             "movementSpeed": 2,
             "movementDurationRange": { "x": 1, "y": 3 },
             "idleDurationRange": { "x": 1, "y": 3 },
@@ -62,18 +62,78 @@
                 "attackRange": 1.5,
                 "attackWindupSeconds": 0.35,
                 "attackRecoverySeconds": 0.65,
+                "attackCooldownSeconds": 0.5,
                 "runningSpeed": 4,
-                "combatMovementSpeed": 0.6,
-                "combatMovementDistance": 0.2,
-                "combatMovementPeriodSeconds": 2,
+                "knockbackCells": 2,
                 "monsterReactionTimeSeconds": 0.8,
                 "detectionIntervalReactionTimeMultiplier": 1,
                 "detectionRangeCells": 6,
                 "attackHitPositions": [
-                    { "x": 1, "y": 1, "z": 160 },
-                    { "x": -0.4, "y": 1, "z": 260 }
+                    {
+                        "bodyParts": [
+                            {
+                                "name": "all",
+                                "flipOnAxis": "x"
+                            }
+                        ]
+                    },
+                     {
+                        "bodyParts": [
+                            {
+                                "name": "torso",
+                                "position": { "x": -0.21, "y": 0.14, "z": 12.1 }
+                            },
+                            {
+                                "name": "frontLeg",
+                                "position": { "x": 0.15, "y": -0.32, "z": -16.91 }
+                            },
+                             {
+                                "name": "frontLegRight",
+                                "position": { "x": -0.23, "y": -0.15, "z": -18.16 }
+                            },
+                            {
+                                "name": "backLeg",
+                                "position": { "x": -0.53, "y": -0.71, "z": 43.5 }
+                            },
+                            {
+                                "name": "tail",
+                                "position": { "x":-0.11, "y": -0.09, "z": 18.864 }
+                            },
+                            {
+                                "name": "backLegRight",
+                                "position": { "x": -0.39, "y": 0.25, "z": 2.3 }
+                            }
+                        ]
+                    },
+                    {
+                        "bodyParts": [
+                            {
+                                "name": "torso",
+                                "position": { "x": -0.58, "y": 0.27, "z": 37.61 }
+                            },
+                            {
+                                "name": "backLeg",
+                                "position": { "x": 0.05, "y": -1, "z": 91.64 }
+                            },
+                            {
+                                "name": "tail",
+                                "position": { "x":-0.26, "y": -0.27, "z": 76.2 }
+                            },
+                            {
+                                "name": "backLegRight",
+                                "position": { "x": 0.68, "y": -1.14, "z": 128.12 }
+                            }
+                        ]
+                    }
                 ]
-            }
+            },
+            "deathDrops": [
+                {
+                    "resourceType": "Food",
+                    "minimumAmount": 2,
+                    "maximumAmount": 5
+                }
+            ]
         }
     ]
 }

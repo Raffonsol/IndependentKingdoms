@@ -141,6 +141,7 @@ public class VillagerDetailsPanel : MonoBehaviour
         text.Append("Range: ").AppendLine(villager.AttackRange.ToString("0.##"));
         text.Append("Attack windup: ").Append(villager.AttackWindupSeconds.ToString("0.##")).AppendLine("s");
         text.Append("Attack recovery: ").Append(villager.AttackRecoverySeconds.ToString("0.##")).AppendLine("s");
+        text.Append("Attack cooldown: ").Append(villager.AttackCooldownSeconds.ToString("0.##")).AppendLine("s");
         text.Append("Equipped item: ").AppendLine(
             villager.EquippedItem.HasValue
                 ? villager.EquippedItem.Value.ToString()

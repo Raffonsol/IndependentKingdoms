@@ -31,6 +31,7 @@ public class GameData
     public PlayerSettings playerSettings;
     public HouseSettings houseSettings;
     public CommunityStorageSettings communityStorageSettings;
+    public DroppedLootSettings droppedLootSettings;
     public VillagerSettings villagerSettings;
     public ResourceSettings resourceSettings;
     public CombatSettings combatSettings;
@@ -181,6 +182,7 @@ public class GameData
             playerSettings = gameSettings.playerSettings,
             houseSettings = gameSettings.houseSettings,
             communityStorageSettings = gameSettings.communityStorageSettings,
+            droppedLootSettings = gameSettings.droppedLootSettings,
             villagerSettings = gameSettings.villagerSettings,
             resourceSettings = gameSettings.resourceSettings,
             combatSettings = gameSettings.combatSettings,
@@ -962,7 +964,9 @@ public class GameData
                     || !IsFinite(record.rightBackLegOffset.x)
                     || !IsFinite(record.rightBackLegOffset.y))
                 {
-                    Debug.LogError("Monster data contains an invalid definition at index " + index + ".");
+                    Debug.LogError(
+                        "Monster data contains an invalid definition or attackHitPositions frame at index "
+                        + index + ".");
                     return new MonsterDataCollection();
                 }
 
@@ -1002,8 +1006,22 @@ public class GameData
                     rightBackLegOffset = record.rightBackLegOffset,
                     shadowSize = record.shadowSize,
                     shadowOffset = record.shadowOffset,
-                    combatSettings = record.combatSettings
+                    combatSettings = CreateMonsterCombatSettings(record.combatSettings),
+                    attackAnimationFrames = ConvertMonsterAttackFrames(
+                        record.combatSettings.attackHitPositions)
                 };
+                if (!TryConvertMonsterLootDrops(
+                        record.deathDrops,
+                        out MonsterLootDropDefinition[] deathDrops))
+                {
+                    Debug.LogError(
+                        "Monster '" + record.id
+                        + "' has an invalid death drop definition; each entry must name exactly one "
+                        + "valid resource or item type and define a non-negative amount range.");
+                    return new MonsterDataCollection();
+                }
+
+                definition.deathDrops = deathDrops;
                 if (!AreLoadedSpritesValid(definition.faceSprites)
                     || !AreLoadedSpritesValid(definition.torsoSprites)
                     || !AreLoadedSpritesValid(definition.frontLegSprites)
@@ -1084,6 +1102,69 @@ public class GameData
         return sprites;
     }
 
+    private static bool TryConvertMonsterLootDrops(
+        MonsterLootDropRecord[] records,
+        out MonsterLootDropDefinition[] definitions)
+    {
+        if (records == null)
+        {
+            definitions = new MonsterLootDropDefinition[0];
+            return true;
+        }
+
+        definitions = new MonsterLootDropDefinition[records.Length];
+        for (int index = 0; index < records.Length; index++)
+        {
+            MonsterLootDropRecord record = records[index];
+            bool hasResourceType = record != null
+                && !string.IsNullOrWhiteSpace(record.resourceType);
+            bool hasItemType = record != null
+                && !string.IsNullOrWhiteSpace(record.itemType);
+            if (record == null
+                || hasResourceType == hasItemType
+                || record.minimumAmount < 0
+                || record.maximumAmount < record.minimumAmount
+                || record.maximumAmount <= 0
+                || record.maximumAmount == int.MaxValue)
+            {
+                return false;
+            }
+
+            if (hasResourceType)
+            {
+                if (!TryParseEnumName(record.resourceType, out ResourceType resourceType))
+                {
+                    return false;
+                }
+
+                definitions[index] = new MonsterLootDropDefinition
+                {
+                    isResource = true,
+                    resourceType = resourceType,
+                    minimumAmount = record.minimumAmount,
+                    maximumAmount = record.maximumAmount
+                };
+            }
+            else
+            {
+                if (!TryParseEnumName(record.itemType, out VillagerItemType itemType))
+                {
+                    return false;
+                }
+
+                definitions[index] = new MonsterLootDropDefinition
+                {
+                    isResource = false,
+                    itemType = itemType,
+                    minimumAmount = record.minimumAmount,
+                    maximumAmount = record.maximumAmount
+                };
+            }
+        }
+
+        return true;
+    }
+
     private static bool AreLoadedSpritesValid(Sprite[] sprites)
     {
         if (sprites == null || sprites.Length == 0)
@@ -1146,7 +1227,63 @@ public class GameData
         return true;
     }
 
-    private static bool IsValidMonsterCombatSettings(CombatSettings settings)
+    private static CombatSettings CreateMonsterCombatSettings(
+        MonsterCombatSettingsRecord settings)
+    {
+        return new CombatSettings
+        {
+            maximumHealth = settings.maximumHealth,
+            attackDamage = settings.attackDamage,
+            attackRange = settings.attackRange,
+            attackWindupSeconds = settings.attackWindupSeconds,
+            attackRecoverySeconds = settings.attackRecoverySeconds,
+            attackCooldownSeconds = settings.attackCooldownSeconds,
+            runningSpeed = settings.runningSpeed,
+            monsterReactionTimeSeconds = settings.monsterReactionTimeSeconds,
+            detectionIntervalReactionTimeMultiplier =
+                settings.detectionIntervalReactionTimeMultiplier,
+            detectionRangeCells = settings.detectionRangeCells,
+            knockbackCells = settings.knockbackCells
+        };
+    }
+
+    private static MonsterAttackFrame[] ConvertMonsterAttackFrames(
+        MonsterAttackFrameRecord[] records)
+    {
+        MonsterAttackFrame[] frames = new MonsterAttackFrame[records.Length];
+        for (int frameIndex = 0; frameIndex < records.Length; frameIndex++)
+        {
+            MonsterAttackFrameRecord record = records[frameIndex];
+            MonsterAttackFrame frame = new MonsterAttackFrame
+            {
+                bodyParts = new MonsterAttackPart[record.bodyParts.Length]
+            };
+
+            for (int partIndex = 0; partIndex < record.bodyParts.Length; partIndex++)
+            {
+                MonsterAttackPartRecord part = record.bodyParts[partIndex];
+                frame.bodyParts[partIndex] = new MonsterAttackPart
+                {
+                    name = part.name,
+                    position = part.position != null
+                        ? new Vector3(part.position.x, part.position.y, part.position.z)
+                        : Vector3.zero,
+                    hasPosition = part.position != null,
+                    flipOnAxis = string.IsNullOrEmpty(part.flipOnAxis)
+                        ? MonsterAttackFlipAxis.None
+                        : part.flipOnAxis == "x"
+                            ? MonsterAttackFlipAxis.X
+                            : MonsterAttackFlipAxis.Y
+                };
+            }
+
+            frames[frameIndex] = frame;
+        }
+
+        return frames;
+    }
+
+    private static bool IsValidMonsterCombatSettings(MonsterCombatSettingsRecord settings)
     {
         return settings != null
             && IsFinitePositive(settings.maximumHealth)
@@ -1154,14 +1291,66 @@ public class GameData
             && IsFinitePositive(settings.attackRange)
             && IsFinitePositive(settings.attackWindupSeconds)
             && IsFiniteNonNegative(settings.attackRecoverySeconds)
+            && IsFiniteNonNegative(settings.attackCooldownSeconds)
             && IsFinitePositive(settings.runningSpeed)
-            && IsFinitePositive(settings.combatMovementSpeed)
-            && IsFinitePositive(settings.combatMovementDistance)
-            && IsFinitePositive(settings.combatMovementPeriodSeconds)
             && IsFiniteNonNegative(settings.monsterReactionTimeSeconds)
             && IsFinitePositive(settings.detectionIntervalReactionTimeMultiplier)
             && settings.detectionRangeCells > 0
-            && AreValidArmMotionPoints(settings.attackHitPositions);
+            && settings.knockbackCells >= 0
+            && AreValidMonsterAttackFrames(settings.attackHitPositions);
+    }
+
+    private static bool AreValidMonsterAttackFrames(MonsterAttackFrameRecord[] frames)
+    {
+        if (frames == null || frames.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (MonsterAttackFrameRecord frame in frames)
+        {
+            if (frame == null || frame.bodyParts == null)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < frame.bodyParts.Length; index++)
+            {
+                MonsterAttackPartRecord part = frame.bodyParts[index];
+                if (part == null
+                    || string.IsNullOrWhiteSpace(part.name)
+                    || (part.name != "all" && !IsValidMonsterPartName(part.name))
+                    || (part.position != null
+                        && (!IsFinite(part.position.x)
+                            || !IsFinite(part.position.y)
+                            || !IsFinite(part.position.z)))
+                    || (part.position == null && string.IsNullOrEmpty(part.flipOnAxis))
+                    || (!string.IsNullOrEmpty(part.flipOnAxis)
+                        && part.flipOnAxis != "x"
+                        && part.flipOnAxis != "y"))
+                {
+                    return false;
+                }
+
+                for (int previousIndex = 0; previousIndex < index; previousIndex++)
+                {
+                    if (string.Equals(
+                            frame.bodyParts[previousIndex].name,
+                            part.name,
+                            StringComparison.Ordinal))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static bool IsValidMonsterPartName(string partName)
+    {
+        return partName.IndexOfAny(new[] { '/', '\\' }) < 0;
     }
 
     private static bool IsFinite(float value)
@@ -1630,11 +1819,12 @@ public class GameData
                 || jsonSettings.playerSettings == null
                 || jsonSettings.houseSettings == null
                 || jsonSettings.communityStorageSettings == null
+                || jsonSettings.droppedLootSettings == null
                 || jsonSettings.villagerSettings == null
                 || jsonSettings.resourceSettings == null
                 || jsonSettings.combatSettings == null)
             {
-                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, communityStorageSettings, villagerSettings, resourceSettings, and combatSettings.");
+                Debug.LogError("Settings at Resources/" + GameSettingsResourcePath + ".json must include uiSettings, mapSettings, playerSettings, houseSettings, communityStorageSettings, droppedLootSettings, villagerSettings, resourceSettings, and combatSettings.");
                 return new GameSettingsCollection();
             }
 
@@ -1718,6 +1908,15 @@ public class GameData
                 return new GameSettingsCollection();
             }
 
+            DroppedLootSettings jsonDroppedLootSettings = jsonSettings.droppedLootSettings;
+            if (!IsFinitePositive(jsonDroppedLootSettings.lifetimeSeconds)
+                || !IsFinitePositive(jsonDroppedLootSettings.pickupDistance))
+            {
+                Debug.LogError(
+                    "Dropped loot settings must define a positive lifetime and pickup distance.");
+                return new GameSettingsCollection();
+            }
+
             GameSettingsCollection settings = new GameSettingsCollection
             {
                 uiSettings = jsonSettings.uiSettings,
@@ -1750,6 +1949,11 @@ public class GameData
                     maximumAmountPerStorage = jsonCommunityStorageSettings.maximumAmountPerStorage,
                     unitsPerAdditionalIcon = jsonCommunityStorageSettings.unitsPerAdditionalIcon
                 },
+                droppedLootSettings = new DroppedLootSettings
+                {
+                    lifetimeSeconds = jsonDroppedLootSettings.lifetimeSeconds,
+                    pickupDistance = jsonDroppedLootSettings.pickupDistance
+                },
                 villagerSettings = jsonSettings.villagerSettings,
                 resourceSettings = jsonSettings.resourceSettings,
                 combatSettings = jsonSettings.combatSettings
@@ -1768,6 +1972,15 @@ public class GameData
             if (settings.uiSettings.villagerIndicatorSize.x <= 0f
                 || settings.uiSettings.villagerIndicatorSize.y <= 0f
                 || settings.uiSettings.villagerIndicatorEdgeInset < 0f
+                || !IsFinite(settings.uiSettings.damagePopupWorldOffset.x)
+                || !IsFinite(settings.uiSettings.damagePopupWorldOffset.y)
+                || !IsFinitePositive(settings.uiSettings.damagePopupRiseSpeedPixelsPerSecond)
+                || !IsFinitePositive(settings.uiSettings.damagePopupDurationSeconds)
+                || !IsFinitePositive(settings.uiSettings.damagePopupFontSize)
+                || !IsFinite(settings.uiSettings.damagePopupColor.r)
+                || !IsFinite(settings.uiSettings.damagePopupColor.g)
+                || !IsFinite(settings.uiSettings.damagePopupColor.b)
+                || !IsFinite(settings.uiSettings.damagePopupColor.a)
                 || !IsFiniteNonNegative(settings.uiSettings.summonVillagerCursorHotspot.x)
                 || !IsFiniteNonNegative(settings.uiSettings.summonVillagerCursorHotspot.y)
                 || !IsFinitePositive(settings.uiSettings.uiIconScaleOnWorld))
@@ -1775,8 +1988,9 @@ public class GameData
                 Debug.LogError(
                     "Settings at Resources/" + GameSettingsResourcePath
                     + ".json must define a positive villagerIndicatorSize and uiIconScaleOnWorld, "
-                    + "a non-negative villagerIndicatorEdgeInset, and a finite non-negative "
-                    + "summonVillagerCursorHotspot.");
+                    + "positive damage-popup timing, rise speed, and font size, finite damage-popup "
+                    + "color and offset, a non-negative villagerIndicatorEdgeInset, and a finite "
+                    + "non-negative summonVillagerCursorHotspot.");
                 return new GameSettingsCollection();
             }
 
@@ -1905,6 +2119,15 @@ public class GameData
                 || villagerSettings.emergencyFoodPriorityBonus < 0f
                 || villagerSettings.productiveOperationPriority < 0f
                 || villagerSettings.helpfulConstructionOperationPriority <= 0f
+                || !IsFiniteNonNegative(villagerSettings.lootPickupOperationPriority)
+                || !IsFinitePositive(villagerSettings.preferredLootPickupOperationPriority)
+                || villagerSettings.preferredLootPickupOperationPriority
+                    <= villagerSettings.lootPickupOperationPriority
+                || villagerSettings.preferredLootPickupOperationPriority
+                    >= villagerSettings.foodOperationPriority
+                        + villagerSettings.emergencyFoodHungerThreshold
+                            * villagerSettings.hungerFoodPriorityMultiplier
+                        + villagerSettings.emergencyFoodPriorityBonus
                 || villagerSettings.foodResourceSearchRetrySeconds <= 0f
                 || villagerSettings.housingSearchAttemptsBeforePause <= 0
                 || villagerSettings.housingSearchRetrySeconds <= 0f
@@ -1949,16 +2172,17 @@ public class GameData
                 || combatSettings.attackRange <= 0f
                 || combatSettings.attackWindupSeconds <= 0f
                 || combatSettings.attackRecoverySeconds < 0f
+                || !IsFiniteNonNegative(combatSettings.attackCooldownSeconds)
+                || !IsFinitePositive(combatSettings.combatSlotRetrySeconds)
                 || combatSettings.runningSpeed <= 0f
-                || !IsFinitePositive(combatSettings.combatMovementSpeed)
-                || !IsFinitePositive(combatSettings.combatMovementDistance)
-                || !IsFinitePositive(combatSettings.combatMovementPeriodSeconds)
+                || !IsFinitePositive(combatSettings.knockbackDurationPerCellSeconds)
                 || combatSettings.monsterReactionTimeSeconds < 0f
                 || combatSettings.detectionIntervalReactionTimeMultiplier <= 0f
                 || combatSettings.detectionRangeCells <= 0
+                || combatSettings.knockbackCells < 0
                 || !AreValidArmMotionPoints(combatSettings.attackHitPositions))
             {
-                Debug.LogError("Combat settings must define positive health, damage, ranges, attack and movement speeds, windup, movement period, detection interval multiplier, and detection range; movement distance must be positive, reaction time and recovery must be non-negative, and attack positions must be valid.");
+                Debug.LogError("Combat settings must define positive health, damage, ranges, attack and running speeds, slot retry time, windup, knockback duration, detection interval multiplier, and detection range; knockback cells, reaction time, recovery, and attack cooldown must be non-negative, and attack positions must be valid.");
                 return new GameSettingsCollection();
             }
 

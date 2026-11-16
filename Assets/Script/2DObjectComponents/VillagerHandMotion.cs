@@ -9,6 +9,7 @@ public class VillagerHandMotion : MonoBehaviour
     private float hitDuration;
     private float hitTimer;
     private bool isHoldingPose;
+    private bool isPaused;
 
     public void Configure(Transform villagerArm)
     {
@@ -21,6 +22,7 @@ public class VillagerHandMotion : MonoBehaviour
         arm = villagerArm;
         startingLocalPosition = arm.localPosition;
         startingLocalRotation = arm.localRotation;
+        isPaused = false;
     }
 
     public void PlayHit(ArmMotionPoint[] positions, float duration)
@@ -60,9 +62,14 @@ public class VillagerHandMotion : MonoBehaviour
         arm.localRotation = startingLocalRotation;
     }
 
+    public void SetPaused(bool paused)
+    {
+        isPaused = paused;
+    }
+
     private void Update()
     {
-        if (arm == null)
+        if (arm == null || isPaused)
         {
             return;
         }

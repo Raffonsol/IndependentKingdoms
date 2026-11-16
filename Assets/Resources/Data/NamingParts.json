@@ -125,6 +125,15 @@
         {"type": "LastPart","value": "ard",
             "worksForMen": true,"worksForWomen": false
         },
+        {"type": "LastPart","value": "ford",
+            "worksForMen": true,"worksForWomen": false
+        },
+        {"type": "FirstPart","value": "Bas",
+            "worksForMen": true,"worksForWomen": false
+        },
+        {"type": "FullName","value": "Ford",
+            "worksForMen": true,"worksForWomen": false
+        },
         {"type": "FullName","value": "Elizani",
             "worksForMen": false,"worksForWomen": true
         },
