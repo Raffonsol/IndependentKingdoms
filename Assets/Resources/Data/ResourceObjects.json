@@ -11,34 +11,119 @@
                 "randomizeRotation": false,
                 "visualOffset": { "x": 0.8, "y": 5.8 },
                 "scaleRange": { "x": 0.9, "y": 1 },
-                "randomSeed": 0
+                "randomSeed": 0,
+                "runtimeSpawning": {
+                    "spawnIntervalSeconds": 10,
+                    "maximumTotalAmount": 1000
+                }
             },
             "sortingAnchorOffset": { "x": 0, "y": 6.3 },
-            "shadowSize": { "x": 3.5, "y": 2.62 },
+            "sortingLayerName": "Everything",
             "shadowOffset": { "x": 1, "y": 0.9 },
-            "outputs": [
+            "initialStage": 1,
+            "finalStage": 4,
+            "stages": [
                 {
-                    "type": "Wood",
-                    "primaryResourceType": "Wood",
-                    "fullCutAmount": 10,
-                    "bareHandAmount": 2,
-                    "bareHandShakeMagnitudeMultiplier": 1.0,
-                    "toolShakeMagnitudeMultiplier": 1.65,
-                    "interactionOffset": { "x": 0, "y": 1 },
-                    "resourceRegenerationPerSecond": 0.03,
-                    "resourceRegenerationLimit": 10
+                    "visuals": [
+                        { "spriteName": "tree_stage1_wood", "color": "#6F460B", "sortingOrder": 1 },
+                        { "spriteName": "tree_stage1_leaves", "color": "#144100", "sortingOrder": 2 }
+                    ],
+                    "hasShadow": true,
+                    "shadowSize": { "x": 0.65, "y": 0.5 },
+                    "secondsToNextStage": 300,
+                    "outputs": [
+                        {
+                            "type": "Wood",
+                            "primaryResourceType": "Wood",
+                            "fullCutAmount": 2,
+                            "bareHandAmount": 1,
+                            "bareHandShakeMagnitudeMultiplier": 1.0,
+                            "toolShakeMagnitudeMultiplier": 1.65,
+                            "interactionOffset": { "x": 0, "y": 1 },
+                            "resourceRegenerationPerSecond": 0.03,
+                            "resourceRegenerationLimit": 2
+                        }
+                    ]
                 },
                 {
-                    "type": "Food",
-                    "primaryResourceType": "",
-                    "visualChildName": "tree_fruits",
-                    "fullCutAmount": 3,
-                    "bareHandAmount": 3,
-                    "bareHandShakeMagnitudeMultiplier": 1.0,
-                    "toolShakeMagnitudeMultiplier": 1.0,
-                    "interactionOffset": { "x": 0, "y": 3 },
-                    "resourceRegenerationPerSecond": 0.002,
-                    "resourceRegenerationLimit": 3
+                    "visuals": [
+                        { "spriteName": "tree_stage2_wood", "color": "#6F460B", "sortingOrder": 1 },
+                        { "spriteName": "tree_stage2_leaves", "color": "#144100", "sortingOrder": 2 }
+                    ],
+                    "hasShadow": true,
+                    "shadowSize": { "x": 1.4, "y": 1.05 },
+                    "secondsToNextStage": 600,
+                    "outputs": [
+                        {
+                            "type": "Wood",
+                            "primaryResourceType": "Wood",
+                            "fullCutAmount": 4,
+                            "bareHandAmount": 0,
+                            "bareHandShakeMagnitudeMultiplier": 1.0,
+                            "toolShakeMagnitudeMultiplier": 1.65,
+                            "interactionOffset": { "x": 0, "y": 1 },
+                            "resourceRegenerationPerSecond": 0.03,
+                            "resourceRegenerationLimit": 4
+                        }
+                    ]
+                },
+                {
+                    "visuals": [
+                        { "spriteName": "tree_stage3_wood", "color": "#6F460B", "sortingOrder": 1 },
+                        { "spriteName": "tree_stage3_leaves", "color": "#144100", "sortingOrder": 2 }
+                    ],
+                    "hasShadow": true,
+                    "shadowSize": { "x": 2.45, "y": 1.84 },
+                    "secondsToNextStage": 900,
+                    "outputs": [
+                        {
+                            "type": "Wood",
+                            "primaryResourceType": "Wood",
+                            "fullCutAmount": 7,
+                            "bareHandAmount": 0,
+                            "bareHandShakeMagnitudeMultiplier": 1.0,
+                            "toolShakeMagnitudeMultiplier": 1.65,
+                            "interactionOffset": { "x": 0, "y": 1 },
+                            "resourceRegenerationPerSecond": 0.03,
+                            "resourceRegenerationLimit": 7
+                        }
+                    ]
+                },
+                {
+                    "visuals": [
+                        { "spriteName": "tree_wood", "color": "#6F460B", "sortingOrder": 1 },
+                        { "spriteName": "tree_leaves", "color": "#144100", "sortingOrder": 2 }
+                    ],
+                    "hasShadow": true,
+                    "shadowSize": { "x": 3.5, "y": 2.62 },
+                    "secondsToNextStage": 0,
+                    "outputs": [
+                        {
+                            "type": "Wood",
+                            "primaryResourceType": "Wood",
+                            "fullCutAmount": 10,
+                            "bareHandAmount": 2,
+                            "bareHandShakeMagnitudeMultiplier": 1.0,
+                            "toolShakeMagnitudeMultiplier": 1.65,
+                            "interactionOffset": { "x": 0, "y": 1 },
+                            "resourceRegenerationPerSecond": 0.002,
+                            "resourceRegenerationLimit": 10
+                        },
+                        {
+                            "type": "Food",
+                            "primaryResourceType": "",
+                            "visualSpriteName": "tree_fruits",
+                            "visualColor": "#CF0000",
+                            "visualSortingOrder": 3,
+                            "fullCutAmount": 3,
+                            "bareHandAmount": 3,
+                            "bareHandShakeMagnitudeMultiplier": 1.0,
+                            "toolShakeMagnitudeMultiplier": 1.0,
+                            "interactionOffset": { "x": 0, "y": 3 },
+                            "resourceRegenerationPerSecond": 0.006,
+                            "resourceRegenerationLimit": 3
+                        }
+                    ]
                 }
             ]
         },
@@ -52,19 +137,35 @@
                 "randomizeRotation": true,
                 "visualOffset": { "x": 0, "y": 0 },
                 "scaleRange": { "x": 1, "y": 1 },
-                "randomSeed": 0
+                "randomSeed": 0,
+                "runtimeSpawning": {
+                    "spawnIntervalSeconds": 0,
+                    "maximumTotalAmount": 0
+                }
             },
             "sortingAnchorOffset": { "x": 0, "y": 0 },
-            "shadowSize": { "x": 1.05, "y": 0.48 },
+            "sortingLayerName": "LowObjects",
             "shadowOffset": { "x": 0, "y": 0 },
-            "outputs": [
+            "initialStage": 1,
+            "finalStage": 1,
+            "stages": [
                 {
-                    "type": "Stone",
-                    "fullCutAmount": 2,
-                    "bareHandAmount": 2,
-                    "interactionOffset": { "x": 0, "y": 0 },
-                    "resourceRegenerationPerSecond": 0,
-                    "resourceRegenerationLimit": 2
+                    "visuals": [
+                        { "spriteName": "iconsV2/iconsV2_72", "color": "#FFFFFF", "sortingOrder": 0 }
+                    ],
+                    "hasShadow": false,
+                    "shadowSize": { "x": 1.05, "y": 0.48 },
+                    "secondsToNextStage": 0,
+                    "outputs": [
+                        {
+                            "type": "Stone",
+                            "fullCutAmount": 2,
+                            "bareHandAmount": 2,
+                            "interactionOffset": { "x": 0, "y": 0 },
+                            "resourceRegenerationPerSecond": 0,
+                            "resourceRegenerationLimit": 2
+                        }
+                    ]
                 }
             ]
         }

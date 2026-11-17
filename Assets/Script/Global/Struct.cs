@@ -1022,7 +1022,9 @@ public class ResourceOutputRecord
 {
     public string type;
     public string primaryResourceType;
-    public string visualChildName;
+    public string visualSpriteName;
+    public string visualColor;
+    public int visualSortingOrder;
     public int fullCutAmount;
     public int bareHandAmount;
     public float bareHandShakeMagnitudeMultiplier = 1f;
@@ -1038,7 +1040,9 @@ public class ResourceOutputDefinition
     public ResourceType type;
     public ResourceType primaryResourceType;
     public bool primaryResourceTypeWasExplicitlySet;
-    public string visualChildName;
+    public Sprite visualSprite;
+    public Color visualColor;
+    public int visualSortingOrder;
     public int fullCutAmount;
     public int bareHandAmount;
     public float bareHandShakeMagnitudeMultiplier;
@@ -1059,6 +1063,14 @@ public class ResourceObjectSpawnSettings
     public Vector2 visualOffset;
     public Vector2 scaleRange = Vector2.one;
     public int randomSeed;
+    public ResourceObjectRuntimeSpawningSettings runtimeSpawning;
+}
+
+[Serializable]
+public class ResourceObjectRuntimeSpawningSettings
+{
+    public float spawnIntervalSeconds;
+    public int maximumTotalAmount;
 }
 
 [Serializable]
@@ -1068,9 +1080,11 @@ public class ResourceObjectDefinitionRecord
     public string primaryResourceType;
     public ResourceObjectSpawnSettings spawnSettings;
     public Vector2 sortingAnchorOffset;
-    public Vector2 shadowSize = new Vector2(1f, 0.5f);
+    public string sortingLayerName;
     public Vector2 shadowOffset;
-    public ResourceOutputRecord[] outputs;
+    public int initialStage;
+    public int finalStage;
+    public ResourceObjectStageRecord[] stages;
 }
 
 [Serializable]
@@ -1081,14 +1095,45 @@ public class ResourceObjectDefinition
     public bool primaryResourceTypeWasExplicitlySet;
     public ResourceObjectSpawnSettings spawnSettings;
     public Vector2 sortingAnchorOffset;
-    public Vector2 shadowSize = new Vector2(1f, 0.5f);
+    public string sortingLayerName;
     public Vector2 shadowOffset;
-    public ResourceOutputDefinition[] outputs;
+    public int initialStage;
+    public int finalStage;
+    public ResourceObjectStageDefinition[] stages;
 }
 
 [Serializable]
-public class ResourceObjectPrefabReference
+public class ResourceObjectStageRecord
 {
-    public string id;
-    public GameObject prefab;
+    public ResourceObjectVisualRecord[] visuals;
+    public ResourceOutputRecord[] outputs;
+    public bool hasShadow;
+    public Vector2 shadowSize;
+    public float secondsToNextStage;
+}
+
+[Serializable]
+public class ResourceObjectStageDefinition
+{
+    public ResourceObjectVisualDefinition[] visuals;
+    public ResourceOutputDefinition[] outputs;
+    public bool hasShadow;
+    public Vector2 shadowSize;
+    public float secondsToNextStage;
+}
+
+[Serializable]
+public class ResourceObjectVisualRecord
+{
+    public string spriteName;
+    public string color;
+    public int sortingOrder;
+}
+
+[Serializable]
+public class ResourceObjectVisualDefinition
+{
+    public Sprite sprite;
+    public Color color;
+    public int sortingOrder;
 }

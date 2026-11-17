@@ -259,12 +259,19 @@ public class MapManager : MonoBehaviour
     private readonly List<DroppedLoot> droppedLoot = new List<DroppedLoot>();
     private readonly List<HouseConstructionSite> activeConstructionSites =
         new List<HouseConstructionSite>();
+    private readonly List<ResourceObjectDefinition> runtimeSpawnDefinitions =
+        new List<ResourceObjectDefinition>();
+    private readonly Dictionary<ResourceObjectDefinition, float> runtimeSpawnTimers =
+        new Dictionary<ResourceObjectDefinition, float>();
+    private readonly HashSet<ResourceObjectDefinition> loggedRuntimeSpawnPositionFailures =
+        new HashSet<ResourceObjectDefinition>();
+    private readonly System.Random runtimeSpawnRandom = new System.Random();
     private readonly Dictionary<CommunityStorage, Dictionary<ResourceType, List<GameObject>>>
         communityStorageIconInstances =
             new Dictionary<CommunityStorage, Dictionary<ResourceType, List<GameObject>>>();
 
     [SerializeField] private Vector2 mapSize = new Vector2(100f, 100f);
-    [SerializeField] private ResourceObjectPrefabReference[] resourceObjectPrefabs;
+    [SerializeField] private GameObject resourceObjectPrefab;
     [SerializeField] private GameObject productionProgressBarPrefab;
 
     private MapSettings settings;
@@ -288,6 +295,7 @@ public class MapManager : MonoBehaviour
     private void Start()
     {
         SpawnResourceObjects();
+        InitializeRuntimeResourceSpawning();
         if (GameSaveManager.HasPendingLoad)
         {
             StartCoroutine(RestorePendingGameAfterInitialization());
@@ -345,6 +353,7 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
+        ResetRuntimeResourceSpawnTimers();
         return true;
     }
 
@@ -619,7 +628,7 @@ public class MapManager : MonoBehaviour
             }
 
             ResourceObjectDefinition definition = FindResourceObjectDefinition(savedObject.definitionId);
-            GameObject prefab = definition != null ? GetResourceObjectPrefab(definition.id) : null;
+            GameObject prefab = definition != null ? GetResourceObjectPrefab() : null;
             if (definition == null || prefab == null)
             {
                 Debug.LogError("Could not resolve saved resource object '" + savedObject.definitionId + "'.", this);
@@ -643,7 +652,9 @@ public class MapManager : MonoBehaviour
                     savedObject.hasSavedTransform,
                     localScale,
                     1f,
-                    out ResourceObject resourceObject))
+                    out ResourceObject resourceObject,
+                    savedObject.stageIndex,
+                    savedObject.growthElapsedSeconds))
             {
                 return false;
             }
@@ -3931,6 +3942,7 @@ public class MapManager : MonoBehaviour
 
     private void Update()
     {
+        UpdateRuntimeResourceSpawning();
         if (!IsWorldInteractionActive)
         {
             return;
@@ -4018,11 +4030,11 @@ public class MapManager : MonoBehaviour
             return;
         }
 
-        GameObject prefab = GetResourceObjectPrefab(definition.id);
+        GameObject prefab = GetResourceObjectPrefab();
         if (prefab == null)
         {
             Debug.LogError(
-                "No Inspector prefab is assigned for resource object definition '" + definition.id + "'.",
+                "No shared resource object prefab is assigned.",
                 this);
             return;
         }
@@ -4039,26 +4051,6 @@ public class MapManager : MonoBehaviour
         if (settings == null || settings.gridCellSize <= 0f)
         {
             Debug.LogError("A positive gridCellSize is required to place resource objects on map cells.", this);
-            return;
-        }
-
-        SpriteRenderer[] spriteRenderers = prefab.GetComponentsInChildren<SpriteRenderer>(true);
-        bool hasSprite = false;
-        foreach (SpriteRenderer spriteRenderer in spriteRenderers)
-        {
-            if (spriteRenderer != null && spriteRenderer.sprite != null)
-            {
-                hasSprite = true;
-                break;
-            }
-        }
-
-        if (!hasSprite)
-        {
-            Debug.LogError(
-                "The prefab for resource object '" + definition.id
-                + "' must contain a SpriteRenderer with a Sprite.",
-                this);
             return;
         }
 
@@ -4143,7 +4135,8 @@ public class MapManager : MonoBehaviour
                     false,
                     Vector3.zero,
                     scale,
-                    out ResourceObject resourceObject))
+                    out ResourceObject resourceObject,
+                    definition.finalStage))
             {
                 continue;
             }
@@ -4165,6 +4158,252 @@ public class MapManager : MonoBehaviour
         }
     }
 
+    private void InitializeRuntimeResourceSpawning()
+    {
+        runtimeSpawnDefinitions.Clear();
+        runtimeSpawnTimers.Clear();
+        loggedRuntimeSpawnPositionFailures.Clear();
+
+        ResourceObjectDefinition[] definitions = GameData.Instance.resourceObjectDefinitions;
+        if (definitions == null)
+        {
+            return;
+        }
+
+        foreach (ResourceObjectDefinition definition in definitions)
+        {
+            if (definition == null
+                || definition.spawnSettings == null
+                || definition.spawnSettings.runtimeSpawning == null
+                || definition.spawnSettings.runtimeSpawning.maximumTotalAmount == 0)
+            {
+                continue;
+            }
+
+            runtimeSpawnDefinitions.Add(definition);
+            runtimeSpawnTimers[definition] =
+                definition.spawnSettings.runtimeSpawning.spawnIntervalSeconds;
+        }
+    }
+
+    private void ResetRuntimeResourceSpawnTimers()
+    {
+        foreach (ResourceObjectDefinition definition in runtimeSpawnDefinitions)
+        {
+            runtimeSpawnTimers[definition] =
+                definition.spawnSettings.runtimeSpawning.spawnIntervalSeconds;
+        }
+    }
+
+    private void UpdateRuntimeResourceSpawning()
+    {
+        foreach (ResourceObjectDefinition definition in runtimeSpawnDefinitions)
+        {
+            ResourceObjectRuntimeSpawningSettings runtimeSettings =
+                definition.spawnSettings.runtimeSpawning;
+            float timeRemaining = runtimeSpawnTimers[definition] - Time.deltaTime;
+            if (timeRemaining > 0f)
+            {
+                runtimeSpawnTimers[definition] = timeRemaining;
+                continue;
+            }
+
+            runtimeSpawnTimers[definition] = runtimeSettings.spawnIntervalSeconds;
+            TrySpawnRuntimeResourceObject(definition, runtimeSettings);
+        }
+    }
+
+    private void TrySpawnRuntimeResourceObject(
+        ResourceObjectDefinition definition,
+        ResourceObjectRuntimeSpawningSettings runtimeSettings)
+    {
+        int resourceObjectCount = 0;
+        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        {
+            if (resourceObject != null && resourceObject.DefinitionId == definition.id)
+            {
+                resourceObjectCount++;
+            }
+        }
+
+        if (resourceObjectCount >= runtimeSettings.maximumTotalAmount)
+        {
+            return;
+        }
+
+        ResourceObjectSpawnSettings spawnSettings = definition.spawnSettings;
+        float gridCellSize = settings != null ? settings.gridCellSize : 0f;
+        if (spawnSettings == null
+            || settings == null
+            || gridCellSize <= 0f
+            || mapSize.x <= 0f
+            || mapSize.y <= 0f)
+        {
+            Debug.LogError(
+                "Cannot runtime-spawn resource object '" + definition.id
+                + "' because its map or spawn settings are invalid.",
+                this);
+            return;
+        }
+
+        if (!TryFindRuntimeResourceSpawnCell(
+                spawnSettings,
+                gridCellSize,
+                out Vector2Int cell,
+                out Vector3 position))
+        {
+            if (loggedRuntimeSpawnPositionFailures.Add(definition))
+            {
+                Debug.LogWarning(
+                    "Could not find an unoccupied cell for runtime-spawned resource object '"
+                    + definition.id + "'.",
+                    this);
+            }
+
+            return;
+        }
+
+        GameObject prefab = GetResourceObjectPrefab();
+        if (prefab == null || prefab.GetComponent<ResourceObject>() == null)
+        {
+            Debug.LogError(
+                "Runtime-spawned resource object '" + definition.id
+                + "' requires the shared resource object prefab with a ResourceObject component.",
+                this);
+            return;
+        }
+
+        float rotation = spawnSettings.randomizeRotation
+            ? RandomRange(runtimeSpawnRandom, 0f, 360f)
+            : 0f;
+        float scale = RandomRange(
+            runtimeSpawnRandom,
+            spawnSettings.scaleRange.x,
+            spawnSettings.scaleRange.y);
+        if (!TryCreateResourceObject(
+                definition,
+                prefab,
+                position,
+                Quaternion.Euler(0f, 0f, rotation),
+                false,
+                Vector3.zero,
+                scale,
+                out ResourceObject gameResourceObject,
+                definition.initialStage))
+        {
+            return;
+        }
+
+        gameResourceObject.SetGridCell(cell);
+        resourceObjectsByCell.Add(cell, gameResourceObject);
+        PathfindingRevision++;
+        NotifyResourceAvailabilityChanged(gameResourceObject);
+        loggedRuntimeSpawnPositionFailures.Remove(definition);
+    }
+
+    private bool TryFindRuntimeResourceSpawnCell(
+        ResourceObjectSpawnSettings spawnSettings,
+        float gridCellSize,
+        out Vector2Int cell,
+        out Vector3 position)
+    {
+        cell = Vector2Int.zero;
+        position = Vector3.zero;
+        Vector2 mapMinimum = (Vector2)transform.position - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)transform.position + mapSize * 0.5f;
+        int minimumCellX = Mathf.CeilToInt(
+            (mapMinimum.x + spawnSettings.edgePadding) / gridCellSize);
+        int maximumCellX = Mathf.FloorToInt(
+            (mapMaximum.x - spawnSettings.edgePadding) / gridCellSize);
+        int minimumCellY = Mathf.CeilToInt(
+            (mapMinimum.y + spawnSettings.edgePadding) / gridCellSize);
+        int maximumCellY = Mathf.FloorToInt(
+            (mapMaximum.y - spawnSettings.edgePadding) / gridCellSize);
+
+        if (minimumCellX > maximumCellX || minimumCellY > maximumCellY)
+        {
+            return false;
+        }
+
+        for (int attempt = 0; attempt < spawnSettings.placementAttemptsPerObject; attempt++)
+        {
+            Vector2Int candidateCell = new Vector2Int(
+                runtimeSpawnRandom.Next(minimumCellX, maximumCellX + 1),
+                runtimeSpawnRandom.Next(minimumCellY, maximumCellY + 1));
+            if (IsCellOccupiedForResourceSpawn(candidateCell))
+            {
+                continue;
+            }
+
+            cell = candidateCell;
+            position = GridCellToGridIntersectionPosition(candidateCell, gridCellSize);
+            position.z = transform.position.z;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsCellOccupiedForResourceSpawn(Vector2Int cell)
+    {
+        if (!IsCellInsideMap(cell)
+            || resourceObjectsByCell.ContainsKey(cell)
+            || roadCells.Contains(cell)
+            || claimedHouseCells.Contains(cell)
+            || communityStorageCells.Contains(cell)
+            || IsOccupiedByStartedHouse(cell))
+        {
+            return true;
+        }
+
+        foreach (HousePlotRecord housePlot in claimedHousePlots.Values)
+        {
+            if (ContainsHouseCell(housePlot, cell))
+            {
+                return true;
+            }
+        }
+
+        foreach (HousePlotRecord workplacePlot in claimedWorkplacePlots.Values)
+        {
+            if (ContainsHouseCell(workplacePlot, cell))
+            {
+                return true;
+            }
+        }
+
+        Player player = Player.Instance;
+        if (player != null)
+        {
+            foreach (VillagerRecord record in player.Villagers)
+            {
+                Villager villager = record != null ? record.Villager : null;
+                if (villager != null
+                    && villager.gameObject.activeInHierarchy
+                    && WorldPositionToGridCell(villager.transform.position, settings.gridCellSize) == cell)
+                {
+                    return true;
+                }
+            }
+        }
+
+        MonsterManager monsterManager = MonsterManager.Instance;
+        if (monsterManager != null)
+        {
+            foreach (Monster monster in monsterManager.Monsters)
+            {
+                if (monster != null
+                    && monster.gameObject.activeInHierarchy
+                    && WorldPositionToGridCell(monster.transform.position, settings.gridCellSize) == cell)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private bool TryCreateResourceObject(
         ResourceObjectDefinition definition,
         GameObject prefab,
@@ -4173,7 +4412,9 @@ public class MapManager : MonoBehaviour
         bool useSavedLocalScale,
         Vector3 savedLocalScale,
         float scaleMultiplier,
-        out ResourceObject resourceObject)
+        out ResourceObject resourceObject,
+        int stage = 0,
+        float elapsedGrowthSeconds = 0f)
     {
         resourceObject = null;
         GameObject resourceInstance = Instantiate(prefab, position, rotation, transform);
@@ -4204,7 +4445,7 @@ public class MapManager : MonoBehaviour
             return false;
         }
 
-        if (!resourceObject.Initialize(definition))
+        if (!resourceObject.Initialize(definition, stage, elapsedGrowthSeconds))
         {
             Debug.LogError(
                 "Could not initialize resource object '" + definition.id + "'.",
@@ -4217,34 +4458,9 @@ public class MapManager : MonoBehaviour
         return true;
     }
 
-    private GameObject GetResourceObjectPrefab(string id)
+    private GameObject GetResourceObjectPrefab()
     {
-        if (resourceObjectPrefabs == null)
-        {
-            return null;
-        }
-
-        GameObject matchedPrefab = null;
-        bool foundReference = false;
-        foreach (ResourceObjectPrefabReference reference in resourceObjectPrefabs)
-        {
-            if (reference != null && string.Equals(reference.id, id, StringComparison.OrdinalIgnoreCase))
-            {
-                if (foundReference)
-                {
-                    Debug.LogError(
-                        "More than one Inspector prefab is assigned for resource object definition '"
-                        + id + "'.",
-                        this);
-                    return null;
-                }
-
-                foundReference = true;
-                matchedPrefab = reference.prefab;
-            }
-        }
-
-        return matchedPrefab;
+        return resourceObjectPrefab;
     }
 
     private static bool ApplyResourceObjectVisualOffset(

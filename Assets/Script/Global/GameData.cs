@@ -16,6 +16,7 @@ public class GameData
     private const string JobDefinitionsResourcePath = "Data/JobDefinitions";
     private const string RenovationDefinitionsResourcePath = "Data/RenovationDefinitions";
     private const string VillagerPersonalityValuesResourcePath = "Data/VillagerPersonalityValues";
+    private const string ResourceObjectSpriteResourcePath = "ResourceParts";
 
     private static readonly GameData instance = Load();
 
@@ -1640,12 +1641,14 @@ public class GameData
                 if (record == null
                     || string.IsNullOrWhiteSpace(record.id)
                     || record.spawnSettings == null
-                    || record.outputs == null
-                    || record.outputs.Length == 0
+                    || record.stages == null
+                    || record.initialStage < 1
+                    || record.finalStage < record.initialStage
+                    || record.finalStage > record.stages.Length
+                    || string.IsNullOrWhiteSpace(record.sortingLayerName)
+                    || !SortingLayer.IsValid(SortingLayer.NameToID(record.sortingLayerName))
                     || !IsFinite(record.sortingAnchorOffset.x)
                     || !IsFinite(record.sortingAnchorOffset.y)
-                    || !IsFinitePositive(record.shadowSize.x)
-                    || !IsFinitePositive(record.shadowSize.y)
                     || !IsFinite(record.shadowOffset.x)
                     || !IsFinite(record.shadowOffset.y)
                     || !IsValidResourceObjectSpawnSettings(record.spawnSettings))
@@ -1666,9 +1669,6 @@ public class GameData
                     }
                 }
 
-                ResourceOutputDefinition[] outputs =
-                    new ResourceOutputDefinition[record.outputs.Length];
-                bool[] foundOutputTypes = new bool[resourceTypes.Length];
                 bool hasPrimaryResourceType = false;
                 ResourceType primaryResourceType = default(ResourceType);
                 if (!string.IsNullOrWhiteSpace(record.primaryResourceType)
@@ -1684,80 +1684,189 @@ public class GameData
                     hasPrimaryResourceType = true;
                 }
 
-                for (int outputIndex = 0; outputIndex < record.outputs.Length; outputIndex++)
+                ResourceObjectStageDefinition[] stages =
+                    new ResourceObjectStageDefinition[record.stages.Length];
+                for (int stageIndex = record.initialStage - 1;
+                    stageIndex < record.finalStage;
+                    stageIndex++)
                 {
-                    ResourceOutputRecord outputRecord = record.outputs[outputIndex];
-                    if (outputRecord == null
-                        || !TryParseEnumName(outputRecord.type, out ResourceType type)
-                        || outputRecord.fullCutAmount < 0
-                        || outputRecord.bareHandAmount < 0
-                        || outputRecord.bareHandAmount > outputRecord.fullCutAmount
-                        || !IsFinite(outputRecord.bareHandShakeMagnitudeMultiplier)
-                        || outputRecord.bareHandShakeMagnitudeMultiplier < 0f
-                        || !IsFinite(outputRecord.toolShakeMagnitudeMultiplier)
-                        || outputRecord.toolShakeMagnitudeMultiplier < 0f
-                        || outputRecord.resourceRegenerationPerSecond < 0f
-                        || !IsFinite(outputRecord.resourceRegenerationPerSecond)
-                        || outputRecord.resourceRegenerationLimit < 0
-                        || (outputRecord.resourceRegenerationPerSecond > 0f
-                            && outputRecord.resourceRegenerationLimit <= 0))
-                    {
-                        Debug.LogError(
-                            "Resource object '" + record.id + "' contains an invalid resource output.");
-                        return new ResourceObjectData();
-                    }
-
-                    int typeIndex = Convert.ToInt32(type);
-                    if (typeIndex < 0 || typeIndex >= foundOutputTypes.Length || foundOutputTypes[typeIndex])
+                    ResourceObjectStageRecord stageRecord = record.stages[stageIndex];
+                    bool isFinalStage = stageIndex == record.finalStage - 1;
+                    if (stageRecord == null
+                        || stageRecord.visuals == null
+                        || stageRecord.visuals.Length == 0
+                        || stageRecord.outputs == null
+                        || !IsFinitePositive(stageRecord.shadowSize.x)
+                        || !IsFinitePositive(stageRecord.shadowSize.y)
+                        || !IsFiniteNonNegative(stageRecord.secondsToNextStage)
+                        || (!isFinalStage && stageRecord.secondsToNextStage <= 0f))
                     {
                         Debug.LogError(
                             "Resource object '" + record.id
-                            + "' cannot define the same ResourceType more than once.");
+                            + "' contains an invalid stage " + (stageIndex + 1) + ".");
                         return new ResourceObjectData();
                     }
 
-                    bool hasOutputPrimaryResourceType = false;
-                    ResourceType outputPrimaryResourceType = default(ResourceType);
-                    if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType)
-                        && !TryParseEnumName(outputRecord.primaryResourceType, out outputPrimaryResourceType))
+                    ResourceObjectVisualDefinition[] visuals =
+                        new ResourceObjectVisualDefinition[stageRecord.visuals.Length];
+                    for (int visualIndex = 0; visualIndex < stageRecord.visuals.Length; visualIndex++)
                     {
-                        Debug.LogError(
-                            "Resource object '" + record.id
-                            + "' contains an invalid output.primaryResourceType.");
-                        return new ResourceObjectData();
-                    }
-                    else if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType))
-                    {
-                        hasOutputPrimaryResourceType = true;
+                        ResourceObjectVisualRecord visualRecord = stageRecord.visuals[visualIndex];
+                        Color visualColor = Color.white;
+                        if (visualRecord == null
+                            || string.IsNullOrWhiteSpace(visualRecord.spriteName)
+                            || !ColorUtility.TryParseHtmlString(visualRecord.color, out visualColor))
+                        {
+                            Debug.LogError(
+                                "Resource object '" + record.id
+                                + "' has an invalid visual in stage " + (stageIndex + 1) + ".");
+                            return new ResourceObjectData();
+                        }
+
+                        Sprite visualSprite = LoadResourceObjectSprite(visualRecord.spriteName);
+                        if (visualSprite == null)
+                        {
+                            Debug.LogError(
+                                "Resource object '" + record.id
+                                + "' references missing sprite '" + visualRecord.spriteName + "'.");
+                            return new ResourceObjectData();
+                        }
+
+                        visuals[visualIndex] = new ResourceObjectVisualDefinition
+                        {
+                            sprite = visualSprite,
+                            color = visualColor,
+                            sortingOrder = visualRecord.sortingOrder
+                        };
                     }
 
-                    if (!hasPrimaryResourceType && hasOutputPrimaryResourceType)
+                    ResourceOutputDefinition[] outputs =
+                        new ResourceOutputDefinition[stageRecord.outputs.Length];
+                    bool[] foundOutputTypes = new bool[resourceTypes.Length];
+                    for (int outputIndex = 0; outputIndex < stageRecord.outputs.Length; outputIndex++)
                     {
-                        primaryResourceType = outputPrimaryResourceType;
-                        hasPrimaryResourceType = true;
+                        ResourceOutputRecord outputRecord = stageRecord.outputs[outputIndex];
+                        if (outputRecord == null
+                            || !TryParseEnumName(outputRecord.type, out ResourceType type)
+                            || outputRecord.fullCutAmount < 0
+                            || outputRecord.bareHandAmount < 0
+                            || outputRecord.bareHandAmount > outputRecord.fullCutAmount
+                            || !IsFinite(outputRecord.bareHandShakeMagnitudeMultiplier)
+                            || outputRecord.bareHandShakeMagnitudeMultiplier < 0f
+                            || !IsFinite(outputRecord.toolShakeMagnitudeMultiplier)
+                            || outputRecord.toolShakeMagnitudeMultiplier < 0f
+                            || outputRecord.resourceRegenerationPerSecond < 0f
+                            || !IsFinite(outputRecord.resourceRegenerationPerSecond)
+                            || outputRecord.resourceRegenerationLimit < 0
+                            || (outputRecord.resourceRegenerationPerSecond > 0f
+                                && outputRecord.resourceRegenerationLimit <= 0))
+                        {
+                            Debug.LogError(
+                                "Resource object '" + record.id
+                                + "' contains an invalid output in stage " + (stageIndex + 1) + ".");
+                            return new ResourceObjectData();
+                        }
+
+                        int typeIndex = Convert.ToInt32(type);
+                        if (typeIndex < 0
+                            || typeIndex >= foundOutputTypes.Length
+                            || foundOutputTypes[typeIndex])
+                        {
+                            Debug.LogError(
+                                "Resource object '" + record.id
+                                + "' cannot define the same ResourceType more than once in a stage.");
+                            return new ResourceObjectData();
+                        }
+
+                        bool hasOutputPrimaryResourceType = false;
+                        ResourceType outputPrimaryResourceType = default(ResourceType);
+                        if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType)
+                            && !TryParseEnumName(
+                                outputRecord.primaryResourceType,
+                                out outputPrimaryResourceType))
+                        {
+                            Debug.LogError(
+                                "Resource object '" + record.id
+                                + "' contains an invalid output.primaryResourceType.");
+                            return new ResourceObjectData();
+                        }
+                        else if (!string.IsNullOrWhiteSpace(outputRecord.primaryResourceType))
+                        {
+                            hasOutputPrimaryResourceType = true;
+                        }
+
+                        Sprite outputSprite = null;
+                        Color outputColor = Color.white;
+                        if (!string.IsNullOrWhiteSpace(outputRecord.visualSpriteName))
+                        {
+                            if (!ColorUtility.TryParseHtmlString(
+                                    outputRecord.visualColor,
+                                    out outputColor))
+                            {
+                                Debug.LogError(
+                                    "Resource object '" + record.id
+                                    + "' has an invalid output visual color.");
+                                return new ResourceObjectData();
+                            }
+
+                            outputSprite = LoadResourceObjectSprite(outputRecord.visualSpriteName);
+                            if (outputSprite == null)
+                            {
+                                Debug.LogError(
+                                    "Resource object '" + record.id
+                                    + "' references missing sprite '"
+                                    + outputRecord.visualSpriteName + "'.");
+                                return new ResourceObjectData();
+                            }
+                        }
+
+                        if (!hasPrimaryResourceType && hasOutputPrimaryResourceType)
+                        {
+                            primaryResourceType = outputPrimaryResourceType;
+                            hasPrimaryResourceType = true;
+                        }
+
+                        if (!hasPrimaryResourceType)
+                        {
+                            primaryResourceType = type;
+                            hasPrimaryResourceType = true;
+                        }
+
+                        foundOutputTypes[typeIndex] = true;
+                        outputs[outputIndex] = new ResourceOutputDefinition
+                        {
+                            type = type,
+                            primaryResourceType = outputPrimaryResourceType,
+                            primaryResourceTypeWasExplicitlySet = hasOutputPrimaryResourceType,
+                            visualSprite = outputSprite,
+                            visualColor = outputColor,
+                            visualSortingOrder = outputRecord.visualSortingOrder,
+                            fullCutAmount = outputRecord.fullCutAmount,
+                            bareHandAmount = outputRecord.bareHandAmount,
+                            bareHandShakeMagnitudeMultiplier = outputRecord.bareHandShakeMagnitudeMultiplier,
+                            toolShakeMagnitudeMultiplier = outputRecord.toolShakeMagnitudeMultiplier,
+                            interactionOffset = outputRecord.interactionOffset,
+                            resourceRegenerationPerSecond = outputRecord.resourceRegenerationPerSecond,
+                            resourceRegenerationLimit = outputRecord.resourceRegenerationLimit
+                        };
                     }
 
-                    foundOutputTypes[typeIndex] = true;
-                    outputs[outputIndex] = new ResourceOutputDefinition
+                    stages[stageIndex] = new ResourceObjectStageDefinition
                     {
-                        type = type,
-                        primaryResourceType = outputPrimaryResourceType,
-                        primaryResourceTypeWasExplicitlySet = hasOutputPrimaryResourceType,
-                        visualChildName = outputRecord.visualChildName,
-                        fullCutAmount = outputRecord.fullCutAmount,
-                        bareHandAmount = outputRecord.bareHandAmount,
-                        bareHandShakeMagnitudeMultiplier = outputRecord.bareHandShakeMagnitudeMultiplier,
-                        toolShakeMagnitudeMultiplier = outputRecord.toolShakeMagnitudeMultiplier,
-                        interactionOffset = outputRecord.interactionOffset,
-                        resourceRegenerationPerSecond = outputRecord.resourceRegenerationPerSecond,
-                        resourceRegenerationLimit = outputRecord.resourceRegenerationLimit
+                        visuals = visuals,
+                        outputs = outputs,
+                        hasShadow = stageRecord.hasShadow,
+                        shadowSize = stageRecord.shadowSize,
+                        secondsToNextStage = stageRecord.secondsToNextStage
                     };
                 }
 
-                if (!hasPrimaryResourceType && outputs != null && outputs.Length > 0 && outputs[0] != null)
+                if (!hasPrimaryResourceType)
                 {
-                    primaryResourceType = outputs[0].type;
-                    hasPrimaryResourceType = true;
+                    Debug.LogError(
+                        "Resource object '" + record.id
+                        + "' must define a primaryResourceType or at least one stage output.");
+                    return new ResourceObjectData();
                 }
 
                 definitions[index] = new ResourceObjectDefinition
@@ -1767,9 +1876,11 @@ public class GameData
                     primaryResourceTypeWasExplicitlySet = hasPrimaryResourceType,
                     spawnSettings = record.spawnSettings,
                     sortingAnchorOffset = record.sortingAnchorOffset,
-                    shadowSize = record.shadowSize,
+                    sortingLayerName = record.sortingLayerName,
                     shadowOffset = record.shadowOffset,
-                    outputs = outputs
+                    initialStage = record.initialStage,
+                    finalStage = record.finalStage,
+                    stages = stages
                 };
             }
 
@@ -1787,6 +1898,37 @@ public class GameData
         }
     }
 
+    private static Sprite LoadResourceObjectSprite(string spriteName)
+    {
+        int separatorIndex = spriteName.LastIndexOf('/');
+        if (separatorIndex > 0 && separatorIndex < spriteName.Length - 1)
+        {
+            string atlasPath = ResourceObjectSpriteResourcePath
+                + "/"
+                + spriteName.Substring(0, separatorIndex);
+            string subSpriteName = spriteName.Substring(separatorIndex + 1);
+            Sprite[] atlasSprites = Resources.LoadAll<Sprite>(atlasPath);
+            foreach (Sprite candidate in atlasSprites)
+            {
+                if (candidate != null
+                    && string.Equals(candidate.name, subSpriteName, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        Sprite sprite = Resources.Load<Sprite>(ResourceObjectSpriteResourcePath + "/" + spriteName);
+        if (sprite != null)
+        {
+            return sprite;
+        }
+
+        return null;
+    }
+
     private static bool IsValidResourceObjectSpawnSettings(ResourceObjectSpawnSettings settings)
     {
         return settings.count >= 0
@@ -1797,7 +1939,12 @@ public class GameData
             && IsFinite(settings.visualOffset.y)
             && IsFinitePositive(settings.scaleRange.x)
             && IsFinitePositive(settings.scaleRange.y)
-            && settings.scaleRange.y >= settings.scaleRange.x;
+            && settings.scaleRange.y >= settings.scaleRange.x
+            && (settings.runtimeSpawning == null
+                || (settings.runtimeSpawning.maximumTotalAmount == 0
+                    && IsFiniteNonNegative(settings.runtimeSpawning.spawnIntervalSeconds))
+                || (IsFinitePositive(settings.runtimeSpawning.spawnIntervalSeconds)
+                    && settings.runtimeSpawning.maximumTotalAmount >= settings.count));
     }
 
     private static GameSettingsCollection LoadGameSettings()

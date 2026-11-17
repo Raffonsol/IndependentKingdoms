@@ -4154,11 +4154,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MapManager
   mapSize: {x: 1000, y: 1000}
-  resourceObjectPrefabs:
-  - id: tree_wood
-    prefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
-  - id: rock_stone
-    prefab: {fileID: 4558023136005666554, guid: 4ce1d5a0350d22249b19c6e4c2834190, type: 3}
+  resourceObjectPrefab: {fileID: 4558023136005666554, guid: 15306f1b1f3ffef4c907a1291a9010f9, type: 3}
   productionProgressBarPrefab: {fileID: 1000000000000001, guid: 6d58270353284a35a088cfc52d49bab1, type: 3}
 --- !u!1 &1900000101
 GameObject:

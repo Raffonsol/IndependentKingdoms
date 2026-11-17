@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 3060308549839385074}
   - component: {fileID: 3335211769400472244}
   m_Layer: 0
-  m_Name: tree_wood
+  m_Name: ResourceObject
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -57,7 +57,7 @@ GameObject:
   - component: {fileID: 4495103496111063354}
   - component: {fileID: 3417734314821484886}
   m_Layer: 0
-  m_Name: tree_leaves
+  m_Name: ResourceVisualSlot1
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -127,15 +127,15 @@ SpriteRenderer:
   m_SortingLayer: 1
   m_SortingOrder: 2
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: 2ecb07c21cc463541befde6053364a8c, type: 3}
-  m_Color: {r: 0.07910355, g: 0.254717, b: 0, a: 1}
+  m_Sprite: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
   m_Size: {x: 17, y: 20}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 1
+  m_WasSpriteAssigned: 0
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []
 --- !u!1 &6010000000000000000
@@ -149,7 +149,7 @@ GameObject:
   - component: {fileID: 6010000000000000001}
   - component: {fileID: 6010000000000000002}
   m_Layer: 0
-  m_Name: tree_wood_trunk
+  m_Name: ResourceVisualSlot0
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -219,15 +219,15 @@ SpriteRenderer:
   m_SortingLayer: 1
   m_SortingOrder: 1
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: f7be0a7c56dd798449fb58af60a0c81b, type: 3}
-  m_Color: {r: 0.4339623, g: 0.27477345, b: 0.04298683, a: 1}
+  m_Sprite: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
   m_Size: {x: 17, y: 20}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 1
+  m_WasSpriteAssigned: 0
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []
 --- !u!1 &7303000000000000000
@@ -365,7 +365,7 @@ GameObject:
   - component: {fileID: 2932281729777817853}
   - component: {fileID: 557217898369452942}
   m_Layer: 0
-  m_Name: tree_fruits
+  m_Name: ResourceVisualSlot2
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -435,14 +435,14 @@ SpriteRenderer:
   m_SortingLayer: 1
   m_SortingOrder: 3
   m_MaskInteraction: 0
-  m_Sprite: {fileID: 21300000, guid: f9131caafee775c458546e5cbae4f182, type: 3}
-  m_Color: {r: 0.8113208, g: 0, b: 0, a: 1}
+  m_Sprite: {fileID: 0}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_FlipX: 0
   m_FlipY: 0
   m_DrawMode: 0
   m_Size: {x: 17, y: 20}
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
-  m_WasSpriteAssigned: 1
+  m_WasSpriteAssigned: 0
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []

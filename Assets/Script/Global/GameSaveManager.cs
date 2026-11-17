@@ -113,6 +113,8 @@ public class GameSaveHome
 public class GameSaveResourceObject
 {
     public string definitionId;
+    public int stageIndex;
+    public float growthElapsedSeconds;
     public bool hasGridCell;
     public GameSaveCell gridCell;
     public GameSavePosition position;
@@ -171,7 +173,7 @@ public class GameSaveCell
 
 public static class GameSaveManager
 {
-    private const int CurrentSaveVersion = 6;
+    private const int CurrentSaveVersion = 7;
     private const string SaveDirectoryName = "Saves";
     public const string DefaultSlotName = "default";
 
@@ -374,6 +376,13 @@ public static class GameSaveManager
                 && !UpgradeVersion5Snapshot(loadedSnapshot))
             {
                 Debug.LogError("Could not upgrade version 5 game save: " + slotName);
+                return false;
+            }
+
+            if (loadedSnapshot != null && loadedSnapshot.version == 6
+                && !UpgradeVersion6Snapshot(loadedSnapshot))
+            {
+                Debug.LogError("Could not upgrade version 6 game save: " + slotName);
                 return false;
             }
 
@@ -620,6 +629,36 @@ public static class GameSaveManager
     private static bool UpgradeVersion5Snapshot(GameSaveSnapshot snapshot)
     {
         snapshot.monsters = new GameSaveMonster[0];
+        snapshot.version = 6;
+        return true;
+    }
+
+    private static bool UpgradeVersion6Snapshot(GameSaveSnapshot snapshot)
+    {
+        if (snapshot.resourceObjects == null)
+        {
+            return false;
+        }
+
+        ResourceObjectDefinition[] definitions = GameData.Instance.resourceObjectDefinitions;
+        foreach (GameSaveResourceObject resourceObject in snapshot.resourceObjects)
+        {
+            if (resourceObject == null)
+            {
+                return false;
+            }
+
+            ResourceObjectDefinition definition =
+                FindResourceObjectDefinition(definitions, resourceObject.definitionId);
+            if (definition == null)
+            {
+                return false;
+            }
+
+            resourceObject.stageIndex = definition.finalStage;
+            resourceObject.growthElapsedSeconds = 0f;
+        }
+
         snapshot.version = CurrentSaveVersion;
         return true;
     }
@@ -1478,6 +1517,8 @@ public static class GameSaveManager
             savedObjects[index] = new GameSaveResourceObject
             {
                 definitionId = resourceObject.DefinitionId,
+                stageIndex = resourceObject.CurrentStage,
+                growthElapsedSeconds = resourceObject.GrowthElapsedSeconds,
                 hasGridCell = resourceObject.HasGridCell,
                 gridCell = CaptureCell(resourceObject.GridCell),
                 position = CapturePosition(resourceObject.transform.position),
@@ -1770,6 +1811,7 @@ public static class GameSaveManager
         {
             if (resourceObject == null
                 || string.IsNullOrWhiteSpace(resourceObject.definitionId)
+                || resourceObject.stageIndex < 1
                 || !resourceObject.hasGridCell
                 || !IsValidCell(resourceObject.gridCell)
                 || !IsValidPosition(resourceObject.position)
@@ -1785,8 +1827,24 @@ public static class GameSaveManager
             ResourceObjectDefinition definition =
                 FindResourceObjectDefinition(gameData.resourceObjectDefinitions, resourceObject.definitionId);
             if (definition == null
-                || definition.outputs == null
-                || definition.outputs.Length != resourceObject.remainingResources.Length)
+                || definition.stages == null
+                || resourceObject.stageIndex < definition.initialStage
+                || resourceObject.stageIndex > definition.finalStage
+                || resourceObject.stageIndex > definition.stages.Length)
+            {
+                return false;
+            }
+
+            ResourceObjectStageDefinition stage = definition.stages[resourceObject.stageIndex - 1];
+            if (stage == null
+                || stage.outputs == null
+                || stage.outputs.Length != resourceObject.remainingResources.Length
+                || float.IsNaN(resourceObject.growthElapsedSeconds)
+                || float.IsInfinity(resourceObject.growthElapsedSeconds)
+                || resourceObject.growthElapsedSeconds < 0f
+                || (resourceObject.stageIndex == definition.finalStage
+                    ? resourceObject.growthElapsedSeconds != 0f
+                    : resourceObject.growthElapsedSeconds >= stage.secondsToNextStage))
             {
                 return false;
             }
@@ -1801,7 +1859,7 @@ public static class GameSaveManager
                 }
             }
 
-            foreach (ResourceOutputDefinition output in definition.outputs)
+            foreach (ResourceOutputDefinition output in stage.outputs)
             {
                 if (output == null || !savedTypes.Contains(output.type))
                 {
