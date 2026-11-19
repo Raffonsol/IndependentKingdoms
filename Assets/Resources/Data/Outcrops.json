@@ -1,0 +1,79 @@
+{
+    "outcrops": [
+        {
+            "id": "rock_outcrop",
+            "prefabResourcePath": "Outcrops/RockOutcrop",
+            "spawnSettings": {
+                "count": 20,
+                "edgePadding": 2,
+                "minimumSpacing": 8,
+                "placementAttemptsPerOutcrop": 20,
+                "randomizeRotation": false,
+                "scaleRange": { "x": 1, "y": 1 },
+                "randomSeed": 0
+            },
+            "resourceObjects": [
+                {
+                    "hierarchyPath": "MediumRock_01",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_12"
+                }, 
+                {
+                    "hierarchyPath": "MediumRock_02",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_8"
+                },
+                {
+                    "hierarchyPath": "LargeRock_01",
+                    "resourceObjectDefinitionId": "rock_large",
+                    "visualSpriteName": "rocks/rocks_18"
+                },
+                {
+                    "hierarchyPath": "SmallRock_01",
+                    "resourceObjectDefinitionId": "rock_small",
+                    "visualSpriteName": "rocks/rocks_0"
+                },
+                {
+                    "hierarchyPath": "LargeRock_02",
+                    "resourceObjectDefinitionId": "rock_large",
+                    "visualSpriteName": "rocks/rocks_21"
+                },
+                {
+                    "hierarchyPath": "SmallRock_02",
+                    "resourceObjectDefinitionId": "rock_small",
+                    "visualSpriteName": "rocks/rocks_10"
+                },
+                {
+                    "hierarchyPath": "SmallRock_03",
+                    "resourceObjectDefinitionId": "rock_small",
+                    "visualSpriteName": "rocks/rocks_9"
+                },
+                {
+                    "hierarchyPath": "MediumRock_03",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_6"
+                },
+                {
+                    "hierarchyPath": "MediumRock_04",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_13"
+                },
+                {
+                    "hierarchyPath": "MediumRock_05",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_13"
+                },
+                {
+                    "hierarchyPath": "SmallRock_04",
+                    "resourceObjectDefinitionId": "rock_small",
+                    "visualSpriteName": "rocks/rocks_7"
+                },
+                {
+                    "hierarchyPath": "MediumRock_06",
+                    "resourceObjectDefinitionId": "rock_medium",
+                    "visualSpriteName": "rocks/rocks_19"
+                }
+            ]
+        }
+    ]
+}

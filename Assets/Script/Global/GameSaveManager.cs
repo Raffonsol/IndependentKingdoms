@@ -15,6 +15,7 @@ public class GameSaveSnapshot
     public GameSaveResourceAmount[] playerResources;
     public GameSaveVillager[] villagers;
     public GameSaveResourceObject[] resourceObjects;
+    public GameSaveOutcrop[] outcrops;
     public GameSaveCommunityStorage[] communityStorages;
     public GameSaveRoad[] roads;
     public GameSaveMonster[] monsters;
@@ -125,6 +126,25 @@ public class GameSaveResourceObject
 }
 
 [Serializable]
+public class GameSaveOutcrop
+{
+    public string definitionId;
+    public GameSavePosition position;
+    public float rotationZ;
+    public GameSavePosition localScale;
+    public GameSaveOutcropResourceObject[] resourceObjects;
+}
+
+[Serializable]
+public class GameSaveOutcropResourceObject
+{
+    public string hierarchyPath;
+    public int stageIndex;
+    public float growthElapsedSeconds;
+    public GameSaveResourceAmount[] remainingResources;
+}
+
+[Serializable]
 public class GameSaveCommunityStorage
 {
     public GameSaveCell originCell;
@@ -173,7 +193,7 @@ public class GameSaveCell
 
 public static class GameSaveManager
 {
-    private const int CurrentSaveVersion = 7;
+    private const int CurrentSaveVersion = 8;
     private const string SaveDirectoryName = "Saves";
     public const string DefaultSlotName = "default";
 
@@ -273,6 +293,7 @@ public static class GameSaveManager
             playerResources = CapturePlayerResources(player),
             villagers = CaptureVillagers(player),
             resourceObjects = CaptureResourceObjects(mapManager),
+            outcrops = CaptureOutcrops(mapManager),
             communityStorages = CaptureCommunityStorages(mapManager),
             roads = CaptureRoads(mapManager),
             monsters = CaptureMonsters(monsterManager)
@@ -280,6 +301,7 @@ public static class GameSaveManager
 
         if (capturedSnapshot.villagers == null
             || capturedSnapshot.resourceObjects == null
+            || capturedSnapshot.outcrops == null
             || capturedSnapshot.communityStorages == null
             || capturedSnapshot.roads == null
             || capturedSnapshot.monsters == null)
@@ -383,6 +405,13 @@ public static class GameSaveManager
                 && !UpgradeVersion6Snapshot(loadedSnapshot))
             {
                 Debug.LogError("Could not upgrade version 6 game save: " + slotName);
+                return false;
+            }
+
+            if (loadedSnapshot != null && loadedSnapshot.version == 7
+                && !UpgradeVersion7Snapshot(loadedSnapshot))
+            {
+                Debug.LogError("Could not upgrade version 7 game save: " + slotName);
                 return false;
             }
 
@@ -659,6 +688,27 @@ public static class GameSaveManager
             resourceObject.growthElapsedSeconds = 0f;
         }
 
+        snapshot.version = 7;
+        return true;
+    }
+
+    private static bool UpgradeVersion7Snapshot(GameSaveSnapshot snapshot)
+    {
+        if (snapshot.resourceObjects == null)
+        {
+            return false;
+        }
+
+        foreach (GameSaveResourceObject resourceObject in snapshot.resourceObjects)
+        {
+            if (resourceObject == null)
+            {
+                return false;
+            }
+
+        }
+
+        snapshot.outcrops = new GameSaveOutcrop[0];
         snapshot.version = CurrentSaveVersion;
         return true;
     }
@@ -1494,11 +1544,21 @@ public static class GameSaveManager
     private static GameSaveResourceObject[] CaptureResourceObjects(MapManager mapManager)
     {
         ResourceObject[] resourceObjects = mapManager.GetRegisteredResourceObjects();
-        Array.Sort(resourceObjects, CompareResourceObjects);
-        GameSaveResourceObject[] savedObjects = new GameSaveResourceObject[resourceObjects.Length];
-        for (int index = 0; index < resourceObjects.Length; index++)
+        List<ResourceObject> standaloneResources = new List<ResourceObject>();
+        foreach (ResourceObject resourceObject in resourceObjects)
         {
-            ResourceObject resourceObject = resourceObjects[index];
+            if (resourceObject != null && resourceObject.OutcropOwner == null)
+            {
+                standaloneResources.Add(resourceObject);
+            }
+        }
+
+        standaloneResources.Sort(CompareResourceObjects);
+        GameSaveResourceObject[] savedObjects =
+            new GameSaveResourceObject[standaloneResources.Count];
+        for (int index = 0; index < standaloneResources.Count; index++)
+        {
+            ResourceObject resourceObject = standaloneResources[index];
             List<GameSaveResourceAmount> remainingResources =
                 new List<GameSaveResourceAmount>();
             for (int resourceIndex = 0;
@@ -1530,6 +1590,69 @@ public static class GameSaveManager
         }
 
         return savedObjects;
+    }
+
+    private static GameSaveOutcrop[] CaptureOutcrops(MapManager mapManager)
+    {
+        OutcropInstance[] outcrops = mapManager.GetRegisteredOutcropInstances();
+        List<GameSaveOutcrop> savedOutcrops = new List<GameSaveOutcrop>();
+        foreach (OutcropInstance outcrop in outcrops)
+        {
+            if (outcrop == null || string.IsNullOrWhiteSpace(outcrop.DefinitionId))
+            {
+                continue;
+            }
+
+            List<GameSaveOutcropResourceObject> savedResources =
+                new List<GameSaveOutcropResourceObject>();
+            foreach (ResourceObject resourceObject in outcrop.GetResourceObjects())
+            {
+                if (resourceObject == null
+                    || !resourceObject.HasGridCell
+                    || !outcrop.TryGetResourceObjectPath(
+                        resourceObject,
+                        out string hierarchyPath))
+                {
+                    continue;
+                }
+
+                List<GameSaveResourceAmount> remainingResources =
+                    new List<GameSaveResourceAmount>();
+                foreach (ResourceType resourceType in resourceObject.AvailableResourceTypes)
+                {
+                    remainingResources.Add(new GameSaveResourceAmount
+                    {
+                        resourceType = resourceType.ToString(),
+                        amount = resourceObject.GetAmount(resourceType),
+                        bareHandAmount = resourceObject.GetBareHandAmount(resourceType)
+                    });
+                }
+
+                savedResources.Add(new GameSaveOutcropResourceObject
+                {
+                    hierarchyPath = hierarchyPath,
+                    stageIndex = resourceObject.CurrentStage,
+                    growthElapsedSeconds = resourceObject.GrowthElapsedSeconds,
+                    remainingResources = remainingResources.ToArray()
+                });
+            }
+
+            if (savedResources.Count == 0)
+            {
+                continue;
+            }
+
+            savedOutcrops.Add(new GameSaveOutcrop
+            {
+                definitionId = outcrop.DefinitionId,
+                position = CapturePosition(outcrop.transform.position),
+                rotationZ = outcrop.transform.eulerAngles.z,
+                localScale = CapturePosition(outcrop.transform.localScale),
+                resourceObjects = savedResources.ToArray()
+            });
+        }
+
+        return savedOutcrops.ToArray();
     }
 
     private static int CompareResourceObjects(ResourceObject left, ResourceObject right)
@@ -1660,6 +1783,7 @@ public static class GameSaveManager
             || snapshot.playerResources == null
             || snapshot.villagers == null
             || snapshot.resourceObjects == null
+            || snapshot.outcrops == null
             || snapshot.communityStorages == null
             || snapshot.roads == null
             || snapshot.monsters == null)
@@ -1864,6 +1988,103 @@ public static class GameSaveManager
                 if (output == null || !savedTypes.Contains(output.type))
                 {
                     return false;
+                }
+            }
+        }
+
+        foreach (GameSaveOutcrop outcrop in snapshot.outcrops)
+        {
+            if (outcrop == null
+                || string.IsNullOrWhiteSpace(outcrop.definitionId)
+                || !IsValidPosition(outcrop.position)
+                || !IsValidPosition(outcrop.localScale)
+                || outcrop.localScale.x <= 0f
+                || outcrop.localScale.y <= 0f
+                || outcrop.localScale.z <= 0f
+                || float.IsNaN(outcrop.rotationZ)
+                || float.IsInfinity(outcrop.rotationZ)
+                || outcrop.resourceObjects == null
+                || outcrop.resourceObjects.Length == 0
+                || !gameData.TryGetOutcropDefinition(
+                    outcrop.definitionId,
+                    out OutcropDefinition outcropDefinition))
+            {
+                return false;
+            }
+
+            HashSet<string> savedPaths = new HashSet<string>(StringComparer.Ordinal);
+            foreach (GameSaveOutcropResourceObject savedResource in outcrop.resourceObjects)
+            {
+                if (savedResource == null
+                    || string.IsNullOrWhiteSpace(savedResource.hierarchyPath)
+                    || !savedPaths.Add(savedResource.hierarchyPath)
+                    || savedResource.remainingResources == null
+                    || !IsValidResourceAmountArray(
+                        savedResource.remainingResources,
+                        true,
+                        false))
+                {
+                    return false;
+                }
+
+                OutcropResourceObjectDefinition childDefinition = null;
+                foreach (OutcropResourceObjectDefinition candidate in outcropDefinition.resourceObjects)
+                {
+                    if (candidate != null
+                        && string.Equals(
+                            candidate.hierarchyPath,
+                            savedResource.hierarchyPath,
+                            StringComparison.Ordinal))
+                    {
+                        childDefinition = candidate;
+                        break;
+                    }
+                }
+
+                ResourceObjectDefinition resourceDefinition =
+                    childDefinition != null
+                        ? childDefinition.resourceObjectDefinition
+                        : null;
+                if (resourceDefinition == null
+                    || savedResource.stageIndex < resourceDefinition.initialStage
+                    || savedResource.stageIndex > resourceDefinition.finalStage
+                    || savedResource.stageIndex > resourceDefinition.stages.Length)
+                {
+                    return false;
+                }
+
+                ResourceObjectStageDefinition stage =
+                    resourceDefinition.stages[savedResource.stageIndex - 1];
+                if (stage == null
+                    || stage.outputs == null
+                    || stage.outputs.Length != savedResource.remainingResources.Length
+                    || float.IsNaN(savedResource.growthElapsedSeconds)
+                    || float.IsInfinity(savedResource.growthElapsedSeconds)
+                    || savedResource.growthElapsedSeconds < 0f
+                    || (savedResource.stageIndex == resourceDefinition.finalStage
+                        ? savedResource.growthElapsedSeconds != 0f
+                        : savedResource.growthElapsedSeconds >= stage.secondsToNextStage))
+                {
+                    return false;
+                }
+
+                HashSet<ResourceType> savedTypes = new HashSet<ResourceType>();
+                foreach (GameSaveResourceAmount savedAmount in savedResource.remainingResources)
+                {
+                    if (!Enum.TryParse(savedAmount.resourceType, out ResourceType resourceType)
+                        || !Enum.IsDefined(typeof(ResourceType), resourceType)
+                        || !savedTypes.Add(resourceType))
+                    {
+                        return false;
+                    }
+                }
+
+                foreach (ResourceOutputDefinition output in stage.outputs)
+                {
+                    if (output == null || !savedTypes.Contains(output.type))
+                    {
+                        return false;
+                    }
                 }
             }
         }

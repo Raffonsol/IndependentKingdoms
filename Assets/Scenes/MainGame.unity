@@ -176,7 +176,7 @@ MonoBehaviour:
   topPanel: {fileID: 139836309}
   bottomPanel: {fileID: 326455561}
   resourceIcons:
-  - {fileID: 6614486739263092370, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
+  - {fileID: -4790378267484766104, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 8366826731013992322, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 6946359190575959630, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}
   - {fileID: 168973078320758132, guid: 47a9fadcdee13764f818f9365e544f6d, type: 3}

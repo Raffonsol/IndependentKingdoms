@@ -1011,6 +1011,58 @@ public class ResourceObjectData
 }
 
 [Serializable]
+public class OutcropDataCollection
+{
+    public OutcropDefinitionRecord[] outcrops;
+}
+
+[Serializable]
+public class OutcropDefinitionRecord
+{
+    public string id;
+    public string prefabResourcePath;
+    public OutcropSpawnSettings spawnSettings;
+    public OutcropResourceObjectRecord[] resourceObjects;
+}
+
+[Serializable]
+public class OutcropDefinition
+{
+    public string id;
+    public GameObject prefab;
+    public OutcropSpawnSettings spawnSettings;
+    public OutcropResourceObjectDefinition[] resourceObjects;
+}
+
+[Serializable]
+public class OutcropSpawnSettings
+{
+    public int count;
+    public float edgePadding;
+    public float minimumSpacing;
+    public int placementAttemptsPerOutcrop;
+    public bool randomizeRotation;
+    public Vector2 scaleRange = Vector2.one;
+    public int randomSeed;
+}
+
+[Serializable]
+public class OutcropResourceObjectRecord
+{
+    public string hierarchyPath;
+    public string resourceObjectDefinitionId;
+    public string visualSpriteName;
+}
+
+[Serializable]
+public class OutcropResourceObjectDefinition
+{
+    public string hierarchyPath;
+    public ResourceObjectDefinition resourceObjectDefinition;
+    public Sprite visualSprite;
+}
+
+[Serializable]
 public class ResourceInitialAmount
 {
     public ResourceType type;
@@ -1073,12 +1125,19 @@ public class ResourceObjectRuntimeSpawningSettings
     public int maximumTotalAmount;
 }
 
+public enum ResourceObjectOccupancyMode
+{
+    SingleCell,
+    SpriteBounds
+}
+
 [Serializable]
 public class ResourceObjectDefinitionRecord
 {
     public string id;
     public string primaryResourceType;
     public ResourceObjectSpawnSettings spawnSettings;
+    public string occupancyMode;
     public Vector2 sortingAnchorOffset;
     public string sortingLayerName;
     public Vector2 shadowOffset;
@@ -1094,6 +1153,7 @@ public class ResourceObjectDefinition
     public ResourceType primaryResourceType;
     public bool primaryResourceTypeWasExplicitlySet;
     public ResourceObjectSpawnSettings spawnSettings;
+    public ResourceObjectOccupancyMode occupancyMode;
     public Vector2 sortingAnchorOffset;
     public string sortingLayerName;
     public Vector2 shadowOffset;

@@ -41,18 +41,14 @@ public class MapManager : MonoBehaviour
 
     public ResourceObject[] GetRegisteredResourceObjects()
     {
-        HashSet<ResourceObject> registeredObjects = new HashSet<ResourceObject>();
-        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
-        {
-            if (resourceObject != null)
-            {
-                registeredObjects.Add(resourceObject);
-            }
-        }
-
-        ResourceObject[] result = new ResourceObject[registeredObjects.Count];
-        registeredObjects.CopyTo(result);
+        ResourceObject[] result = new ResourceObject[registeredResourceObjects.Count];
+        registeredResourceObjects.CopyTo(result);
         return result;
+    }
+
+    public OutcropInstance[] GetRegisteredOutcropInstances()
+    {
+        return outcropInstances.ToArray();
     }
 
     public CommunityStorage[] GetCommunityStorages()
@@ -235,8 +231,12 @@ public class MapManager : MonoBehaviour
     private readonly List<Vector3> roadKeyPoints = new List<Vector3>();
     private readonly List<RoadRecord> roads = new List<RoadRecord>();
     private readonly HashSet<Vector2Int> roadCells = new HashSet<Vector2Int>();
-    private readonly Dictionary<Vector2Int, ResourceObject> resourceObjectsByCell =
-        new Dictionary<Vector2Int, ResourceObject>();
+    private readonly Dictionary<Vector2Int, HashSet<ResourceObject>> resourceObjectsByCell =
+        new Dictionary<Vector2Int, HashSet<ResourceObject>>();
+    private readonly HashSet<ResourceObject> registeredResourceObjects =
+        new HashSet<ResourceObject>();
+    private readonly List<OutcropInstance> outcropInstances =
+        new List<OutcropInstance>();
     private readonly Dictionary<ResourceObject, Villager> resourceReservations =
         new Dictionary<ResourceObject, Villager>();
     private readonly HashSet<Vector2Int> claimedHouseCells = new HashSet<Vector2Int>();
@@ -295,6 +295,7 @@ public class MapManager : MonoBehaviour
     private void Start()
     {
         SpawnResourceObjects();
+        SpawnOutcrops();
         InitializeRuntimeResourceSpawning();
         if (GameSaveManager.HasPendingLoad)
         {
@@ -316,6 +317,7 @@ public class MapManager : MonoBehaviour
         if (snapshot == null
             || snapshot.roads == null
             || snapshot.resourceObjects == null
+            || snapshot.outcrops == null
             || snapshot.communityStorages == null)
         {
             Debug.LogError("Cannot restore a world with missing map data.", this);
@@ -329,6 +331,7 @@ public class MapManager : MonoBehaviour
             RemoveResourceObjectWithoutYield(resourceObject);
         }
 
+        outcropInstances.Clear();
         roadKeyPoints.Clear();
         roads.Clear();
         roadCells.Clear();
@@ -348,6 +351,7 @@ public class MapManager : MonoBehaviour
 
         if (!RestoreRoads(snapshot.roads)
             || !RestoreResourceObjects(snapshot.resourceObjects)
+            || !RestoreOutcrops(snapshot.outcrops)
             || !RestoreCommunityStorages(snapshot.communityStorages))
         {
             return false;
@@ -688,10 +692,212 @@ public class MapManager : MonoBehaviour
                 return false;
             }
 
-            resourceObject.SetGridCell(cell);
-            resourceObjectsByCell.Add(cell, resourceObject);
+            if (!TryRegisterResourceObject(resourceObject, cell))
+            {
+                Debug.LogError(
+                    "Could not register restored resource object '" + savedObject.definitionId
+                    + "' across its occupied cells.",
+                    resourceObject);
+                Destroy(resourceObject.gameObject);
+                return false;
+            }
+
             PathfindingRevision++;
             ResourceAvailabilityRevision++;
+        }
+
+        return true;
+    }
+
+    private bool RestoreOutcrops(GameSaveOutcrop[] savedOutcrops)
+    {
+        GameData gameData = GameData.Instance;
+        foreach (GameSaveOutcrop savedOutcrop in savedOutcrops)
+        {
+            if (savedOutcrop == null
+                || !gameData.TryGetOutcropDefinition(
+                    savedOutcrop.definitionId,
+                    out OutcropDefinition definition)
+                || !TryParseSavePosition(savedOutcrop.position, out Vector3 position)
+                || !TryParseSavePosition(savedOutcrop.localScale, out Vector3 localScale))
+            {
+                Debug.LogError("A saved outcrop contains invalid or unresolved data.", this);
+                return false;
+            }
+
+            GameObject outcropObject = Instantiate(
+                definition.prefab,
+                position,
+                Quaternion.Euler(0f, 0f, savedOutcrop.rotationZ),
+                transform);
+            outcropObject.transform.localScale = localScale;
+            OutcropInstance outcrop = outcropObject.GetComponent<OutcropInstance>();
+            if (outcrop == null || !outcrop.Initialize(definition))
+            {
+                Debug.LogError(
+                    "Could not initialize restored outcrop '" + savedOutcrop.definitionId + "'.",
+                    outcropObject);
+                Destroy(outcropObject);
+                return false;
+            }
+
+            HashSet<string> restoredPaths =
+                new HashSet<string>(StringComparer.Ordinal);
+            foreach (GameSaveOutcropResourceObject savedResource in savedOutcrop.resourceObjects)
+            {
+                if (savedResource == null
+                    || string.IsNullOrWhiteSpace(savedResource.hierarchyPath)
+                    || !restoredPaths.Add(savedResource.hierarchyPath)
+                    || !outcrop.TryGetResourceObject(
+                        savedResource.hierarchyPath,
+                        out ResourceObject resourceObject))
+                {
+                    Debug.LogError(
+                        "A saved outcrop contains an invalid child resource path.",
+                        outcropObject);
+                    Destroy(outcropObject);
+                    return false;
+                }
+
+                OutcropResourceObjectDefinition childDefinition = null;
+                foreach (OutcropResourceObjectDefinition candidate in definition.resourceObjects)
+                {
+                    if (candidate != null
+                        && string.Equals(
+                            candidate.hierarchyPath,
+                            savedResource.hierarchyPath,
+                            StringComparison.Ordinal))
+                    {
+                        childDefinition = candidate;
+                        break;
+                    }
+                }
+
+                if (childDefinition == null
+                    || !resourceObject.Initialize(
+                        childDefinition.resourceObjectDefinition,
+                        savedResource.stageIndex,
+                        savedResource.growthElapsedSeconds,
+                        childDefinition.visualSprite))
+                {
+                    Debug.LogError(
+                        "Could not restore resource object '" + savedResource.hierarchyPath
+                        + "' in outcrop '" + savedOutcrop.definitionId + "'.",
+                        resourceObject);
+                    Destroy(outcropObject);
+                    return false;
+                }
+
+                HashSet<ResourceType> restoredTypes = new HashSet<ResourceType>();
+                foreach (GameSaveResourceAmount savedAmount in savedResource.remainingResources)
+                {
+                    if (savedAmount == null
+                        || !Enum.TryParse(savedAmount.resourceType, out ResourceType resourceType)
+                        || !Enum.IsDefined(typeof(ResourceType), resourceType)
+                        || !restoredTypes.Add(resourceType)
+                        || !resourceObject.TryRestoreAmounts(
+                            resourceType,
+                            savedAmount.amount,
+                            savedAmount.bareHandAmount))
+                    {
+                        Debug.LogError(
+                            "A saved outcrop child contains an invalid remaining-resource amount.",
+                            resourceObject);
+                        Destroy(outcropObject);
+                        return false;
+                    }
+                }
+
+                if (restoredTypes.Count != resourceObject.AvailableResourceTypes.Count)
+                {
+                    Debug.LogError(
+                        "A saved outcrop child is missing one or more resource stocks.",
+                        resourceObject);
+                    Destroy(outcropObject);
+                    return false;
+                }
+            }
+
+            ResourceObject[] outcropResources = outcrop.GetResourceObjects();
+            HashSet<Vector2Int> occupiedCells = new HashSet<Vector2Int>();
+            foreach (ResourceObject resourceObject in outcropResources)
+            {
+                if (resourceObject == null)
+                {
+                    continue;
+                }
+
+                if (!restoredPaths.Contains(resourceObject.GetOutcropChildPath()))
+                {
+                    outcrop.RemoveResourceObject(resourceObject);
+                    Destroy(resourceObject.gameObject);
+                    continue;
+                }
+
+                if (!resourceObject.TryGetOccupiedGridCells(
+                    settings.gridCellSize,
+                    out Vector2Int[] resourceCells))
+                {
+                    Debug.LogError(
+                        "Could not calculate occupied cells for restored outcrop child.",
+                        resourceObject);
+                    Destroy(outcropObject);
+                    return false;
+                }
+
+                foreach (Vector2Int cell in resourceCells)
+                {
+                    if (!IsCellInsideMap(cell))
+                    {
+                        Debug.LogError(
+                            "A saved outcrop occupies cells outside the map.",
+                            resourceObject);
+                        Destroy(outcropObject);
+                        return false;
+                    }
+
+                    if (!occupiedCells.Add(cell))
+                    {
+                        continue;
+                    }
+
+                    if (roadCells.Contains(cell)
+                        || resourceObjectsByCell.ContainsKey(cell)
+                        || claimedHouseCells.Contains(cell)
+                        || communityStorageCells.Contains(cell)
+                        || IsOccupiedByStartedHouse(cell))
+                    {
+                        Debug.LogError(
+                            "A saved outcrop overlaps an occupied map cell.",
+                            resourceObject);
+                        Destroy(outcropObject);
+                        return false;
+                    }
+                }
+            }
+
+            if (outcrop.GetResourceObjects().Length == 0)
+            {
+                Debug.LogError("A saved outcrop must contain at least one remaining resource.", outcropObject);
+                Destroy(outcropObject);
+                return false;
+            }
+
+            foreach (ResourceObject resourceObject in outcrop.GetResourceObjects())
+            {
+                if (!TryRegisterResourceObject(resourceObject))
+                {
+                    Debug.LogError(
+                        "Could not register restored outcrop resource across its occupied cells.",
+                        resourceObject);
+                    UnregisterOutcropResources(outcrop);
+                    Destroy(outcropObject);
+                    return false;
+                }
+
+                PathfindingRevision++;
+                ResourceAvailabilityRevision++;
+            }
         }
 
         return true;
@@ -1468,15 +1674,9 @@ public class MapManager : MonoBehaviour
         IReadOnlyList<Vector3> roadPath,
         ISet<Vector2Int> roadCellsToAdd)
     {
-        List<ResourceObject> resourcesToRemove = new List<ResourceObject>();
-        foreach (KeyValuePair<Vector2Int, ResourceObject> occupiedCell in resourceObjectsByCell)
+        HashSet<ResourceObject> resourcesToRemove = new HashSet<ResourceObject>();
+        foreach (KeyValuePair<Vector2Int, HashSet<ResourceObject>> occupiedCell in resourceObjectsByCell)
         {
-            ResourceObject resourceObject = occupiedCell.Value;
-            if (resourceObject == null || !resourceObject.CanBeRemovedByConstruction)
-            {
-                continue;
-            }
-
             bool intersectsRoad = roadCellsToAdd.Contains(occupiedCell.Key);
             for (int index = 0; index < roadPath.Count && !intersectsRoad; index++)
             {
@@ -1496,7 +1696,13 @@ public class MapManager : MonoBehaviour
 
             if (intersectsRoad)
             {
-                resourcesToRemove.Add(resourceObject);
+                foreach (ResourceObject resourceObject in occupiedCell.Value)
+                {
+                    if (resourceObject != null && resourceObject.CanBeRemovedByConstruction)
+                    {
+                        resourcesToRemove.Add(resourceObject);
+                    }
+                }
             }
         }
 
@@ -2255,10 +2461,17 @@ public class MapManager : MonoBehaviour
 
     private bool IsCellBlocked(Vector2Int cell)
     {
-        return (resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
-                && resourceObject != null)
+        return IsResourceCellOccupied(cell)
             || communityStorageCells.Contains(cell)
             || IsOccupiedByStartedHouse(cell);
+    }
+
+    private bool IsResourceCellOccupied(Vector2Int cell)
+    {
+        return resourceObjectsByCell.TryGetValue(
+                cell,
+                out HashSet<ResourceObject> resources)
+            && resources.Count > 0;
     }
 
     private void RefreshCommunityStorageIcons(
@@ -2416,7 +2629,7 @@ public class MapManager : MonoBehaviour
 
     private void RemoveBuildableOverResourceObjectsInPlot(HousePlotRecord housePlot)
     {
-        List<ResourceObject> resourcesToRemove = new List<ResourceObject>();
+        HashSet<ResourceObject> resourcesToRemove = new HashSet<ResourceObject>();
         for (int x = 0; x < housePlot.dimensions.x; x++)
         {
             for (int y = 0; y < housePlot.dimensions.y; y++)
@@ -2424,11 +2637,17 @@ public class MapManager : MonoBehaviour
                 Vector2Int cell = new Vector2Int(
                     housePlot.originCell.x + x,
                     housePlot.originCell.y + y);
-                if (resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
-                    && resourceObject != null
-                    && resourceObject.CanBeRemovedByConstruction)
+                if (resourceObjectsByCell.TryGetValue(
+                        cell,
+                        out HashSet<ResourceObject> cellResources))
                 {
-                    resourcesToRemove.Add(resourceObject);
+                    foreach (ResourceObject resourceObject in cellResources)
+                    {
+                        if (resourceObject != null && resourceObject.CanBeRemovedByConstruction)
+                        {
+                            resourcesToRemove.Add(resourceObject);
+                        }
+                    }
                 }
             }
         }
@@ -2443,16 +2662,24 @@ public class MapManager : MonoBehaviour
     {
         if (resourceObject == null
             || !resourceObject.HasGridCell
-            || !resourceObjectsByCell.TryGetValue(
-                resourceObject.GridCell,
-                out ResourceObject registeredObject)
-            || registeredObject != resourceObject)
+            || !registeredResourceObjects.Contains(resourceObject))
         {
             return;
         }
 
         resourceReservations.Remove(resourceObject);
-        resourceObjectsByCell.Remove(resourceObject.GridCell);
+        foreach (Vector2Int cell in resourceObject.OccupiedGridCells)
+        {
+            RemoveResourceObjectFromCell(cell, resourceObject);
+        }
+
+        registeredResourceObjects.Remove(resourceObject);
+        OutcropInstance outcrop = resourceObject.OutcropOwner;
+        if (outcrop != null && outcrop.RemoveResourceObject(resourceObject))
+        {
+            UnregisterOutcrop(outcrop);
+        }
+
         ResourceAvailabilityRevision++;
         PathfindingRevision++;
         Destroy(resourceObject.gameObject);
@@ -2473,7 +2700,187 @@ public class MapManager : MonoBehaviour
 
     public bool TryGetResourceObjectAtCell(Vector2Int cell, out ResourceObject resourceObject)
     {
-        return resourceObjectsByCell.TryGetValue(cell, out resourceObject);
+        resourceObject = null;
+        if (!resourceObjectsByCell.TryGetValue(cell, out HashSet<ResourceObject> resources))
+        {
+            return false;
+        }
+
+        foreach (ResourceObject candidate in resources)
+        {
+            if (candidate != null)
+            {
+                resourceObject = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryRegisterResourceObject(
+        ResourceObject resourceObject,
+        Vector2Int? anchorCell = null)
+    {
+        if (resourceObject == null
+            || settings == null
+            || settings.gridCellSize <= 0f)
+        {
+            return false;
+        }
+
+        Vector2Int anchor = anchorCell.HasValue
+            ? anchorCell.Value
+            : WorldPositionToGridCell(resourceObject.transform.position, settings.gridCellSize);
+        if (!resourceObject.TryGetOccupiedGridCells(
+                settings.gridCellSize,
+                out Vector2Int[] occupiedCells,
+                anchor))
+        {
+            return false;
+        }
+
+        resourceObject.SetGridCells(anchor, occupiedCells);
+        registeredResourceObjects.Add(resourceObject);
+        foreach (Vector2Int cell in occupiedCells)
+        {
+            AddResourceObjectToCell(cell, resourceObject);
+        }
+
+        if (resourceObject.OutcropOwner != null
+            && !outcropInstances.Contains(resourceObject.OutcropOwner))
+        {
+            outcropInstances.Add(resourceObject.OutcropOwner);
+        }
+
+        return true;
+    }
+
+    private bool UpdateResourceObjectCells(ResourceObject resourceObject)
+    {
+        if (resourceObject == null
+            || settings == null
+            || settings.gridCellSize <= 0f
+            || !registeredResourceObjects.Contains(resourceObject))
+        {
+            return false;
+        }
+
+        Vector2Int anchor = WorldPositionToGridCell(
+            resourceObject.transform.position,
+            settings.gridCellSize);
+        if (!resourceObject.TryGetOccupiedGridCells(
+                settings.gridCellSize,
+                out Vector2Int[] newCells,
+                anchor))
+        {
+            return false;
+        }
+
+        List<Vector2Int> previousCells =
+            new List<Vector2Int>(resourceObject.OccupiedGridCells);
+        resourceObject.SetGridCells(anchor, newCells);
+        bool changed = previousCells.Count != newCells.Length;
+        if (!changed)
+        {
+            foreach (Vector2Int cell in previousCells)
+            {
+                if (!ArrayContains(newCells, cell))
+                {
+                    changed = true;
+                    break;
+                }
+            }
+        }
+
+        foreach (Vector2Int cell in previousCells)
+        {
+            RemoveResourceObjectFromCell(cell, resourceObject);
+        }
+
+        foreach (Vector2Int cell in newCells)
+        {
+            AddResourceObjectToCell(cell, resourceObject);
+        }
+
+        if (changed)
+        {
+            PathfindingRevision++;
+        }
+
+        return changed;
+    }
+
+    private static bool ArrayContains(Vector2Int[] cells, Vector2Int cell)
+    {
+        foreach (Vector2Int candidate in cells)
+        {
+            if (candidate == cell)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void AddResourceObjectToCell(Vector2Int cell, ResourceObject resourceObject)
+    {
+        if (!resourceObjectsByCell.TryGetValue(cell, out HashSet<ResourceObject> resources))
+        {
+            resources = new HashSet<ResourceObject>();
+            resourceObjectsByCell.Add(cell, resources);
+        }
+
+        resources.Add(resourceObject);
+    }
+
+    private void RemoveResourceObjectFromCell(Vector2Int cell, ResourceObject resourceObject)
+    {
+        if (resourceObjectsByCell.TryGetValue(cell, out HashSet<ResourceObject> resources))
+        {
+            resources.Remove(resourceObject);
+            if (resources.Count == 0)
+            {
+                resourceObjectsByCell.Remove(cell);
+            }
+        }
+    }
+
+    private void UnregisterOutcrop(OutcropInstance outcrop)
+    {
+        if (outcrop == null)
+        {
+            return;
+        }
+
+        outcropInstances.Remove(outcrop);
+        Destroy(outcrop.gameObject);
+    }
+
+    private void UnregisterOutcropResources(OutcropInstance outcrop)
+    {
+        if (outcrop == null)
+        {
+            return;
+        }
+
+        foreach (ResourceObject resourceObject in outcrop.GetResourceObjects())
+        {
+            if (resourceObject == null
+                || !registeredResourceObjects.Remove(resourceObject))
+            {
+                continue;
+            }
+
+            resourceReservations.Remove(resourceObject);
+            foreach (Vector2Int cell in resourceObject.OccupiedGridCells)
+            {
+                RemoveResourceObjectFromCell(cell, resourceObject);
+            }
+        }
+
+        outcropInstances.Remove(outcrop);
     }
 
     public bool IsRoadCell(Vector2Int cell)
@@ -2581,16 +2988,12 @@ public class MapManager : MonoBehaviour
 
     public void NotifyResourceAvailabilityChanged(ResourceObject resourceObject)
     {
-        if (resourceObject == null
-            || !resourceObject.HasGridCell
-            || !resourceObjectsByCell.TryGetValue(
-                resourceObject.GridCell,
-                out ResourceObject registeredObject)
-            || registeredObject != resourceObject)
+        if (resourceObject == null || !registeredResourceObjects.Contains(resourceObject))
         {
             return;
         }
 
+        UpdateResourceObjectCells(resourceObject);
         ResourceAvailabilityRevision++;
     }
 
@@ -2650,7 +3053,7 @@ public class MapManager : MonoBehaviour
 
         List<KeyValuePair<float, ResourceObject>> reachableCandidates =
             new List<KeyValuePair<float, ResourceObject>>();
-        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        foreach (ResourceObject resourceObject in registeredResourceObjects)
         {
             if (resourceObject == null
                 || (excludedResources != null && excludedResources.Contains(resourceObject)))
@@ -2707,6 +3110,7 @@ public class MapManager : MonoBehaviour
                 GetResourceInteractionTarget(
                     resourceObject,
                     resourceType,
+                    position,
                     arrivalDistance,
                     out Vector3 targetPosition,
                     out float targetArrivalDistance);
@@ -2752,7 +3156,7 @@ public class MapManager : MonoBehaviour
             requireReachable
                 ? new List<KeyValuePair<float, ResourceObject>>()
                 : null;
-        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        foreach (ResourceObject resourceObject in registeredResourceObjects)
         {
             if (resourceObject == null
                 || (excludedResources != null && excludedResources.Contains(resourceObject))
@@ -2799,6 +3203,7 @@ public class MapManager : MonoBehaviour
                 GetResourceInteractionTarget(
                     resourceObject,
                     resourceType,
+                    position,
                     arrivalDistance,
                     out Vector3 targetPosition,
                     out float targetArrivalDistance);
@@ -2832,20 +3237,72 @@ public class MapManager : MonoBehaviour
         return true;
     }
 
-    private void GetResourceInteractionTarget(
+    public void GetResourceInteractionTarget(
         ResourceObject resourceObject,
         ResourceType resourceType,
+        Vector3 fromPosition,
         float arrivalDistance,
         out Vector3 targetPosition,
         out float targetArrivalDistance)
     {
         Vector2Int interactionOffset = resourceObject.GetInteractionOffset(resourceType);
-        targetPosition = interactionOffset != Vector2Int.zero
-            ? GetGridCellBounds(resourceObject.GridCell + interactionOffset).center
-            : resourceObject.transform.position;
-        targetArrivalDistance = interactionOffset != Vector2Int.zero
-            ? 0.1f
-            : arrivalDistance;
+        if (interactionOffset != Vector2Int.zero)
+        {
+            targetPosition =
+                GetGridCellBounds(resourceObject.GridCell + interactionOffset).center;
+            targetArrivalDistance = 0.1f;
+            return;
+        }
+
+        targetPosition = resourceObject.transform.position;
+        targetArrivalDistance = arrivalDistance;
+        if (resourceObject.OutcropOwner == null)
+        {
+            return;
+        }
+
+        float closestDistanceSquared = float.PositiveInfinity;
+        HashSet<Vector2Int> checkedCells = new HashSet<Vector2Int>();
+        Vector2Int[] directions =
+        {
+            Vector2Int.up,
+            Vector2Int.right,
+            Vector2Int.down,
+            Vector2Int.left
+        };
+        foreach (Vector2Int occupiedCell in resourceObject.OccupiedGridCells)
+        {
+            foreach (Vector2Int direction in directions)
+            {
+                Vector2Int approachCell = occupiedCell + direction;
+                if (!checkedCells.Add(approachCell)
+                    || IsCellBlocked(approachCell))
+                {
+                    continue;
+                }
+
+                Vector3 approachPosition = GetGridCellBounds(approachCell).center;
+                if (!TryFindPath(
+                        fromPosition,
+                        approachPosition,
+                        0.1f,
+                        out List<Vector3> waypoints)
+                    || waypoints == null
+                    || waypoints.Count == 0)
+                {
+                    continue;
+                }
+
+                float distanceSquared =
+                    (approachPosition - fromPosition).sqrMagnitude;
+                if (distanceSquared < closestDistanceSquared)
+                {
+                    closestDistanceSquared = distanceSquared;
+                    targetPosition = approachPosition;
+                    targetArrivalDistance = 0.1f;
+                }
+            }
+        }
     }
 
     public void ReleaseResourceReservation(ResourceObject resourceObject, Villager villager)
@@ -2891,8 +3348,7 @@ public class MapManager : MonoBehaviour
             || !resourceReservations.TryGetValue(resourceObject, out Villager reservingVillager)
             || reservingVillager != villager
             || !resourceObject.HasGridCell
-            || !resourceObjectsByCell.TryGetValue(resourceObject.GridCell, out ResourceObject registeredObject)
-            || registeredObject != resourceObject)
+            || !registeredResourceObjects.Contains(resourceObject))
         {
             return false;
         }
@@ -2903,10 +3359,12 @@ public class MapManager : MonoBehaviour
             ReleaseResourceReservation(resourceObject, villager);
             if (!resourceObject.CanRegenerateAnyResource || resourceObject.IsPrimaryResourceDepleted)
             {
-                resourceObjectsByCell.Remove(resourceObject.GridCell);
-                PathfindingRevision++;
-                Destroy(resourceObject.gameObject);
+                RemoveResourceObjectWithoutYield(resourceObject);
             }
+        }
+        else
+        {
+            NotifyResourceAvailabilityChanged(resourceObject);
         }
 
         return gatheredAmount > 0;
@@ -3570,8 +4028,20 @@ public class MapManager : MonoBehaviour
 
     private bool IsBlockingResourceObject(Vector2Int cell)
     {
-        return resourceObjectsByCell.TryGetValue(cell, out ResourceObject resourceObject)
-            && (resourceObject == null || !resourceObject.CanBeRemovedByConstruction);
+        if (!resourceObjectsByCell.TryGetValue(cell, out HashSet<ResourceObject> resources))
+        {
+            return false;
+        }
+
+        foreach (ResourceObject resourceObject in resources)
+        {
+            if (resourceObject == null || !resourceObject.CanBeRemovedByConstruction)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public bool TryGetResourceObjectOnPath(
@@ -3589,17 +4059,23 @@ public class MapManager : MonoBehaviour
         Vector2 start = startPosition;
         Vector2 end = endPosition;
         Vector2Int startCell = WorldPositionToGridCell(startPosition, gridCellSize);
-        foreach (KeyValuePair<Vector2Int, ResourceObject> occupiedCell in resourceObjectsByCell)
+        foreach (KeyValuePair<Vector2Int, HashSet<ResourceObject>> occupiedCell in resourceObjectsByCell)
         {
-            if (occupiedCell.Key == startCell || occupiedCell.Value == null)
+            if (occupiedCell.Key == startCell)
             {
                 continue;
             }
 
             if (SegmentIntersectsCell(start, end, occupiedCell.Key, gridCellSize))
             {
-                resourceObject = occupiedCell.Value;
-                return true;
+                foreach (ResourceObject candidate in occupiedCell.Value)
+                {
+                    if (candidate != null)
+                    {
+                        resourceObject = candidate;
+                        return true;
+                    }
+                }
             }
         }
 
@@ -3718,18 +4194,20 @@ public class MapManager : MonoBehaviour
         Vector2 start = startPosition;
         Vector2 end = endPosition;
         float gridCellSize = settings.gridCellSize;
-        foreach (KeyValuePair<Vector2Int, ResourceObject> occupiedCell in resourceObjectsByCell)
+        foreach (KeyValuePair<Vector2Int, HashSet<ResourceObject>> occupiedCell in resourceObjectsByCell)
         {
-            if (occupiedCell.Value == null)
+            if (!SegmentIntersectsCell(start, end, occupiedCell.Key, gridCellSize))
             {
                 continue;
             }
 
-            if (!occupiedCell.Value.CanBeRemovedByConstruction
-                && SegmentIntersectsCell(start, end, occupiedCell.Key, gridCellSize))
+            foreach (ResourceObject candidate in occupiedCell.Value)
             {
-                resourceObject = occupiedCell.Value;
-                return true;
+                if (candidate == null || !candidate.CanBeRemovedByConstruction)
+                {
+                    resourceObject = candidate;
+                    return true;
+                }
             }
         }
 
@@ -3878,6 +4356,9 @@ public class MapManager : MonoBehaviour
         roadKeyPoints.Clear();
         roads.Clear();
         roadCells.Clear();
+        resourceObjectsByCell.Clear();
+        registeredResourceObjects.Clear();
+        outcropInstances.Clear();
         claimedHouseCells.Clear();
         communityStorageCells.Clear();
         communityStorages.Clear();
@@ -4004,9 +4485,14 @@ public class MapManager : MonoBehaviour
 
     private void SpawnResourceObjects(ResourceObjectDefinition definition)
     {
-        if (definition == null || definition.spawnSettings == null)
+        if (definition == null)
         {
-            Debug.LogError("A resource object definition or its spawn settings are missing.", this);
+            Debug.LogError("A resource object definition is missing.", this);
+            return;
+        }
+
+        if (definition.spawnSettings == null)
+        {
             return;
         }
 
@@ -4078,6 +4564,15 @@ public class MapManager : MonoBehaviour
 
         float minimumDistanceSquared = spawnSettings.minimumSpacing * spawnSettings.minimumSpacing;
         HashSet<Vector2Int> occupiedCells = new HashSet<Vector2Int>(resourceObjectsByCell.Keys);
+        List<Vector3> existingResourcePositions = new List<Vector3>();
+        foreach (ResourceObject existingResource in registeredResourceObjects)
+        {
+            if (existingResource != null)
+            {
+                existingResourcePositions.Add(existingResource.transform.position);
+            }
+        }
+
         int spawnedCount = 0;
 
         for (int objectIndex = 0; objectIndex < spawnSettings.count; objectIndex++)
@@ -4100,10 +4595,8 @@ public class MapManager : MonoBehaviour
                 cellPosition = GridCellToGridIntersectionPosition(cell, gridCellSize);
                 cellPosition.z = transform.position.z;
                 bool isTooClose = false;
-                foreach (Vector2Int existingCell in occupiedCells)
+                foreach (Vector3 existingPosition in existingResourcePositions)
                 {
-                    Vector3 existingPosition =
-                        GridCellToGridIntersectionPosition(existingCell, gridCellSize);
                     if ((cellPosition - existingPosition).sqrMagnitude < minimumDistanceSquared)
                     {
                         isTooClose = true;
@@ -4141,9 +4634,21 @@ public class MapManager : MonoBehaviour
                 continue;
             }
 
-            resourceObject.SetGridCell(cell);
-            resourceObjectsByCell.Add(cell, resourceObject);
-            occupiedCells.Add(cell);
+            if (!TryRegisterResourceObject(resourceObject, cell))
+            {
+                Debug.LogError(
+                    "Could not register resource object '" + definition.id + "' on its occupied cells.",
+                    resourceObject);
+                Destroy(resourceObject.gameObject);
+                continue;
+            }
+
+            foreach (Vector2Int occupiedCell in resourceObject.OccupiedGridCells)
+            {
+                occupiedCells.Add(occupiedCell);
+            }
+
+            existingResourcePositions.Add(resourceObject.transform.position);
             PathfindingRevision++;
             spawnedCount++;
         }
@@ -4154,6 +4659,226 @@ public class MapManager : MonoBehaviour
                 "Placed " + spawnedCount + " of " + spawnSettings.count
                 + " requested '" + definition.id
                 + "' resource objects. Increase the map size or placement attempts, or reduce minimum spacing.",
+                this);
+        }
+    }
+
+    private void SpawnOutcrops()
+    {
+        OutcropDefinition[] definitions = GameData.Instance.outcropDefinitions;
+        if (definitions == null)
+        {
+            Debug.LogError("Outcrop definitions could not be loaded from GameData.", this);
+            return;
+        }
+
+        foreach (OutcropDefinition definition in definitions)
+        {
+            SpawnOutcrops(definition);
+        }
+    }
+
+    private void SpawnOutcrops(OutcropDefinition definition)
+    {
+        if (definition == null
+            || definition.prefab == null
+            || definition.spawnSettings == null
+            || definition.resourceObjects == null
+            || definition.resourceObjects.Length == 0)
+        {
+            Debug.LogError("An outcrop definition is incomplete.", this);
+            return;
+        }
+
+        OutcropSpawnSettings spawnSettings = definition.spawnSettings;
+        if (spawnSettings.count == 0)
+        {
+            return;
+        }
+
+        if (settings == null
+            || settings.gridCellSize <= 0f
+            || mapSize.x <= 0f
+            || mapSize.y <= 0f
+            || spawnSettings.edgePadding * 2f >= mapSize.x
+            || spawnSettings.edgePadding * 2f >= mapSize.y)
+        {
+            Debug.LogError("Outcrop spawn settings are invalid for '" + definition.id + "'.", this);
+            return;
+        }
+
+        System.Random random = new System.Random(
+            spawnSettings.randomSeed == 0
+                ? Environment.TickCount
+                : spawnSettings.randomSeed);
+        float gridCellSize = settings.gridCellSize;
+        Vector2 mapMinimum = (Vector2)transform.position - mapSize * 0.5f;
+        Vector2 mapMaximum = (Vector2)transform.position + mapSize * 0.5f;
+        int minimumCellX = Mathf.CeilToInt(
+            (mapMinimum.x + spawnSettings.edgePadding) / gridCellSize);
+        int maximumCellX = Mathf.FloorToInt(
+            (mapMaximum.x - spawnSettings.edgePadding) / gridCellSize);
+        int minimumCellY = Mathf.CeilToInt(
+            (mapMinimum.y + spawnSettings.edgePadding) / gridCellSize);
+        int maximumCellY = Mathf.FloorToInt(
+            (mapMaximum.y - spawnSettings.edgePadding) / gridCellSize);
+        if (minimumCellX > maximumCellX || minimumCellY > maximumCellY)
+        {
+            Debug.LogError("The map is too small to place outcrops.", this);
+            return;
+        }
+
+        float minimumDistanceSquared =
+            spawnSettings.minimumSpacing * spawnSettings.minimumSpacing;
+        List<Vector3> spawnedOutcropPositions = new List<Vector3>();
+        int spawnedCount = 0;
+        for (int outcropIndex = 0; outcropIndex < spawnSettings.count; outcropIndex++)
+        {
+            OutcropInstance outcrop = Instantiate(
+                definition.prefab,
+                transform.position,
+                Quaternion.identity,
+                transform).GetComponent<OutcropInstance>();
+            if (outcrop == null || !outcrop.Initialize(definition))
+            {
+                if (outcrop != null)
+                {
+                    Destroy(outcrop.gameObject);
+                }
+
+                Debug.LogError("Could not initialize outcrop '" + definition.id + "'.", this);
+                continue;
+            }
+
+            float scale = RandomRange(
+                random,
+                spawnSettings.scaleRange.x,
+                spawnSettings.scaleRange.y);
+            outcrop.transform.localScale *= scale;
+            bool foundPosition = false;
+            Vector3 position = Vector3.zero;
+            Quaternion rotation = Quaternion.identity;
+            List<Vector2Int> occupiedCells = new List<Vector2Int>();
+
+            for (int attempt = 0;
+                attempt < spawnSettings.placementAttemptsPerOutcrop;
+                attempt++)
+            {
+                Vector2Int candidateCell = new Vector2Int(
+                    random.Next(minimumCellX, maximumCellX + 1),
+                    random.Next(minimumCellY, maximumCellY + 1));
+                position = GridCellToGridIntersectionPosition(candidateCell, gridCellSize);
+                position.z = transform.position.z;
+                rotation = spawnSettings.randomizeRotation
+                    ? Quaternion.Euler(0f, 0f, RandomRange(random, 0f, 360f))
+                    : Quaternion.identity;
+                outcrop.transform.SetPositionAndRotation(position, rotation);
+
+                bool overlaps = false;
+                occupiedCells.Clear();
+                HashSet<Vector2Int> outcropCells = new HashSet<Vector2Int>();
+                foreach (ResourceObject resourceObject in outcrop.GetResourceObjects())
+                {
+                    if (resourceObject == null
+                        || !resourceObject.TryGetOccupiedGridCells(
+                            gridCellSize,
+                            out Vector2Int[] resourceCells))
+                    {
+                        overlaps = true;
+                        break;
+                    }
+
+                    foreach (Vector2Int resourceCell in resourceCells)
+                    {
+                        if (!outcropCells.Add(resourceCell))
+                        {
+                            continue;
+                        }
+
+                        occupiedCells.Add(resourceCell);
+                        if (!IsCellInsideMap(resourceCell)
+                            || IsCellOccupiedForResourceSpawn(resourceCell))
+                        {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+
+                    if (overlaps)
+                    {
+                        break;
+                    }
+                }
+
+                if (overlaps)
+                {
+                    continue;
+                }
+
+                foreach (ResourceObject resourceObject in registeredResourceObjects)
+                {
+                    if (resourceObject != null
+                        && (resourceObject.transform.position - position).sqrMagnitude
+                            < minimumDistanceSquared)
+                    {
+                        overlaps = true;
+                        break;
+                    }
+                }
+
+                for (int existingIndex = 0;
+                    existingIndex < spawnedOutcropPositions.Count && !overlaps;
+                    existingIndex++)
+                {
+                    overlaps = (spawnedOutcropPositions[existingIndex] - position).sqrMagnitude
+                        < minimumDistanceSquared;
+                }
+
+                if (!overlaps)
+                {
+                    foundPosition = true;
+                    break;
+                }
+            }
+
+            if (!foundPosition)
+            {
+                Destroy(outcrop.gameObject);
+                continue;
+            }
+
+            bool registeredAllResources = true;
+            foreach (ResourceObject resourceObject in outcrop.GetResourceObjects())
+            {
+                if (!TryRegisterResourceObject(resourceObject))
+                {
+                    Debug.LogError(
+                        "Could not register a resource object in outcrop '" + definition.id + "'.",
+                        outcrop);
+                    registeredAllResources = false;
+                    break;
+                }
+
+                PathfindingRevision++;
+                ResourceAvailabilityRevision++;
+            }
+
+            if (!registeredAllResources)
+            {
+                UnregisterOutcropResources(outcrop);
+                Destroy(outcrop.gameObject);
+                continue;
+            }
+
+            spawnedOutcropPositions.Add(position);
+            spawnedCount++;
+        }
+
+        if (spawnedCount < spawnSettings.count)
+        {
+            Debug.LogWarning(
+                "Placed " + spawnedCount + " of " + spawnSettings.count + " requested '"
+                + definition.id + "' outcrops. Increase placement attempts or reduce count/spacing.",
                 this);
         }
     }
@@ -4218,7 +4943,7 @@ public class MapManager : MonoBehaviour
         ResourceObjectRuntimeSpawningSettings runtimeSettings)
     {
         int resourceObjectCount = 0;
-        foreach (ResourceObject resourceObject in resourceObjectsByCell.Values)
+        foreach (ResourceObject resourceObject in registeredResourceObjects)
         {
             if (resourceObject != null && resourceObject.DefinitionId == definition.id)
             {
@@ -4294,8 +5019,34 @@ public class MapManager : MonoBehaviour
             return;
         }
 
-        gameResourceObject.SetGridCell(cell);
-        resourceObjectsByCell.Add(cell, gameResourceObject);
+        if (!gameResourceObject.TryGetOccupiedGridCells(
+                gridCellSize,
+                out Vector2Int[] occupiedCells,
+                cell))
+        {
+            Debug.LogError(
+                "Could not calculate occupied cells for runtime resource object '"
+                + definition.id + "'.",
+                gameResourceObject);
+            Destroy(gameResourceObject.gameObject);
+            return;
+        }
+
+        foreach (Vector2Int occupiedCell in occupiedCells)
+        {
+            if (IsCellOccupiedForResourceSpawn(occupiedCell))
+            {
+                Destroy(gameResourceObject.gameObject);
+                return;
+            }
+        }
+
+        if (!TryRegisterResourceObject(gameResourceObject, cell))
+        {
+            Destroy(gameResourceObject.gameObject);
+            return;
+        }
+
         PathfindingRevision++;
         NotifyResourceAvailabilityChanged(gameResourceObject);
         loggedRuntimeSpawnPositionFailures.Remove(definition);

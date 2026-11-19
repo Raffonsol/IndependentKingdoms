@@ -20,6 +20,10 @@ public class ResourceObject : MonoBehaviour
     }
 
     public Vector2Int GridCell { get; private set; }
+    public IReadOnlyList<Vector2Int> OccupiedGridCells
+    {
+        get { return occupiedGridCells; }
+    }
 
     public ResourceType PrimaryResourceType { get; private set; }
 
@@ -44,8 +48,12 @@ public class ResourceObject : MonoBehaviour
         new Dictionary<ResourceType, ResourceStock>();
     private readonly List<SpriteRenderer> stageVisualRenderers = new List<SpriteRenderer>();
     private readonly List<ResourceType> availableResourceTypes = new List<ResourceType>();
+    private readonly List<Vector2Int> occupiedGridCells = new List<Vector2Int>();
     private ResourceType resourceType;
     private ResourceObjectDefinition definition;
+    private Sprite visualSpriteOverride;
+    private OutcropInstance outcropOwner;
+    private string outcropChildPath;
     private int currentStage;
     private int nextVisualIndex;
     private float growthElapsedSeconds;
@@ -105,21 +113,35 @@ public class ResourceObject : MonoBehaviour
     }
 
     public Vector2Int InteractionOffset { get; private set; }
+    public OutcropInstance OutcropOwner
+    {
+        get { return outcropOwner; }
+    }
 
     private void Awake()
     {
         sortingAnchor = transform.Find("SortingAnchor");
-        visualRoot = sortingAnchor != null
-            ? sortingAnchor.Find("Visuals")
-            : null;
+        if (sortingAnchor == null)
+        {
+            sortingAnchor = transform;
+        }
+
+        visualRoot = sortingAnchor.Find("Visuals");
         sortingGroup = sortingAnchor != null
             ? sortingAnchor.GetComponent<UnityEngine.Rendering.SortingGroup>()
             : null;
+        if (visualRoot == null)
+        {
+            GameObject visualsObject = new GameObject("Visuals");
+            visualRoot = visualsObject.transform;
+            visualRoot.SetParent(sortingAnchor, false);
+        }
+
         groundShadow = GetComponentInChildren<GroundShadow>(true);
-        if (sortingAnchor == null || visualRoot == null || sortingGroup == null)
+        if (sortingGroup == null)
         {
             Debug.LogError(
-                "Resource object prefab is missing SortingAnchor/Visuals/SortingGroup.",
+                "Resource object prefab is missing a SortingGroup on its root or SortingAnchor.",
                 this);
             return;
         }
@@ -162,7 +184,8 @@ public class ResourceObject : MonoBehaviour
     public bool Initialize(
         ResourceObjectDefinition definition,
         int stage = 0,
-        float elapsedGrowthSeconds = 0f)
+        float elapsedGrowthSeconds = 0f,
+        Sprite visualSpriteOverride = null)
     {
         if (definition == null || string.IsNullOrWhiteSpace(definition.id)
             || definition.stages == null
@@ -193,12 +216,21 @@ public class ResourceObject : MonoBehaviour
         if (sortingAnchor == null || visualRoot == null)
         {
             sortingAnchor = transform.Find("SortingAnchor");
-            visualRoot = sortingAnchor != null
-                ? sortingAnchor.Find("Visuals")
-                : null;
+            if (sortingAnchor == null)
+            {
+                sortingAnchor = transform;
+            }
+
+            visualRoot = sortingAnchor.Find("Visuals");
             sortingGroup = sortingAnchor != null
                 ? sortingAnchor.GetComponent<UnityEngine.Rendering.SortingGroup>()
                 : null;
+            if (visualRoot == null)
+            {
+                GameObject visualsObject = new GameObject("Visuals");
+                visualRoot = visualsObject.transform;
+                visualRoot.SetParent(sortingAnchor, false);
+            }
         }
 
         if (sortingAnchor == null || visualRoot == null || sortingGroup == null)
@@ -237,13 +269,14 @@ public class ResourceObject : MonoBehaviour
         }
 
         this.definition = definition;
+        this.visualSpriteOverride = visualSpriteOverride;
         DefinitionId = definition.id;
         PrimaryResourceType = definition.primaryResourceTypeWasExplicitlySet
             ? definition.primaryResourceType
             : stageDefinition.outputs.Length > 0
                 ? stageDefinition.outputs[0].type
                 : default(ResourceType);
-        if (groundShadow == null || !ConfigureStage(stage, elapsedGrowthSeconds))
+        if (!ConfigureStage(stage, elapsedGrowthSeconds))
         {
             Debug.LogError(
                 "Resource object '" + definition.id
@@ -326,9 +359,16 @@ public class ResourceObject : MonoBehaviour
         SpriteRenderer renderer;
         if (nextVisualIndex >= stageVisualRenderers.Count)
         {
-            GameObject visualObject = new GameObject(visualName);
-            visualObject.transform.SetParent(visualRoot, false);
-            renderer = visualObject.AddComponent<SpriteRenderer>();
+            renderer = nextVisualIndex == 0
+                ? GetComponent<SpriteRenderer>()
+                : null;
+            if (renderer == null)
+            {
+                GameObject visualObject = new GameObject(visualName);
+                visualObject.transform.SetParent(visualRoot, false);
+                renderer = visualObject.AddComponent<SpriteRenderer>();
+            }
+
             stageVisualRenderers.Add(renderer);
         }
         else
@@ -337,11 +377,16 @@ public class ResourceObject : MonoBehaviour
         }
 
         nextVisualIndex++;
-        renderer.gameObject.name = visualName;
-        renderer.transform.localPosition = Vector3.zero;
-        renderer.transform.localRotation = Quaternion.identity;
-        renderer.transform.localScale = Vector3.one;
+        if (renderer.transform != transform)
+        {
+            renderer.gameObject.name = visualName;
+            renderer.transform.localPosition = Vector3.zero;
+            renderer.transform.localRotation = Quaternion.identity;
+            renderer.transform.localScale = Vector3.one;
+        }
+
         renderer.gameObject.SetActive(true);
+        renderer.enabled = true;
         renderer.sprite = sprite;
         renderer.color = color;
         renderer.sortingOrder = sortingOrder;
@@ -356,7 +401,7 @@ public class ResourceObject : MonoBehaviour
             if (renderer != null)
             {
                 renderer.sprite = null;
-                renderer.gameObject.SetActive(false);
+                renderer.enabled = false;
             }
         }
 
@@ -417,12 +462,16 @@ public class ResourceObject : MonoBehaviour
             || stageDefinition.outputs == null
             || stageDefinition.shadowSize.x <= 0f
             || stageDefinition.shadowSize.y <= 0f
-            || groundShadow == null)
+            || (stageDefinition.hasShadow && groundShadow == null))
         {
             return false;
         }
 
-        groundShadow.gameObject.SetActive(stageDefinition.hasShadow);
+        if (groundShadow != null)
+        {
+            groundShadow.gameObject.SetActive(stageDefinition.hasShadow);
+        }
+
         if (stageDefinition.hasShadow
             && !groundShadow.Configure(stageDefinition.shadowSize, definition.shadowOffset))
         {
@@ -438,13 +487,16 @@ public class ResourceObject : MonoBehaviour
         for (int visualIndex = 0; visualIndex < stageDefinition.visuals.Length; visualIndex++)
         {
             ResourceObjectVisualDefinition visual = stageDefinition.visuals[visualIndex];
-            if (visual == null || visual.sprite == null)
+            if (visual == null
+                || (visualSpriteOverride == null && visual.sprite == null))
             {
                 return false;
             }
 
             CreateVisualRenderer(
-                visual.sprite,
+                visualIndex == 0 && visualSpriteOverride != null
+                    ? visualSpriteOverride
+                    : visual.sprite,
                 visual.color,
                 visual.sortingOrder,
                 "ResourceVisual_" + stage + "_" + visualIndex);
@@ -697,5 +749,124 @@ public class ResourceObject : MonoBehaviour
     {
         GridCell = gridCell;
         HasGridCell = true;
+        occupiedGridCells.Clear();
+        occupiedGridCells.Add(gridCell);
+    }
+
+    public bool TryGetOccupiedGridCells(
+        float gridCellSize,
+        out Vector2Int[] gridCells,
+        Vector2Int? singleCellAnchor = null)
+    {
+        gridCells = null;
+        if (gridCellSize <= 0f
+            || float.IsNaN(gridCellSize)
+            || float.IsInfinity(gridCellSize))
+        {
+            return false;
+        }
+
+        if (definition != null
+            && definition.occupancyMode == ResourceObjectOccupancyMode.SingleCell)
+        {
+            Vector2Int cell = singleCellAnchor.HasValue
+                ? singleCellAnchor.Value
+                : HasGridCell
+                    ? GridCell
+                    : new Vector2Int(
+                        Mathf.FloorToInt(transform.position.x / gridCellSize),
+                        Mathf.FloorToInt(transform.position.y / gridCellSize));
+            gridCells = new[] { cell };
+            return true;
+        }
+
+        bool hasBounds = false;
+        Bounds occupiedBounds = new Bounds();
+        SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        foreach (SpriteRenderer renderer in renderers)
+        {
+            if (renderer == null
+                || !renderer.enabled
+                || !renderer.gameObject.activeInHierarchy
+                || renderer.sprite == null)
+            {
+                continue;
+            }
+
+            if (!hasBounds)
+            {
+                occupiedBounds = renderer.bounds;
+                hasBounds = true;
+            }
+            else
+            {
+                occupiedBounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (!hasBounds)
+        {
+            gridCells = new[]
+            {
+                new Vector2Int(
+                    Mathf.FloorToInt(transform.position.x / gridCellSize),
+                    Mathf.FloorToInt(transform.position.y / gridCellSize))
+            };
+            return true;
+        }
+
+        int minimumX = Mathf.FloorToInt(occupiedBounds.min.x / gridCellSize);
+        int minimumY = Mathf.FloorToInt(occupiedBounds.min.y / gridCellSize);
+        int maximumX = Mathf.CeilToInt(occupiedBounds.max.x / gridCellSize) - 1;
+        int maximumY = Mathf.CeilToInt(occupiedBounds.max.y / gridCellSize) - 1;
+        if (maximumX < minimumX || maximumY < minimumY)
+        {
+            return false;
+        }
+
+        List<Vector2Int> cells = new List<Vector2Int>();
+        for (int x = minimumX; x <= maximumX; x++)
+        {
+            for (int y = minimumY; y <= maximumY; y++)
+            {
+                cells.Add(new Vector2Int(x, y));
+            }
+        }
+
+        gridCells = cells.ToArray();
+        return gridCells.Length > 0;
+    }
+
+    public void SetGridCells(Vector2Int anchorCell, IList<Vector2Int> gridCells)
+    {
+        GridCell = anchorCell;
+        HasGridCell = true;
+        occupiedGridCells.Clear();
+        if (gridCells != null)
+        {
+            for (int index = 0; index < gridCells.Count; index++)
+            {
+                if (!occupiedGridCells.Contains(gridCells[index]))
+                {
+                    occupiedGridCells.Add(gridCells[index]);
+                }
+            }
+        }
+
+        if (occupiedGridCells.Count == 0)
+        {
+            occupiedGridCells.Add(anchorCell);
+        }
+    }
+
+    internal void SetOutcropOwner(OutcropInstance owner, string childPath)
+    {
+        outcropOwner = owner;
+        outcropChildPath = childPath;
+    }
+
+    internal string GetOutcropChildPath()
+    {
+        return outcropChildPath;
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
@@ -11,6 +12,7 @@ public class GameData
     private const string ResourceDefinitionsResourcePath = "Data/ResourceDefinitions";
     private const string ItemDefinitionsResourcePath = "Data/ItemDefinitions";
     private const string ResourceObjectDataResourcePath = "Data/ResourceObjects";
+    private const string OutcropDataResourcePath = "Data/Outcrops";
     private const string NamingPartsResourcePath = "Data/NamingParts";
     private const string HouseDefinitionsResourcePath = "Data/HouseDefinitions";
     private const string JobDefinitionsResourcePath = "Data/JobDefinitions";
@@ -18,11 +20,25 @@ public class GameData
     private const string VillagerPersonalityValuesResourcePath = "Data/VillagerPersonalityValues";
     private const string ResourceObjectSpriteResourcePath = "ResourceParts";
 
-    private static readonly GameData instance = Load();
+    private static GameData instance;
 
     public static GameData Instance
     {
-        get { return instance; }
+        get
+        {
+            if (instance == null)
+            {
+                instance = Load();
+            }
+
+            return instance;
+        }
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetInstance()
+    {
+        instance = null;
     }
 
     public Body[] bodies;
@@ -41,6 +57,7 @@ public class GameData
     public ResourceDefinition[] resourceDefinitions;
     public ItemDefinition[] itemDefinitions;
     public ResourceObjectDefinition[] resourceObjectDefinitions;
+    public OutcropDefinition[] outcropDefinitions;
     public NamePart[] nameParts;
     public VillagerPersonalityValue[] villagerPersonalityValues;
     public JobDefinition[] jobDefinitions;
@@ -58,6 +75,25 @@ public class GameData
             foreach (ResourceDefinition candidate in resourceDefinitions)
             {
                 if (candidate != null && candidate.type == resourceType)
+                {
+                    definition = candidate;
+                    return true;
+                }
+            }
+        }
+
+        definition = null;
+        return false;
+    }
+
+    public bool TryGetOutcropDefinition(string id, out OutcropDefinition definition)
+    {
+        if (outcropDefinitions != null)
+        {
+            foreach (OutcropDefinition candidate in outcropDefinitions)
+            {
+                if (candidate != null
+                    && string.Equals(candidate.id, id, StringComparison.OrdinalIgnoreCase))
                 {
                     definition = candidate;
                     return true;
@@ -168,11 +204,198 @@ public class GameData
                 && houseDefinitions.Length > 0);
     }
 
+    private static OutcropDefinition[] LoadOutcropDefinitions(
+        ResourceObjectDefinition[] resourceObjectDefinitions)
+    {
+        TextAsset dataJson = Resources.Load<TextAsset>(OutcropDataResourcePath);
+        if (dataJson == null)
+        {
+            Debug.LogError(
+                "Could not load outcrop data at Resources/" + OutcropDataResourcePath + ".json.");
+            return new OutcropDefinition[0];
+        }
+
+        try
+        {
+            OutcropDataCollection collection =
+                JsonUtility.FromJson<OutcropDataCollection>(dataJson.text);
+            if (collection == null || collection.outcrops == null)
+            {
+                Debug.LogError("Outcrop data must define an outcrops array.");
+                return new OutcropDefinition[0];
+            }
+
+            OutcropDefinition[] definitions =
+                new OutcropDefinition[collection.outcrops.Length];
+            for (int index = 0; index < collection.outcrops.Length; index++)
+            {
+                OutcropDefinitionRecord record = collection.outcrops[index];
+                if (record == null
+                    || string.IsNullOrWhiteSpace(record.id)
+                    || string.IsNullOrWhiteSpace(record.prefabResourcePath)
+                    || record.prefabResourcePath.Contains("..")
+                    || record.spawnSettings == null
+                    || !IsValidOutcropSpawnSettings(record.spawnSettings)
+                    || record.resourceObjects == null
+                    || record.resourceObjects.Length == 0)
+                {
+                    Debug.LogError("Outcrop data contains an invalid definition at index " + index + ".");
+                    return new OutcropDefinition[0];
+                }
+
+                for (int previousIndex = 0; previousIndex < index; previousIndex++)
+                {
+                    if (string.Equals(
+                            collection.outcrops[previousIndex].id,
+                            record.id,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        Debug.LogError("Outcrop IDs must be unique.");
+                        return new OutcropDefinition[0];
+                    }
+                }
+
+                GameObject prefab = Resources.Load<GameObject>(record.prefabResourcePath);
+                if (prefab == null
+                    || prefab.GetComponent<OutcropInstance>() == null
+                    || prefab.GetComponent<UnityEngine.Rendering.SortingGroup>() != null)
+                {
+                    Debug.LogError(
+                        "Outcrop '" + record.id + "' references a missing prefab or one without "
+                        + "a valid OutcropInstance root at Resources/"
+                        + record.prefabResourcePath + ".");
+                    return new OutcropDefinition[0];
+                }
+
+                ResourceObject[] prefabResources =
+                    prefab.GetComponentsInChildren<ResourceObject>(true);
+                if (prefabResources.Length != record.resourceObjects.Length)
+                {
+                    Debug.LogError(
+                        "Outcrop '" + record.id
+                        + "' must define every ResourceObject in its prefab exactly once.");
+                    return new OutcropDefinition[0];
+                }
+
+                OutcropResourceObjectDefinition[] resourceObjects =
+                    new OutcropResourceObjectDefinition[record.resourceObjects.Length];
+                HashSet<string> hierarchyPaths =
+                    new HashSet<string>(StringComparer.Ordinal);
+                HashSet<ResourceObject> configuredObjects = new HashSet<ResourceObject>();
+                for (int resourceIndex = 0;
+                    resourceIndex < record.resourceObjects.Length;
+                    resourceIndex++)
+                {
+                    OutcropResourceObjectRecord resourceRecord =
+                        record.resourceObjects[resourceIndex];
+                    if (resourceRecord == null
+                        || string.IsNullOrWhiteSpace(resourceRecord.hierarchyPath)
+                        || !hierarchyPaths.Add(resourceRecord.hierarchyPath)
+                        || string.IsNullOrWhiteSpace(resourceRecord.resourceObjectDefinitionId))
+                    {
+                        Debug.LogError(
+                            "Outcrop '" + record.id + "' contains an invalid or duplicate child path.");
+                        return new OutcropDefinition[0];
+                    }
+
+                    Transform child = prefab.transform.Find(resourceRecord.hierarchyPath);
+                    ResourceObject resourceObject =
+                        child != null ? child.GetComponent<ResourceObject>() : null;
+                    ResourceObjectDefinition resourceDefinition =
+                        FindResourceObjectDefinition(
+                            resourceObjectDefinitions,
+                            resourceRecord.resourceObjectDefinitionId);
+                    if (resourceObject == null
+                        || resourceObject.GetComponentInChildren<
+                            UnityEngine.Rendering.SortingGroup>(true) == null
+                        || resourceDefinition == null
+                        || !configuredObjects.Add(resourceObject))
+                    {
+                        Debug.LogError(
+                            "Outcrop '" + record.id + "' could not resolve child '"
+                            + resourceRecord.hierarchyPath + "' or resource definition '"
+                            + resourceRecord.resourceObjectDefinitionId + "'.");
+                        return new OutcropDefinition[0];
+                    }
+
+                    Sprite visualSprite = null;
+                    if (!string.IsNullOrWhiteSpace(resourceRecord.visualSpriteName))
+                    {
+                        visualSprite = LoadResourceObjectSprite(resourceRecord.visualSpriteName);
+                        if (visualSprite == null)
+                        {
+                            Debug.LogError(
+                                "Outcrop '" + record.id + "' references missing sprite '"
+                                + resourceRecord.visualSpriteName + "'.");
+                            return new OutcropDefinition[0];
+                        }
+                    }
+
+                    resourceObjects[resourceIndex] = new OutcropResourceObjectDefinition
+                    {
+                        hierarchyPath = resourceRecord.hierarchyPath,
+                        resourceObjectDefinition = resourceDefinition,
+                        visualSprite = visualSprite
+                    };
+                }
+
+                definitions[index] = new OutcropDefinition
+                {
+                    id = record.id,
+                    prefab = prefab,
+                    spawnSettings = record.spawnSettings,
+                    resourceObjects = resourceObjects
+                };
+            }
+
+            return definitions;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogError(
+                "Could not parse outcrop data at Resources/" + OutcropDataResourcePath
+                + ".json: " + exception.Message);
+            return new OutcropDefinition[0];
+        }
+    }
+
+    private static ResourceObjectDefinition FindResourceObjectDefinition(
+        ResourceObjectDefinition[] definitions,
+        string id)
+    {
+        if (definitions != null)
+        {
+            foreach (ResourceObjectDefinition definition in definitions)
+            {
+                if (definition != null
+                    && string.Equals(definition.id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    return definition;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsValidOutcropSpawnSettings(OutcropSpawnSettings settings)
+    {
+        return settings.count >= 0
+            && IsFiniteNonNegative(settings.edgePadding)
+            && IsFiniteNonNegative(settings.minimumSpacing)
+            && settings.placementAttemptsPerOutcrop > 0
+            && IsFinitePositive(settings.scaleRange.x)
+            && IsFinitePositive(settings.scaleRange.y)
+            && settings.scaleRange.y >= settings.scaleRange.x;
+    }
+
     private static GameData Load()
     {
         GameSettingsCollection gameSettings = LoadGameSettings();
         MonsterDataCollection monsterData = LoadMonsterData();
         ResourceObjectData resourceObjectData = LoadResourceObjectData();
+        OutcropDefinition[] outcropDefinitions =
+            LoadOutcropDefinitions(resourceObjectData.resourceObjects);
         HouseDefinitionCollection houseDefinitionCollection = LoadHouseDefinitionCollection();
         return new GameData
         {
@@ -192,6 +415,7 @@ public class GameData
             resourceDefinitions = LoadResourceDefinitions(),
             itemDefinitions = LoadItemDefinitions(),
             resourceObjectDefinitions = resourceObjectData.resourceObjects,
+            outcropDefinitions = outcropDefinitions,
             nameParts = LoadNameParts(),
             villagerPersonalityValues = LoadVillagerPersonalityValues(),
             jobDefinitions = LoadJobDefinitions(),
@@ -1638,9 +1862,15 @@ public class GameData
             for (int index = 0; index < collection.resourceObjects.Length; index++)
             {
                 ResourceObjectDefinitionRecord record = collection.resourceObjects[index];
+                ResourceObjectSpawnSettings spawnSettings =
+                    record != null ? record.spawnSettings : null;
+                if (IsEmptyResourceObjectSpawnSettings(spawnSettings))
+                {
+                    spawnSettings = null;
+                }
+
                 if (record == null
                     || string.IsNullOrWhiteSpace(record.id)
-                    || record.spawnSettings == null
                     || record.stages == null
                     || record.initialStage < 1
                     || record.finalStage < record.initialStage
@@ -1651,9 +1881,22 @@ public class GameData
                     || !IsFinite(record.sortingAnchorOffset.y)
                     || !IsFinite(record.shadowOffset.x)
                     || !IsFinite(record.shadowOffset.y)
-                    || !IsValidResourceObjectSpawnSettings(record.spawnSettings))
+                    || (spawnSettings != null
+                        && !IsValidResourceObjectSpawnSettings(spawnSettings)))
                 {
-                    Debug.LogError("Resource object data contains an invalid definition at index " + index + ".");
+                    Debug.LogError(
+                        "Resource object data contains an invalid definition at index "
+                        + index + " ('" + (record != null ? record.id : "<null>") + "').");
+                    return new ResourceObjectData();
+                }
+
+                if (!TryParseEnumName(
+                        record.occupancyMode,
+                        out ResourceObjectOccupancyMode occupancyMode))
+                {
+                    Debug.LogError(
+                        "Resource object '" + record.id
+                        + "' has an invalid occupancyMode.");
                     return new ResourceObjectData();
                 }
 
@@ -1874,7 +2117,8 @@ public class GameData
                     id = record.id,
                     primaryResourceType = primaryResourceType,
                     primaryResourceTypeWasExplicitlySet = hasPrimaryResourceType,
-                    spawnSettings = record.spawnSettings,
+                    spawnSettings = spawnSettings,
+                    occupancyMode = occupancyMode,
                     sortingAnchorOffset = record.sortingAnchorOffset,
                     sortingLayerName = record.sortingLayerName,
                     shadowOffset = record.shadowOffset,
@@ -1945,6 +2189,22 @@ public class GameData
                     && IsFiniteNonNegative(settings.runtimeSpawning.spawnIntervalSeconds))
                 || (IsFinitePositive(settings.runtimeSpawning.spawnIntervalSeconds)
                     && settings.runtimeSpawning.maximumTotalAmount >= settings.count));
+    }
+
+    private static bool IsEmptyResourceObjectSpawnSettings(
+        ResourceObjectSpawnSettings settings)
+    {
+        return settings != null
+            && settings.count == 0
+            && settings.edgePadding == 0f
+            && settings.minimumSpacing == 0f
+            && settings.placementAttemptsPerObject == 0
+            && !settings.randomizeRotation
+            && settings.visualOffset == Vector2.zero
+            && (settings.scaleRange == Vector2.zero
+                || settings.scaleRange == Vector2.one)
+            && settings.randomSeed == 0
+            && settings.runtimeSpawning == null;
     }
 
     private static GameSettingsCollection LoadGameSettings()

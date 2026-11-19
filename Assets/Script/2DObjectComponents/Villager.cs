@@ -1180,7 +1180,7 @@ public class Villager : Combatant
             return false;
         }
 
-        bool hasAxe = equippedItem == VillagerItemType.Axe;
+        bool hasAxe = CanUseEquippedToolForResource(resourceType);
         if (gatheringResource == null
             || !gatheringResource.CanGather(resourceType, hasAxe)
             || gatheringResource.Type != resourceType)
@@ -1213,12 +1213,13 @@ public class Villager : Combatant
             isWaitingToApproachResource = false;
         }
 
-        Vector2Int interactionOffset = gatheringResource.GetInteractionOffset(resourceType);
-        bool usesOffsetInteractionCell = interactionOffset != Vector2Int.zero;
-        Vector3 interactionPosition = usesOffsetInteractionCell
-            ? mapManager.GetGridCellBounds(gatheringResource.GridCell + interactionOffset).center
-            : gatheringResource.transform.position;
-        float interactionDistance = usesOffsetInteractionCell ? 0.1f : settings.gatheringDistance;
+        mapManager.GetResourceInteractionTarget(
+            gatheringResource,
+            resourceType,
+            transform.position,
+            settings.gatheringDistance,
+            out Vector3 interactionPosition,
+            out float interactionDistance);
         if (Vector2.Distance(transform.position, interactionPosition) > interactionDistance)
         {
             gatheringTimer = 0f;
@@ -2551,9 +2552,9 @@ public class Villager : Combatant
             return;
         }
 
-        bool hasAxe = equippedItem == VillagerItemType.Axe;
+        bool hasAxe = CanUseEquippedToolForResource(missingCost.resourceType);
         if (gatheringResource == null
-            || !gatheringResource.CanGather(hasAxe)
+            || !gatheringResource.CanGather(missingCost.resourceType, hasAxe)
             || gatheringResource.Type != missingCost.resourceType)
         {
             ReleaseGatheringResource(mapManager);
@@ -2584,23 +2585,18 @@ public class Villager : Combatant
             isWaitingToApproachResource = false;
         }
 
-        Vector2Int resourceInteractionOffset =
-            gatheringResource.GetInteractionOffset(missingCost.resourceType);
-        bool usesOffsetInteractionCell = resourceInteractionOffset != Vector2Int.zero;
-        Vector3 interactionPosition = usesOffsetInteractionCell
-            ? mapManager.GetGridCellBounds(
-                gatheringResource.GridCell + resourceInteractionOffset).center
-            : gatheringResource.transform.position;
-        float interactionDistance = usesOffsetInteractionCell
-            ? 0.1f
-            : settings.gatheringDistance;
+        mapManager.GetResourceInteractionTarget(
+            gatheringResource,
+            missingCost.resourceType,
+            transform.position,
+            settings.gatheringDistance,
+            out Vector3 interactionPosition,
+            out float interactionDistance);
         float distance = Vector2.Distance(transform.position, interactionPosition);
         if (distance > interactionDistance)
         {
             gatheringTimer = 0f;
-            MoveTo(
-                interactionPosition,
-                usesOffsetInteractionCell ? interactionDistance : settings.gatheringDistance);
+            MoveTo(interactionPosition, interactionDistance);
             return;
         }
 

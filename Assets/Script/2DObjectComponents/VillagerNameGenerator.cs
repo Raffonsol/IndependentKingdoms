@@ -123,6 +123,7 @@ public class VillagerNameGenerator : MonoBehaviour
         combinedName = Regex.Replace(combinedName, @"zn$", "zzen", RegexOptions.IgnoreCase);
         combinedName = Regex.Replace(combinedName, @"gf$", "giff", RegexOptions.IgnoreCase);
         combinedName = Regex.Replace(combinedName, @"shd$", "sh", RegexOptions.IgnoreCase);
+        combinedName = Regex.Replace(combinedName, @"ngn$", "ngwon", RegexOptions.IgnoreCase);
 
         return combinedName; 
     }
