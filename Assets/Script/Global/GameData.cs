@@ -190,6 +190,31 @@ public class GameData
         return false;
     }
 
+    public bool TryGetProductionRecipe(
+        JobType jobType,
+        VillagerItemType itemType,
+        out ProductionRecipeDefinition recipe)
+    {
+        recipe = null;
+        if (!TryGetJobDefinition(jobType, out JobDefinition definition)
+            || definition.workType != JobWorkType.Production
+            || definition.productionRecipes == null)
+        {
+            return false;
+        }
+
+        foreach (ProductionRecipeDefinition candidate in definition.productionRecipes)
+        {
+            if (candidate != null && candidate.itemType == itemType)
+            {
+                recipe = candidate;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public bool CanAssignJob(JobType jobType, out JobDefinition definition)
     {
         if (!TryGetJobDefinition(jobType, out definition))
@@ -572,11 +597,8 @@ public class GameData
                 }
                 else if (workType == JobWorkType.Production)
                 {
-                    if (record.inputCosts == null
-                        || record.inputCosts.Length == 0
-                        || !TryParseEnumName(record.outputItemType, out VillagerItemType outputItemType)
-                        || record.outputAmount <= 0
-                        || !IsFinitePositive(record.productionDurationSeconds)
+                    if (record.productionRecipes == null
+                        || record.productionRecipes.Length == 0
                         || !IsFinitePositive(record.handMotionDurationSeconds)
                         || !IsFinitePositive(record.workMotionIntervalSeconds)
                         || record.workMotionIntervalSeconds < record.handMotionDurationSeconds
@@ -588,47 +610,89 @@ public class GameData
                         return new JobDefinition[0];
                     }
 
-                    ResourceCost[] inputCosts = new ResourceCost[record.inputCosts.Length];
-                    bool[] foundResourceTypes = new bool[Enum.GetValues(typeof(ResourceType)).Length];
-                    for (int costIndex = 0; costIndex < record.inputCosts.Length; costIndex++)
+                    ProductionRecipeDefinition[] recipes =
+                        new ProductionRecipeDefinition[record.productionRecipes.Length];
+                    bool[] foundItemTypes = new bool[Enum.GetValues(typeof(VillagerItemType)).Length];
+                    for (int recipeIndex = 0; recipeIndex < record.productionRecipes.Length; recipeIndex++)
                     {
-                        ResourceCostJson cost = record.inputCosts[costIndex];
-                        if (cost == null
-                            || !TryParseEnumName(cost.resourceType, out ResourceType resourceType)
-                            || cost.amount <= 0)
+                        ProductionRecipeJson recipe = record.productionRecipes[recipeIndex];
+                        if (recipe == null
+                            || !TryParseEnumName(recipe.itemType, out VillagerItemType itemType)
+                            || recipe.inputCosts == null
+                            || recipe.inputCosts.Length == 0
+                            || recipe.outputAmount <= 0
+                            || !IsFinitePositive(recipe.productionDurationSeconds))
                         {
                             Debug.LogError(
-                                "Production job '" + jobType + "' contains an invalid input cost.");
+                                "Production job '" + jobType
+                                + "' contains an invalid production recipe.");
                             return new JobDefinition[0];
                         }
 
-                        int resourceTypeIndex = Convert.ToInt32(resourceType);
-                        if (foundResourceTypes[resourceTypeIndex])
+                        int itemTypeIndex = Convert.ToInt32(itemType);
+                        if (itemTypeIndex < 0
+                            || itemTypeIndex >= foundItemTypes.Length
+                            || foundItemTypes[itemTypeIndex])
                         {
                             Debug.LogError(
-                                "Production job '" + jobType + "' contains duplicate input resource types.");
+                                "Production job '" + jobType
+                                + "' contains duplicate output item types.");
                             return new JobDefinition[0];
                         }
 
-                        foundResourceTypes[resourceTypeIndex] = true;
-                        inputCosts[costIndex] = new ResourceCost
+                        foundItemTypes[itemTypeIndex] = true;
+                        ResourceCost[] inputCosts = new ResourceCost[recipe.inputCosts.Length];
+                        bool[] foundResourceTypes =
+                            new bool[Enum.GetValues(typeof(ResourceType)).Length];
+                        for (int costIndex = 0; costIndex < recipe.inputCosts.Length; costIndex++)
                         {
-                            resourceType = resourceType,
-                            amount = cost.amount
+                            ResourceCostJson cost = recipe.inputCosts[costIndex];
+                            if (cost == null
+                                || !TryParseEnumName(cost.resourceType, out ResourceType resourceType)
+                                || cost.amount <= 0)
+                            {
+                                Debug.LogError(
+                                    "Production job '" + jobType
+                                    + "' contains an invalid input cost.");
+                                return new JobDefinition[0];
+                            }
+
+                            int resourceTypeIndex = Convert.ToInt32(resourceType);
+                            if (resourceTypeIndex < 0
+                                || resourceTypeIndex >= foundResourceTypes.Length
+                                || foundResourceTypes[resourceTypeIndex])
+                            {
+                                Debug.LogError(
+                                    "Production job '" + jobType
+                                    + "' contains duplicate input resource types.");
+                                return new JobDefinition[0];
+                            }
+
+                            foundResourceTypes[resourceTypeIndex] = true;
+                            inputCosts[costIndex] = new ResourceCost
+                            {
+                                resourceType = resourceType,
+                                amount = cost.amount
+                            };
+                        }
+
+                        recipes[recipeIndex] = new ProductionRecipeDefinition
+                        {
+                            itemType = itemType,
+                            inputCosts = inputCosts,
+                            outputAmount = recipe.outputAmount,
+                            productionDurationSeconds = recipe.productionDurationSeconds
                         };
                     }
 
-                    definition.inputCosts = inputCosts;
-                    definition.outputItemType = outputItemType;
-                    definition.outputAmount = record.outputAmount;
-                    definition.productionDurationSeconds = record.productionDurationSeconds;
+                    definition.productionRecipes = recipes;
                     definition.handMotionDurationSeconds = record.handMotionDurationSeconds;
                     definition.handHitPositions = record.handHitPositions;
                     definition.workMotionIntervalSeconds = record.workMotionIntervalSeconds;
                 }
                 else if (workType == JobWorkType.Combat)
                 {
-                    definition.inputCosts = new ResourceCost[0];
+                    definition.productionRecipes = new ProductionRecipeDefinition[0];
                 }
 
                 definitions[index] = definition;

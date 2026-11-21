@@ -20,6 +20,7 @@ public class VillagerJobController : MonoBehaviour
     private HouseSettings houseSettings;
     private JobType jobAssignment;
     private JobDefinition jobDefinition;
+    private ProductionRecipeDefinition selectedProductionRecipe;
     private ResourceCost[] annexRenovationCosts;
     private HouseDefinition[] houseDefinitions;
     private Sprite[] houseBuildStageOneSprites;
@@ -32,6 +33,12 @@ public class VillagerJobController : MonoBehaviour
     private ResourceCost[] workplaceProjectCosts;
     private ResourceObject foragingResource;
     private ResourceType foragingResourceType;
+    private ResourceObject foragingInteractionResource;
+    private ResourceType foragingInteractionResourceType;
+    private Vector3 foragingInteractionPosition;
+    private float foragingInteractionDistance;
+    private float foragingInteractionArrivalDistance;
+    private int foragingInteractionPathfindingRevision = -1;
     private HouseWorkplace requiredItemWorkplace;
     private HousePlotRecord requiredItemHousePlot;
     private readonly HashSet<ResourceObject> unreachableResources =
@@ -39,6 +46,8 @@ public class VillagerJobController : MonoBehaviour
     private readonly Dictionary<ResourceType, int> jobInputStock =
         new Dictionary<ResourceType, int>();
     private bool hasPendingProductionProgress;
+    private bool hasLoggedToolResourceSearchSuccess;
+    private bool hasLoggedToolResourceSearchFailure;
     private VillagerItemType pendingProductionItemType;
     private float pendingProductionProgressSeconds;
     private float pendingProductionDurationSeconds;
@@ -236,6 +245,7 @@ public class VillagerJobController : MonoBehaviour
         }
 
         hasPendingProductionProgress = false;
+        selectedProductionRecipe = null;
         if (!savedState.hasJobProductionProgress)
         {
             return true;
@@ -247,7 +257,10 @@ public class VillagerJobController : MonoBehaviour
                 savedState.jobProductionItemType,
                 out VillagerItemType savedItemType)
             || !System.Enum.IsDefined(typeof(VillagerItemType), savedItemType)
-            || savedItemType != jobDefinition.outputItemType
+            || !GameData.Instance.TryGetProductionRecipe(
+                jobAssignment,
+                savedItemType,
+                out selectedProductionRecipe)
             || savedState.jobProductionDurationSeconds <= 0f
             || float.IsNaN(savedState.jobProductionDurationSeconds)
             || float.IsInfinity(savedState.jobProductionDurationSeconds)
@@ -376,6 +389,9 @@ public class VillagerJobController : MonoBehaviour
 
         jobAssignment = job;
         jobDefinition = assignedDefinition;
+        selectedProductionRecipe = null;
+        hasLoggedToolResourceSearchSuccess = false;
+        hasLoggedToolResourceSearchFailure = false;
         workMotionTimer = 0f;
         ClearRequiredItemWaiting();
         return true;
@@ -411,9 +427,7 @@ public class VillagerJobController : MonoBehaviour
 
         HouseWorkplace storage = GetProductiveHouseStorage();
         if (storage != null
-            && (storage.IsFull
-                || (jobDefinition.workType == JobWorkType.Production
-                    && storage.RemainingCapacity < jobDefinition.outputAmount)))
+            && storage.IsFull)
         {
             StopForagingForJob();
             return false;
@@ -701,16 +715,51 @@ public class VillagerJobController : MonoBehaviour
             return false;
         }
 
-        foreach (ResourceCost input in jobDefinition.inputCosts)
+        if (selectedProductionRecipe == null)
         {
-            int missingAmount =
-                input.amount - GetJobInputStockAmount(input.resourceType);
+            if (hasPendingProductionProgress)
+            {
+                GameData.Instance.TryGetProductionRecipe(
+                    jobAssignment,
+                    pendingProductionItemType,
+                    out selectedProductionRecipe);
+            }
+            else if (workplace.HasProductionProgress)
+            {
+                GameData.Instance.TryGetProductionRecipe(
+                    jobAssignment,
+                    workplace.ProductionItemType,
+                    out selectedProductionRecipe);
+            }
+            else
+            {
+                selectedProductionRecipe = SelectProductionRecipe(mapManager);
+            }
+        }
+
+        if (selectedProductionRecipe == null)
+        {
+            villager.StopForagingMovement();
+            return true;
+        }
+
+        if (workplace.RemainingCapacity < selectedProductionRecipe.outputAmount)
+        {
+            villager.StopForagingMovement();
+            return true;
+        }
+
+        foreach (ResourceCost input in selectedProductionRecipe.inputCosts)
+        {
+            int missingAmount = input.amount
+                - villager.GetResourceInventoryAmountForJob(input.resourceType);
             if (missingAmount <= 0)
             {
                 continue;
             }
 
-            if (villager.TryBeginJobInputWithdrawal(input.resourceType, missingAmount))
+            if (mapManager.GetCommunityStorageAmount(input.resourceType) > 0
+                && villager.TryBeginJobInputWithdrawal(input.resourceType, missingAmount))
             {
                 return true;
             }
@@ -719,7 +768,9 @@ public class VillagerJobController : MonoBehaviour
             return true;
         }
 
-        if (!workplace.CanStoreItem(jobDefinition.outputItemType, jobDefinition.outputAmount))
+        if (!workplace.CanStoreItem(
+                selectedProductionRecipe.itemType,
+                selectedProductionRecipe.outputAmount))
         {
             return true;
         }
@@ -758,7 +809,7 @@ public class VillagerJobController : MonoBehaviour
 
         if (hasPendingProductionProgress)
         {
-            if (pendingProductionItemType != jobDefinition.outputItemType
+            if (pendingProductionItemType != selectedProductionRecipe.itemType
                 || !workplace.RestoreProductionProgress(
                     pendingProductionItemType,
                     pendingProductionDurationSeconds,
@@ -772,39 +823,126 @@ public class VillagerJobController : MonoBehaviour
         }
 
         workplace.AdvanceProduction(
-            jobDefinition.outputItemType,
-            jobDefinition.productionDurationSeconds,
+            selectedProductionRecipe.itemType,
+            selectedProductionRecipe.productionDurationSeconds,
             Time.deltaTime);
-        if (!workplace.IsProductionComplete(jobDefinition.outputItemType))
+        if (!workplace.IsProductionComplete(selectedProductionRecipe.itemType))
         {
             return true;
         }
 
         if (!workplace.CanStoreItem(
-                jobDefinition.outputItemType,
-                jobDefinition.outputAmount))
+                selectedProductionRecipe.itemType,
+                selectedProductionRecipe.outputAmount))
         {
             return true;
         }
 
-        if (!villager.TryRemoveResourceCostsForJob(jobDefinition.inputCosts))
+        if (!villager.TryRemoveResourceCostsForJob(selectedProductionRecipe.inputCosts))
         {
             Debug.LogError("Blacksmith could not consume the configured production inputs.", villager);
             return true;
         }
 
-        foreach (ResourceCost input in jobDefinition.inputCosts)
+        foreach (ResourceCost input in selectedProductionRecipe.inputCosts)
         {
-            jobInputStock[input.resourceType] -= input.amount;
+            jobInputStock[input.resourceType] = Mathf.Max(
+                0,
+                GetJobInputStockAmount(input.resourceType) - input.amount);
         }
 
-        if (!workplace.TryStoreItem(jobDefinition.outputItemType, jobDefinition.outputAmount))
+        if (!workplace.TryStoreItem(
+                selectedProductionRecipe.itemType,
+                selectedProductionRecipe.outputAmount))
         {
             Debug.LogError("Could not store the produced item at the workplace.", workplaceHouse);
             return true;
         }
 
-        workplace.CompleteProduction(jobDefinition.outputItemType);
+        workplace.CompleteProduction(selectedProductionRecipe.itemType);
+        selectedProductionRecipe = null;
+        return true;
+    }
+
+    private ProductionRecipeDefinition SelectProductionRecipe(MapManager mapManager)
+    {
+        List<ProductionRecipeDefinition> inventoryCandidates =
+            new List<ProductionRecipeDefinition>();
+        foreach (ProductionRecipeDefinition recipe in jobDefinition.productionRecipes)
+        {
+            if (CanAffordRecipeFromInventory(recipe))
+            {
+                inventoryCandidates.Add(recipe);
+            }
+        }
+
+        List<ProductionRecipeDefinition> candidates = inventoryCandidates;
+        if (candidates.Count == 0)
+        {
+            candidates = new List<ProductionRecipeDefinition>();
+            foreach (ProductionRecipeDefinition recipe in jobDefinition.productionRecipes)
+            {
+                if (CanAffordRecipeFromTown(recipe, mapManager))
+                {
+                    candidates.Add(recipe);
+                }
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        int lowestStoredAmount = int.MaxValue;
+        List<ProductionRecipeDefinition> leastStoredCandidates =
+            new List<ProductionRecipeDefinition>();
+        foreach (ProductionRecipeDefinition candidate in candidates)
+        {
+            int storedAmount = mapManager.GetTownStoredItemAmount(candidate.itemType);
+            if (storedAmount < lowestStoredAmount)
+            {
+                lowestStoredAmount = storedAmount;
+                leastStoredCandidates.Clear();
+            }
+
+            if (storedAmount == lowestStoredAmount)
+            {
+                leastStoredCandidates.Add(candidate);
+            }
+        }
+
+        return leastStoredCandidates[
+            UnityEngine.Random.Range(0, leastStoredCandidates.Count)];
+    }
+
+    private bool CanAffordRecipeFromInventory(ProductionRecipeDefinition recipe)
+    {
+        foreach (ResourceCost input in recipe.inputCosts)
+        {
+            if (villager.GetResourceInventoryAmountForJob(input.resourceType) < input.amount)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool CanAffordRecipeFromTown(
+        ProductionRecipeDefinition recipe,
+        MapManager mapManager)
+    {
+        foreach (ResourceCost input in recipe.inputCosts)
+        {
+            int availableAmount = villager.GetResourceInventoryAmountForJob(input.resourceType)
+                + mapManager.GetCommunityStorageAmount(input.resourceType);
+            if (availableAmount < input.amount)
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -1405,9 +1543,35 @@ public class VillagerJobController : MonoBehaviour
         if (requiresEquippedTool)
         {
             if (jobDefinition.resourceTypes == null
-                || jobDefinition.resourceTypes.Length != 1
-                || villager.EquippedItem != jobDefinition.requiredEquippedItemType)
+                || jobDefinition.resourceTypes.Length != 1)
             {
+                if (!hasLoggedToolResourceSearchFailure)
+                {
+                    Debug.LogWarning(
+                        "Tool resource search for " + jobAssignment
+                            + " was not attempted because its definition must contain exactly one resource type.",
+                        villager);
+                    hasLoggedToolResourceSearchFailure = true;
+                }
+
+                villager.StopForagingMovement();
+                return false;
+            }
+
+            if (villager.EquippedItem != jobDefinition.requiredEquippedItemType)
+            {
+                if (!hasLoggedToolResourceSearchFailure)
+                {
+                    LogToolResourceSearchResult(
+                        mapManager,
+                        jobDefinition.resourceTypes[0],
+                        false,
+                        "Resource search was not attempted because the equipped item is "
+                            + villager.EquippedItem + "; required item is "
+                            + jobDefinition.requiredEquippedItemType + ".");
+                    hasLoggedToolResourceSearchFailure = true;
+                }
+
                 villager.StopForagingMovement();
                 return false;
             }
@@ -1415,6 +1579,16 @@ public class VillagerJobController : MonoBehaviour
             canUseEquippedToolForWork = villager.CanUseEquippedToolForResource(jobDefinition.resourceTypes[0]);
             if (!canUseEquippedToolForWork)
             {
+                if (!hasLoggedToolResourceSearchFailure)
+                {
+                    LogToolResourceSearchResult(
+                        mapManager,
+                        jobDefinition.resourceTypes[0],
+                        false,
+                        "Resource search was not attempted because the equipped item cannot harvest this resource.");
+                    hasLoggedToolResourceSearchFailure = true;
+                }
+
                 villager.StopForagingMovement();
                 return false;
             }
@@ -1423,7 +1597,9 @@ public class VillagerJobController : MonoBehaviour
         if (foragingResource == null
             || !foragingResource.CanGather(
                 foragingResourceType,
-                requiresEquippedTool && canUseEquippedToolForWork))
+                requiresEquippedTool && canUseEquippedToolForWork)
+            || (requiresEquippedTool
+                && foragingResource.CanBeFullyGatheredByBareHand(foragingResourceType)))
         {
             ReleaseForagingResource(mapManager);
             if (Time.time < nextResourceSearchTime)
@@ -1441,6 +1617,7 @@ public class VillagerJobController : MonoBehaviour
                         true,
                         unreachableResources,
                         jobDefinition.gatheringDistance,
+                        true,
                         out foragingResource)
                     : mapManager.TryGetClosestReachableBareHandResourceObject(
                         villager,
@@ -1457,9 +1634,20 @@ public class VillagerJobController : MonoBehaviour
                     false,
                     unreachableResources,
                     settings.gatheringDistance,
+                    false,
                     out foragingResource);
             if (!foundResource)
             {
+                if (requiresEquippedTool && !hasLoggedToolResourceSearchFailure)
+                {
+                    LogToolResourceSearchResult(
+                        mapManager,
+                        jobDefinition.resourceTypes[0],
+                        false,
+                        "Resource search ran but found no reachable candidate; candidates may be reserved, excluded, or unreachable.");
+                    hasLoggedToolResourceSearchFailure = true;
+                }
+
                 nextResourceSearchTime = Time.time
                     + (isForagerJob
                         ? jobDefinition.resourceSearchRetrySeconds
@@ -1471,6 +1659,16 @@ public class VillagerJobController : MonoBehaviour
             if (requiresEquippedTool)
             {
                 foragingResourceType = jobDefinition.resourceTypes[0];
+                if (!hasLoggedToolResourceSearchSuccess)
+                {
+                    LogToolResourceSearchResult(
+                        mapManager,
+                        foragingResourceType,
+                        true,
+                        "Selected individual resource object '" + foragingResource.name
+                            + "' (outcrop child: " + (foragingResource.OutcropOwner != null) + ").");
+                    hasLoggedToolResourceSearchSuccess = true;
+                }
             }
             else if (!isForagerJob)
             {
@@ -1494,18 +1692,37 @@ public class VillagerJobController : MonoBehaviour
             isWaitingToApproachResource = false;
         }
 
-        Vector2Int interactionOffset =
-            foragingResource.GetInteractionOffset(foragingResourceType);
-        Vector3 interactionPosition = interactionOffset != Vector2Int.zero
-            ? mapManager.GetGridCellBounds(foragingResource.GridCell + interactionOffset).center
-            : foragingResource.transform.position;
-        float interactionDistance = interactionOffset != Vector2Int.zero
-            ? 0.1f
-            : isForagerJob ? jobDefinition.gatheringDistance : settings.gatheringDistance;
-        if (Vector2.Distance(villager.transform.position, interactionPosition) > interactionDistance)
+        float gatheringDistance = isForagerJob
+            ? jobDefinition.gatheringDistance
+            : settings.gatheringDistance;
+        if (foragingInteractionResource != foragingResource
+            || foragingInteractionResourceType != foragingResourceType
+            || !Mathf.Approximately(
+                foragingInteractionArrivalDistance,
+                gatheringDistance)
+            || foragingInteractionPathfindingRevision != mapManager.PathfindingRevision)
+        {
+            mapManager.GetResourceInteractionTarget(
+                foragingResource,
+                foragingResourceType,
+                villager.transform.position,
+                gatheringDistance,
+                out foragingInteractionPosition,
+                out foragingInteractionDistance);
+            foragingInteractionResource = foragingResource;
+            foragingInteractionResourceType = foragingResourceType;
+            foragingInteractionArrivalDistance = gatheringDistance;
+            foragingInteractionPathfindingRevision = mapManager.PathfindingRevision;
+        }
+
+        if (Vector2.Distance(
+                villager.transform.position,
+                foragingInteractionPosition) > foragingInteractionDistance)
         {
             foragingGatheringTimer = 0f;
-            villager.MoveToForagingPosition(interactionPosition, interactionDistance);
+            villager.MoveToForagingPosition(
+                foragingInteractionPosition,
+                foragingInteractionDistance);
             return true;
         }
 
@@ -1559,6 +1776,67 @@ public class VillagerJobController : MonoBehaviour
         return true;
     }
 
+    private void LogToolResourceSearchResult(
+        MapManager mapManager,
+        ResourceType resourceType,
+        bool foundResource,
+        string result)
+    {
+        int registeredResourceCount = 0;
+        int toolEligibleResourceCount = 0;
+        int eligibleOutcropChildCount = 0;
+        foreach (ResourceObject resourceObject in mapManager.GetRegisteredResourceObjects())
+        {
+            if (resourceObject == null)
+            {
+                continue;
+            }
+
+            bool hasResourceType = false;
+            foreach (ResourceType availableType in resourceObject.AvailableResourceTypes)
+            {
+                if (availableType == resourceType)
+                {
+                    hasResourceType = true;
+                    break;
+                }
+            }
+
+            if (!hasResourceType)
+            {
+                continue;
+            }
+
+            registeredResourceCount++;
+            if (!resourceObject.CanGather(resourceType, true)
+                || resourceObject.CanBeFullyGatheredByBareHand(resourceType))
+            {
+                continue;
+            }
+
+            toolEligibleResourceCount++;
+            if (resourceObject.OutcropOwner != null)
+            {
+                eligibleOutcropChildCount++;
+            }
+        }
+
+        string message = "Tool resource search for " + jobAssignment + " (" + resourceType + "): "
+            + result
+            + " Registered: " + registeredResourceCount
+            + ", tool-eligible: " + toolEligibleResourceCount
+            + ", eligible outcrop children: " + eligibleOutcropChildCount + ".";
+
+        if (foundResource)
+        {
+            Debug.Log(message, villager);
+        }
+        else
+        {
+            Debug.LogWarning(message, villager);
+        }
+    }
+
     private ISet<ResourceType> GetAllowedResourceTypes()
     {
         if (jobDefinition == null
@@ -1605,6 +1883,10 @@ public class VillagerJobController : MonoBehaviour
 
         foragingResource = null;
         foragingResourceType = default(ResourceType);
+        foragingInteractionResource = null;
+        foragingInteractionResourceType = default(ResourceType);
+        foragingInteractionArrivalDistance = 0f;
+        foragingInteractionPathfindingRevision = -1;
         isWaitingToApproachResource = false;
         foragingReactionTimer = 0f;
     }

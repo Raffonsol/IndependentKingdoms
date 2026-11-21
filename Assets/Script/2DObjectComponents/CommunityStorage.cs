@@ -5,6 +5,7 @@ using UnityEngine;
 public class CommunityStorage : MonoBehaviour
 {
     private int[] resourceAmounts;
+    private int[] itemAmounts;
 
     public Vector2Int OriginCell { get; private set; }
     public Vector2Int Dimensions { get; private set; }
@@ -36,6 +37,7 @@ public class CommunityStorage : MonoBehaviour
         EntranceCell = record.entranceCell;
         Capacity = capacity;
         resourceAmounts = new int[Enum.GetValues(typeof(ResourceType)).Length];
+        itemAmounts = new int[Enum.GetValues(typeof(VillagerItemType)).Length];
         return true;
     }
 
@@ -56,6 +58,37 @@ public class CommunityStorage : MonoBehaviour
         }
 
         return resourceAmounts[index];
+    }
+
+    public int GetItemAmount(VillagerItemType itemType)
+    {
+        if (!IsInitialized
+            || !Enum.IsDefined(typeof(VillagerItemType), itemType))
+        {
+            return 0;
+        }
+
+        int index = Convert.ToInt32(itemType);
+        return index >= 0 && index < itemAmounts.Length ? itemAmounts[index] : 0;
+    }
+
+    internal bool RestoreItemAmount(VillagerItemType itemType, int amount)
+    {
+        if (!IsInitialized
+            || !Enum.IsDefined(typeof(VillagerItemType), itemType)
+            || amount < 0)
+        {
+            return false;
+        }
+
+        int index = Convert.ToInt32(itemType);
+        if (index < 0 || index >= itemAmounts.Length)
+        {
+            return false;
+        }
+
+        itemAmounts[index] = amount;
+        return true;
     }
 
     public int GetTotalAmount()

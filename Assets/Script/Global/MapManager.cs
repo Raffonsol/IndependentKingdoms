@@ -1023,6 +1023,24 @@ public class MapManager : MonoBehaviour
 
                 RefreshCommunityStorageIcons(storage, resourceType);
             }
+
+            if (savedStorage.items != null)
+            {
+                foreach (GameSaveAmount savedItem in savedStorage.items)
+                {
+                    if (savedItem == null
+                        || savedItem.amount <= 0
+                        || !Enum.TryParse(savedItem.type, out VillagerItemType itemType)
+                        || !Enum.IsDefined(typeof(VillagerItemType), itemType)
+                        || !storage.RestoreItemAmount(itemType, savedItem.amount))
+                    {
+                        Debug.LogError(
+                            "A saved community storage contains an invalid item amount.",
+                            storageObject);
+                        return false;
+                    }
+                }
+            }
         }
 
         PathfindingRevision++;
@@ -1927,6 +1945,78 @@ public class MapManager : MonoBehaviour
         }
 
         return total;
+    }
+
+    public int GetTownStoredItemAmount(VillagerItemType itemType)
+    {
+        if (!Enum.IsDefined(typeof(VillagerItemType), itemType))
+        {
+            return 0;
+        }
+
+        int total = 0;
+        HashSet<GameObject> countedHouses = new HashSet<GameObject>();
+        foreach (KeyValuePair<Villager, GameObject> residentHouse in completedHouseObjects)
+        {
+            total += GetHouseStoredItemAmount(
+                residentHouse.Value,
+                itemType,
+                countedHouses);
+        }
+
+        foreach (AvailableHouseRecord availableHouse in availableHouses)
+        {
+            if (availableHouse != null)
+            {
+                total += GetHouseStoredItemAmount(
+                    availableHouse.houseObject,
+                    itemType,
+                    countedHouses);
+            }
+        }
+
+        foreach (AvailableHouseRecord workplaceHouse in claimedWorkplaceHouses.Values)
+        {
+            if (workplaceHouse != null)
+            {
+                total += GetHouseStoredItemAmount(
+                    workplaceHouse.houseObject,
+                    itemType,
+                    countedHouses);
+            }
+        }
+
+        foreach (GameObject workplaceObject in workplacePlotObjects.Values)
+        {
+            total += GetHouseStoredItemAmount(
+                workplaceObject,
+                itemType,
+                countedHouses);
+        }
+
+        foreach (CommunityStorage storage in communityStorages)
+        {
+            if (storage != null)
+            {
+                total += storage.GetItemAmount(itemType);
+            }
+        }
+
+        return total;
+    }
+
+    private static int GetHouseStoredItemAmount(
+        GameObject houseObject,
+        VillagerItemType itemType,
+        ISet<GameObject> countedHouses)
+    {
+        if (houseObject == null || !countedHouses.Add(houseObject))
+        {
+            return 0;
+        }
+
+        HouseWorkplace workplace = houseObject.GetComponent<HouseWorkplace>();
+        return workplace != null ? workplace.GetStoredItemAmount(itemType) : 0;
     }
 
     public int GetCommunityStorageTotalAmount()
@@ -3012,6 +3102,7 @@ public class MapManager : MonoBehaviour
             null,
             false,
             0f,
+            false,
             out closestResource);
     }
 
@@ -3022,6 +3113,7 @@ public class MapManager : MonoBehaviour
         bool hasAxe,
         ISet<ResourceObject> excludedResources,
         float arrivalDistance,
+        bool mustRequireTool,
         out ResourceObject closestResource)
     {
         return TryGetClosestResourceObject(
@@ -3032,6 +3124,7 @@ public class MapManager : MonoBehaviour
             excludedResources,
             true,
             arrivalDistance,
+            mustRequireTool,
             out closestResource);
     }
 
@@ -3143,6 +3236,7 @@ public class MapManager : MonoBehaviour
         ISet<ResourceObject> excludedResources,
         bool requireReachable,
         float arrivalDistance,
+        bool mustRequireTool,
         out ResourceObject closestResource)
     {
         closestResource = null;
@@ -3160,7 +3254,9 @@ public class MapManager : MonoBehaviour
         {
             if (resourceObject == null
                 || (excludedResources != null && excludedResources.Contains(resourceObject))
-                || !resourceObject.CanGather(resourceType, hasAxe))
+                || !resourceObject.CanGather(resourceType, hasAxe)
+                || (mustRequireTool
+                    && resourceObject.CanBeFullyGatheredByBareHand(resourceType)))
             {
                 continue;
             }

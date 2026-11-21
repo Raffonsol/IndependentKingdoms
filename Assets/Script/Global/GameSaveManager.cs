@@ -153,6 +153,7 @@ public class GameSaveCommunityStorage
     public GameSavePosition position;
     public int capacity;
     public GameSaveResourceAmount[] resources;
+    public GameSaveAmount[] items;
 }
 
 [Serializable]
@@ -570,11 +571,12 @@ public static class GameSaveManager
             float productionDurationSeconds = 0f;
             foreach (JobType jobType in Enum.GetValues(typeof(JobType)))
             {
-                if (gameData.TryGetJobDefinition(jobType, out JobDefinition jobDefinition)
-                    && jobDefinition.workType == JobWorkType.Production
-                    && jobDefinition.outputItemType == itemType)
+                if (gameData.TryGetProductionRecipe(
+                        jobType,
+                        itemType,
+                        out ProductionRecipeDefinition recipe))
                 {
-                    productionDurationSeconds = jobDefinition.productionDurationSeconds;
+                    productionDurationSeconds = recipe.productionDurationSeconds;
                     break;
                 }
             }
@@ -1711,11 +1713,31 @@ public static class GameSaveManager
                 entranceCell = CaptureCell(storage.EntranceCell),
                 position = CapturePosition(storage.transform.position),
                 capacity = storage.Capacity,
-                resources = resources.ToArray()
+                resources = resources.ToArray(),
+                items = CaptureCommunityStorageItems(storage)
             });
         }
 
         return savedStorages.ToArray();
+    }
+
+    private static GameSaveAmount[] CaptureCommunityStorageItems(CommunityStorage storage)
+    {
+        List<GameSaveAmount> items = new List<GameSaveAmount>();
+        foreach (VillagerItemType itemType in Enum.GetValues(typeof(VillagerItemType)))
+        {
+            int amount = storage.GetItemAmount(itemType);
+            if (amount > 0)
+            {
+                items.Add(new GameSaveAmount
+                {
+                    type = itemType.ToString(),
+                    amount = amount
+                });
+            }
+        }
+
+        return items.ToArray();
     }
 
     private static GameSaveRoad[] CaptureRoads(MapManager mapManager)
@@ -1848,9 +1870,10 @@ public static class GameSaveManager
                         villager.jobProductionItemType,
                         out VillagerItemType jobProductionItemType)
                     || !Enum.IsDefined(typeof(VillagerItemType), jobProductionItemType)
-                    || !gameData.TryGetJobDefinition(jobType, out JobDefinition jobDefinition)
-                    || jobDefinition.workType != JobWorkType.Production
-                    || jobDefinition.outputItemType != jobProductionItemType
+                    || !gameData.TryGetProductionRecipe(
+                        jobType,
+                        jobProductionItemType,
+                        out _)
                     || !IsFinitePositive(villager.jobProductionDurationSeconds)
                     || !IsFiniteNonnegative(villager.jobProductionProgressSeconds)
                     || villager.jobProductionProgressSeconds
@@ -1895,6 +1918,7 @@ public static class GameSaveManager
                             villager.home.productionItemType,
                             out VillagerItemType productionItemType)
                         || !Enum.IsDefined(typeof(VillagerItemType), productionItemType)
+                        || !HasProductionRecipe(gameData, productionItemType)
                         || !IsFinitePositive(villager.home.productionDurationSeconds)
                         || !IsFiniteNonnegative(villager.home.productionProgressSeconds)
                         || villager.home.productionProgressSeconds
@@ -2100,7 +2124,9 @@ public static class GameSaveManager
                 || !IsValidCell(storage.entranceCell)
                 || !IsValidPosition(storage.position)
                 || storage.resources == null
-                || !IsValidResourceAmountArray(storage.resources, false, true))
+                || !IsValidResourceAmountArray(storage.resources, false, true)
+                || (storage.items != null
+                    && !IsValidAmountArray(storage.items, typeof(VillagerItemType))))
             {
                 return false;
             }
@@ -2206,10 +2232,24 @@ public static class GameSaveManager
                     savedWorkplace.productionItemType,
                     out VillagerItemType productionItemType)
                 && Enum.IsDefined(typeof(VillagerItemType), productionItemType)
+                && HasProductionRecipe(gameData, productionItemType)
                 && IsFinitePositive(savedWorkplace.productionDurationSeconds)
                 && IsFiniteNonnegative(savedWorkplace.productionProgressSeconds)
                 && savedWorkplace.productionProgressSeconds
                     <= savedWorkplace.productionDurationSeconds);
+    }
+
+    private static bool HasProductionRecipe(GameData gameData, VillagerItemType itemType)
+    {
+        foreach (JobType jobType in Enum.GetValues(typeof(JobType)))
+        {
+            if (gameData.TryGetProductionRecipe(jobType, itemType, out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsValidSavedJobWorkplace(

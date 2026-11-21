@@ -662,6 +662,12 @@ public class ResourceObject : MonoBehaviour
             : 0;
     }
 
+    public bool CanBeFullyGatheredByBareHand(ResourceType requestedType)
+    {
+        return resourceStocks.TryGetValue(requestedType, out ResourceStock stock)
+            && stock.bareHandLimit >= stock.maximumAmount;
+    }
+
     public bool TryRestoreAmounts(ResourceType requestedType, int amount, int bareHandAmount)
     {
         if (amount < 0

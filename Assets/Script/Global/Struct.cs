@@ -799,10 +799,7 @@ public class JobDefinitionJson
     public float handMotionDurationSeconds;
     public ArmMotionPoint[] handHitPositions;
     public float workMotionIntervalSeconds;
-    public ResourceCostJson[] inputCosts;
-    public string outputItemType;
-    public int outputAmount;
-    public float productionDurationSeconds;
+    public ProductionRecipeJson[] productionRecipes;
 }
 
 [Serializable]
@@ -822,8 +819,23 @@ public class JobDefinition
     public float handMotionDurationSeconds;
     public ArmMotionPoint[] handHitPositions;
     public float workMotionIntervalSeconds;
+    public ProductionRecipeDefinition[] productionRecipes;
+}
+
+[Serializable]
+public class ProductionRecipeJson
+{
+    public string itemType;
+    public ResourceCostJson[] inputCosts;
+    public int outputAmount;
+    public float productionDurationSeconds;
+}
+
+[Serializable]
+public class ProductionRecipeDefinition
+{
+    public VillagerItemType itemType;
     public ResourceCost[] inputCosts;
-    public VillagerItemType outputItemType;
     public int outputAmount;
     public float productionDurationSeconds;
 }

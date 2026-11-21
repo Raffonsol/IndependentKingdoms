@@ -218,11 +218,17 @@
         {"type": "LastPart","value": "gorn",
             "worksForMen": true,"worksForWomen": false
         },
-        {"type": "FullName","value": "Lesley",
+        {"type": "FirstPart","value": "Les",
+            "worksForMen": true,"worksForWomen": true
+        },
+        {"type": "LastPart","value": "ley",
             "worksForMen": true,"worksForWomen": true
         },
         {"type": "FirstPart","value": "Ben",
             "worksForMen": true,"worksForWomen": false
+        },
+         {"type": "LastPart","value": "nell",
+            "worksForMen": true,"worksForWomen": true
         },
         {"type": "LastPart","value": "ney",
             "worksForMen": false,"worksForWomen": true
